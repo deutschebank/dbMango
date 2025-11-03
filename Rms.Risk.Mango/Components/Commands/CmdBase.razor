@@ -1,0 +1,230 @@
+﻿@code {
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+    [Inject] protected IUserSession UserSession { get; set; } = null!;
+
+    public class CommandParams(string name, Action<CommandParams> changed)
+    {
+        public string Name        { get; } = name;
+
+        public string CommandJson
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                if (!string.IsNullOrWhiteSpace(field))
+                    changed(this);
+            }
+        } = "";
+
+        public List<BsonDocument> Result
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                ResultChanged(this);
+            }
+        } = [];
+
+        public Action<CommandParams> ResultChanged { get; set; } = _ => { };
+
+        public bool   CanExecute
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                changed(this);
+            }
+        }
+
+        public enum DatabaseConnectionType
+        {
+            Cluster, Admin, Shard
+        }
+
+        public DatabaseConnectionType RequiredConnectionType
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                changed(this);
+            }
+        }
+
+        public bool NeedConfirmation
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                changed(this);
+            }
+        } = true;
+    }
+
+    // inout
+    [Parameter]
+    public string Collection
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(OnCollectionChangedInternal);
+        }
+    } = "";
+
+    [Parameter] public CommandParams? Parameters { 
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (field != null)
+                InvokeAsync(OnParametersSetInternal);
+        }
+    } = null!;
+    [Parameter] public string Class       { get; set; } = "";
+
+    protected string Result => Parameters?.Result.FirstOrDefault()?.ToJson(new() { Indent = true }) ?? "";
+
+    protected virtual string CommandTemplate { get; }      = "{}";
+
+    protected void OnCommandChanged(string val)
+    {
+        if (Parameters == null)
+            return;
+        if (string.IsNullOrWhiteSpace(Collection))
+            return;
+
+        Parameters.CommandJson = val.Replace("[DATABASE]", UserSession.DatabaseConfig.MongoDbDatabase).Replace("[COLLECTION]", Collection);
+        Validate();
+        //StateHasChanged();
+    }
+
+    private void OnParametersSetInternal()
+    {
+        if (Parameters != null)
+        {
+            Parameters.CommandJson = CommandTemplate.Replace("[DATABASE]", UserSession.DatabaseConfig.MongoDbDatabase).Replace("[COLLECTION]", Collection);
+            if (!string.IsNullOrWhiteSpace(Collection))
+                Parameters.CommandJson = Parameters.CommandJson.Replace("[COLLECTION]", Collection);
+
+            Validate();
+
+            Parameters.ResultChanged = _ => OnResultReceived();
+            
+            StateHasChanged();
+        }
+    }
+
+    protected virtual void OnResultReceived()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnCollectionChangedInternal()
+    {
+        if (Parameters != null && !string.IsNullOrWhiteSpace(Collection))
+        {
+            Parameters.CommandJson = CommandTemplate.Replace("[DATABASE]", UserSession.DatabaseConfig.MongoDbDatabase).Replace("[COLLECTION]", Collection);
+            Parameters.CanExecute  = true;
+        }
+        Validate();
+        return OnCollectionChanged();
+    }
+
+    protected virtual void Validate()
+    {
+        if (Parameters != null )
+            Parameters.CanExecute = !string.IsNullOrWhiteSpace(Collection);
+    }
+
+    protected virtual async Task OnCollectionChanged()
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected static List<KeyValuePair<string, string>> FormatDocument(BsonDocument doc, List<(string, string, bool)> descriptor)
+        => FormatDocument(doc.ToDictionary(), descriptor);
+
+    protected static List<KeyValuePair<string, string>> FormatDocument(Dictionary<string, object> dict, List<(string, string, bool)> descriptor)
+    {
+        var res = new List<KeyValuePair<string, string>>();
+
+        foreach (var (name, title, shouldFormat) in descriptor)
+        {
+            if (!dict.TryGetValue(name, out var o))
+                continue;
+
+            string v;
+            if (shouldFormat)
+            {
+                v = o switch
+                {
+                    int      when long.TryParse(o.ToString(),  out var ll)    => ToHumanReadable(ll),
+                    long     when long.TryParse(o.ToString(), out var l)      => ToHumanReadable(l),
+                    double   when double.TryParse(o.ToString(), out var d)    => $"{d:N2}",
+                    _                                                         => o.ToString() ?? ""
+                };
+            }
+            else
+                v = o.ToString() ?? "";
+            res.Add(new(title, v));
+        }
+
+        return res;
+    }
+
+    public static string ToHumanReadable(long len)
+    {
+        string[] sizes = ["B", "KB", "MB", "GB", "TB"];
+        var order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+
+        // Adjust the format string to your preferences. For example "{0:0.#}{1}" would
+        // show a single decimal place, and no space.
+        var result = $"{len:0.##} {sizes[order]}";
+        return result;
+    }
+
+}

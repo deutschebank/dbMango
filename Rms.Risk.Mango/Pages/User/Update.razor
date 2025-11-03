@@ -1,0 +1,282 @@
+﻿@page "/user/update"
+@page "/user/update/{DatabaseStr}/{CollectionStr}"
+@page "/user/update/{DatabaseStr}/{DatabaseInstanceStr}/{CollectionStr}"
+@attribute [Authorize]
+@using Rms.Risk.Mango.Components.Commands
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        height: 300px;
+        position: relative;
+    }
+
+    .res-field {
+        width: 100vw;
+        height: calc(100vh - (150px + 300px));
+        overflow: auto;
+    }
+
+    pre {
+        width: 100%;
+        height: 100%;
+        font-size: 10pt;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+
+    .CodeMirror {
+        width: 600px !important;
+        height: 300px !important;
+        max-height: 300px !important;
+    }
+
+    .cmd-json {
+        width: 1270px;
+    }
+
+</style>
+
+<h3 class="mt-3">Update: @SelectedCollection</h3>
+
+<AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="Collection" @bind-Value="SelectedCollection" Values="@Collections" Icon="icon-folder-outline-sm" />
+            <FormItemText Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)" @bind-Value="Timeout" InputType="number" Icon="icon-clock-sm" />
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <FormButton Enabled="@IsReadyToRun" Name="Run" Icon="icon-running-man-sm" OnClick="Execute" IsPrimary="true" />
+            </div>
+        </div>
+
+    </EditForm>
+
+    <CmdUpdateDocuments Collection="@SelectedCollection" Parameters="@_commandParams"/>
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <pre class="wf-converter-syntax-error">@Error</pre>
+    }
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr   { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [Parameter] public string? CollectionStr { get; set; }
+
+    private IReadOnlyCollection<string> Collections { get; set; } = [];
+
+    private string SelectedCollection
+    {
+        get => UserSession.Collection;
+        set
+        {
+            if (UserSession.Collection == value)
+                return;
+            UserSession.Collection = value;
+            SyncUrl();
+            Error = "";
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private CmdBase.CommandParams _commandParams = null!;
+
+    private string Timeout { get; set; } = "20";
+    private string Error { get; set; } = "";
+
+    private bool IsReady { get; set; }
+    private bool IsReadyToRun => IsReady && CanExecute && !string.IsNullOrWhiteSpace(CommandJson);
+
+    private EditContext? _editContext;
+    private EditContext  EditContext => _editContext!;
+
+    private string CommandName      => _commandParams.Name;
+    private string CommandJson      => _commandParams.CommandJson;
+    private bool   CanExecute       => _commandParams.CanExecute;
+    private bool   NeedConfirmation => _commandParams.NeedConfirmation;
+
+    private List<BsonDocument> Result
+    {
+        get => _commandParams.Result;
+        set => _commandParams.Result = value;
+    }
+
+    protected override void OnInitialized()
+    {
+        _editContext  = new(this);
+        _commandParams = new("Update Documents", OnChanged);
+    }
+
+    private void OnChanged(CmdBase.CommandParams arg)
+    {
+        //InvokeAsync(StateHasChanged);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        if (string.IsNullOrWhiteSpace(CollectionStr))
+            CollectionStr = SelectedCollection;
+        else
+            SelectedCollection = CollectionStr;
+
+        SyncUrl();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var admin = UserSession.MongoDbAdmin;
+
+                Collections = await admin.ListCollections();
+                if (!Collections.Contains(SelectedCollection))
+                    SelectedCollection = Collections.FirstOrDefault() ?? "";
+
+                IsReady = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception e)
+            {
+                await Display(e);
+            }
+        });
+        SyncUrl();
+        StateHasChanged();
+    }
+
+    private Task Display(Exception e)
+    {
+        Error = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task Display(List<BsonDocument> res)
+    {
+        Result = res;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<List<BsonDocument>> RunCommand(BsonDocument doc, CancellationToken token)
+        => [await UserSession.MongoDbAdmin.RunCommand(doc, token)];
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/update/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        url += $"/{SelectedCollection}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+
+    private async Task Execute()
+    {
+        Error = "";
+        if (string.IsNullOrWhiteSpace(CommandJson))
+            return;
+
+        if (NeedConfirmation)
+        {
+            var res = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Confirmation", $"Are you sure executing command \"{CommandName}\"? Some command's effects are irreversible!");
+            if (!res.Confirmed)
+                return;
+        }
+
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            var doc  = BsonDocument.Parse(CommandJson);
+            Shell.UpdateComment(doc, ticket, UserSession.User.GetEmail());
+
+            var res = await RunCommand(doc, cts.Token);
+            await Display(res);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+
+    }
+
+
+}

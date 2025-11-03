@@ -1,0 +1,379 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<div class="@Class">
+    @if ( _pivot != null )
+    {
+        <div class="@_rowClass">
+            <div class="flex-stack-horizontal w-100 mr-3">
+                <label class="input-group-text w-75" style="min-width: 200px;">User visible</label>
+                <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                    <input type="checkbox" @bind="_pivot.UserVisible"/>
+                    <span class="slider" data-label-on="on" data-label-off="off"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="order">Columns order</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control" rows="5" @bind="ColumnOrder" id="order"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="rename">Rename columns</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control" rows="5" @bind="RenameColumns" id="rename"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="highlightTop">Highlight top/bottom N% (0 - off)</label>
+                <div class="input-group mr-sm-2">
+                    <input type="text" class="input-group-text w-100" @bind="_pivot.HighlightTopPercent" id="highlightTop"/>
+                </div>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="flex-stack-horizontal w-100 mr-3">
+                <label class="input-group-text w-75" style="min-width: 200px;">Show totals row</label>
+                <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                    <input type="checkbox" @bind="_pivot.ShowTotals"/>
+                    <span class="slider" data-label-on="on" data-label-off="off"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="flex-stack-horizontal w-100 mr-3">
+                <label class="input-group-text w-75" style="min-width: 200px;">Make 2D pivot</label>
+                <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                    <input type="checkbox" @bind="_pivot.Make2DPivot"/>
+                    <span class="slider" data-label-on="on" data-label-off="off"></span>
+                </label>
+            </div>
+        </div>
+
+        @if ( _pivot.Make2DPivot )
+        {
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3">
+                    <label for="pivot2drows">2D pivot row headers</label>
+                    <div class="input-group mr-sm-2">
+                        <textarea class="w-100 form-control" rows="5" @bind="Pivot2DRows" id="pivot2drows"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3">
+                    <label for="pivot2dcol">2D pivot column header</label>
+                    <div class="input-group mr-sm-2">
+                        <input type="text" class="input-group-text w-100" @bind="Pivot2DCol" id="pivot2dcol"/>
+                    </div>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3">
+                    <label for="pivot2ddata">2D pivot data</label>
+                    <div class="input-group mr-sm-2">
+                        <input type="text" class="input-group-text w-100" @bind="Pivot2DData" id="pivot2ddata"/>
+                    </div>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3">
+                    <label for="pivot2ddatatype">2D pivot data type col</label>
+                    <div class="input-group mr-sm-2">
+                        <input type="text" class="input-group-text w-100" @bind="Pivot2DDataTypeColumn" id="pivot2ddatatype"/>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="@_rowClass">
+            <div class="flex-stack-horizontal w-100 mr-3">
+                <label class="input-group-text w-75" style="min-width: 200px;">Make Line Chart</label>
+                <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                    <input type="checkbox" @bind="_pivot.MakeLineChart"/>
+                    <span class="slider" data-label-on="on" data-label-off="off"></span>
+                </label>
+            </div>
+        </div>
+        @if ( _pivot.MakeLineChart )
+        {
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3 mt-3">
+                    <label for="linechartlabels">X axis (labels)</label>
+                    <div class="input-group mr-sm-2">
+                        <input type="text" class="input-group-text w-100" @bind="LineChartXAxis" id="linechartlabels"/>
+                    </div>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3">
+                    <label for="linechartdata">Y axis (data)</label>
+                    <div class="input-group mr-sm-2">
+                        <textarea class="w-100 form-control" rows="5" @bind="LineChartYAxis" id="linechartdata"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="form-group w-100 mr-3">
+                    <label for="linechartdatasets">Data set keys (optional)</label>
+                    <div class="input-group mr-sm-2">
+                        <textarea class="w-100 form-control" rows="5" @bind="LineChartAdditionalKeys" id="linechartdatasets"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="flex-stack-horizontal w-100 mr-3">
+                    <label class="input-group-text w-75" style="min-width: 200px;">Show legend</label>
+                    <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                        <input type="checkbox" @bind="LineChartShowLegend"/>
+                        <span class="slider" data-label-on="on" data-label-off="off"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="flex-stack-horizontal w-100 mr-3">
+                    <label class="input-group-text w-75" style="min-width: 200px;">Stepped line</label>
+                    <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                        <input type="checkbox" @bind="LineChartSteppedLine"/>
+                        <span class="slider" data-label-on="on" data-label-off="off"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="@_rowClass">
+                <div class="flex-stack-horizontal w-100 mr-3">
+                    <label class="input-group-text w-75" style="min-width: 200px;">Fill</label>
+                    <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                        <input type="checkbox" @bind="LineChartFill"/>
+                        <span class="slider" data-label-on="on" data-label-off="off"></span>
+                    </label>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Class { get; set; } = "";
+
+    [Parameter]
+    public PivotDefinition? Pivot
+    {
+        get => _pivot;
+        set
+        {
+            if (_pivot == value)
+                return;
+
+            _pivot = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private PivotDefinition? _pivot;
+    private string           _rowClass = "";
+
+    private string RenameColumns
+    {
+        get => string.Join(
+            "\n",
+            (_pivot?.RenameColumn ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
+                .Select(x => new { Key = x.Key?.Trim(), Value = x.Value?.Trim() })
+                .Where(x => !string.IsNullOrWhiteSpace(x.Key) && !string.IsNullOrWhiteSpace(x.Value))
+                .Select(x => $"{x.Key}={x.Value}")
+            );
+        set
+        {
+            if (_pivot == null || ColumnOrder == value)
+                return;
+
+            _pivot.RenameColumn = (value ?? "")
+                .Replace("\r", "")
+                .Split("\n")
+                .Select(x => x.Split("="))
+                .Where(x => x.Length == 2 && !string.IsNullOrWhiteSpace(x[0]) && !string.IsNullOrWhiteSpace(x[1]))
+                .ToDictionary(x => x[0].Trim(), x => x[1].Trim())
+                ;
+        }
+    }
+
+
+    private string ColumnOrder
+    {
+        get => string.Join("\n", (_pivot?.ColumnsOrder ?? []).Select(x => x?.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)));
+        set
+        {
+            if (_pivot == null || ColumnOrder == value)
+                return;
+            _pivot.ColumnsOrder ??= [];
+            _pivot.ColumnsOrder.Clear();
+            _pivot.ColumnsOrder.AddRange((value ?? "")
+                    .Replace("\r", "")
+                    .Split("\n")
+                    .Select(x => x.Trim())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                );
+        }
+    }
+
+    private string Pivot2DRows
+    {
+        get => string.Join("\n", (_pivot?.Pivot2DRows ?? []).Select(x => x?.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)));
+        set
+        {
+            if (_pivot == null || Pivot2DRows == value)
+                return;
+            _pivot.Pivot2DRows ??= [];
+            _pivot.Pivot2DRows.Clear();
+            _pivot.Pivot2DRows.AddRange((value ?? "")
+                .Replace("\r", "")
+                .Split("\n")
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                );
+        }
+    }
+
+    private string Pivot2DCol
+    {
+        get => _pivot?.Pivot2DColumn ?? "";
+        set
+        {
+            if (_pivot == null || _pivot.Pivot2DColumn == value)
+                return;
+            _pivot.Pivot2DColumn = value;
+        }
+    }
+
+    private string Pivot2DData
+    {
+        get => _pivot?.Pivot2DData ?? "";
+        set
+        {
+            if (_pivot == null || _pivot.Pivot2DData == value)
+                return;
+            _pivot.Pivot2DData = value;
+        }
+    }
+
+    private string Pivot2DDataTypeColumn
+    {
+        get => _pivot?.Pivot2DDataTypeColumn ?? "";
+        set
+        {
+            if (_pivot == null || _pivot.Pivot2DDataTypeColumn == value)
+                return;
+            _pivot.Pivot2DDataTypeColumn = value;
+        }
+    }
+
+    private string LineChartXAxis
+    {
+        get => _pivot?.LineChartXAxis ?? "";
+        set
+        {
+            if (_pivot == null)
+                return;
+            _pivot.LineChartXAxis = value;
+        }
+    }
+
+    private string LineChartYAxis
+    {
+        get => string.Join("\n", _pivot?.LineChartYAxis ?? Enumerable.Empty<string>());
+        set
+        {
+            if (_pivot == null)
+                return;
+            _pivot.LineChartYAxis ??= [];
+            _pivot.LineChartYAxis.Clear();
+            _pivot.LineChartYAxis.AddRange(value
+                .Replace("\r", "")
+                .Split("\n")
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                );
+        }
+    }
+
+    private string LineChartAdditionalKeys
+    {
+        get => string.Join("\n",_pivot?.LineChartDataSetKeys ?? []);
+        set
+        {
+            if (_pivot == null)
+                return;
+
+            var s = value
+                .Replace("\r", "")
+                .Split("\n")
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                ;
+
+            _pivot.LineChartDataSetKeys ??= [];
+            _pivot.LineChartDataSetKeys.Clear();
+            _pivot.LineChartDataSetKeys.AddRange(s);
+        }
+    }
+
+    private bool LineChartShowLegend
+    {
+        get => _pivot?.LineChartShowLegend ?? false;
+        set
+        {
+            if (_pivot == null)
+                return;
+            _pivot.LineChartShowLegend = value;
+        }
+    }
+
+    private bool LineChartSteppedLine
+    {
+        get => _pivot?.LineChartSteppedLine ?? false;
+        set
+        {
+            if (_pivot == null)
+                return;
+            _pivot.LineChartSteppedLine = value;
+        }
+    }
+
+    private bool LineChartFill
+    {
+        get => _pivot?.LineChartFill ?? false;
+        set
+        {
+            if (_pivot == null)
+                return;
+            _pivot.LineChartFill = value;
+        }
+    }
+
+}

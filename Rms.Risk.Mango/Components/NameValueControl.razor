@@ -1,0 +1,385 @@
+﻿@using System.IO
+@using System.Reflection
+@using log4net
+@using Newtonsoft.Json.Linq
+@using Rms.Service.Bootstrap.Security
+
+@inject IPasswordManager _passwordManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .textarea-animate {
+    -ms-transition: all 0.2s ease;
+    -o-transition: all 0.2s ease;
+    -webkit-transition: all 0.2s ease;
+    transition: all 0.2s ease;
+    }
+
+    .button-panel {
+    width: 100%;
+    display: flex; 
+    align-items: center; 
+    justify-content: flex-end
+    }
+
+    .expand-icon {
+    margin-left: -30px;
+    z-index: 999;
+    margin-top: 6px;
+    pointer-events: none;
+    }
+
+    .file-input {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    }
+
+    .file-input input[type=file] {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    }
+
+    .column-name {
+    width: 25%;
+    }
+
+    .column-value {
+    width: 75%;
+    }
+</style>
+<div class="flex-stack-horizontal flex-align-end">
+    <button type="button" class="btn btn-secondary" @onclick="AddNewKeyValue" title="Add row">
+        <span class="ui-icon-font icon-plus-sm"></span>
+    </button>
+    @if (AllowImport)
+    {
+        <button type="button" class="btn btn-secondary mr-1 file-input" title="Import">
+            <InputFile OnChange="@OnInputFileChange" />
+            <span class="ui-icon-font icon-upload-sm"></span>
+            <span class="text-label pl-2">Import</span>
+        </button>
+    }
+    @if (ChildContent != null)
+    {
+        @ChildContent
+    }
+</div>
+<div class="pt-1 w-100">
+    <TableControl Class="table table-hover table-striped table-forge table-forge-numbered table-forge-top-align" Items="@Value.ToList()" PageSize="10" Filterable="false">
+        <TableColumnControl Name="Name" Field="Name" Class="column-name">
+            <Template Context="data">
+                @if (PossibleNames?.Count > 0)
+                {
+                    <FormAutocompleteTextBox Value="@data.Row.Name" ValueChanged="@(x => SetName(data.Row, x))" Suggestions="@PossibleNames" />
+                }
+                else
+                {
+                    <input class="input-group-text w-100"
+                        value="@data.Row.Name"
+                        @onchange="@(async e => await SetName(e, data.Row))"
+                        style="text-align: left;"/>
+                }
+            </Template>
+        </TableColumnControl>
+
+        <TableColumnControl Name="Value" Field="Value" Class="column-value">
+            <Template Context="data">
+                <div class="d-flex">
+                    <textarea class="w-100 form-control textarea-animate"
+                        onfocus="this.rows = @CalculateSize(data.Row.Value);"
+                        onfocusout="this.style.height = 'auto'; this.rows = 1"
+                        oninput="this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';"
+                        onkeypress="return event.keyCode !== 13 || @Multiline.ToString().ToLower();"
+                        value="@data.Row.Value"
+                        @onchange="@(async e => await SetValue(e, data.Row))"
+                        style="text-align: left;"
+                        rows="1" cols="60"
+                        >
+                    </textarea>
+                    @if (CalculateSize(data.Row.Value) > 1)
+                    {
+                        <i class="fas fa-angle-double-down expand-icon"></i>
+                    }
+                </div>
+            </Template>
+        </TableColumnControl>
+
+        <TableColumnControl Name="" Field="Name">
+            <Template Context="data">
+                <div class="flex-stack-horizontal">
+                    <button type="button" class="btn btn-secondary" @onclick="@(() => Delete(data.Row))" title="Delete row">
+                        <span class="ui-icon-font icon-trash-sm"></span>
+                    </button>
+                    @{
+                        var upDisabled = IsUpDisabled(data.Row);
+                        var downDisabled = IsDownDisabled(data.Row);
+                    }
+                    <button type="button" class="btn btn-secondary" disabled="@upDisabled" @onclick="@(() => Up(data.Row))" title="Move row up">
+                        <span class="ui-icon-font icon-arrow-up-sm"></span>
+                    </button>
+                    <button type="button" class="btn btn-secondary" disabled="@downDisabled" @onclick="@(() => Down(data.Row))" title="Move row down">
+                        <span class="ui-icon-font icon-arrow-down-sm"></span>
+                    </button>
+                    @if (EnableEncryption)
+                    {
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => Encrypt(data.Row))" disabled="@(() => IsEncryptDisabled(data.Row))" title="Encrypt data file (irreversible!)">
+                            <span class="ui-icon-font icon-lock-sm"></span>
+                        </button>
+                    }
+                </div>
+            </Template>
+        </TableColumnControl>
+    </TableControl>
+</div>
+
+@code {
+    private static readonly ILog _log = LogManager.GetLogger(MethodBase.GetCurrentMethod()!.DeclaringType!);
+
+    public class NameValuePair
+    {
+        public string Id { get; } = Guid.NewGuid().ToString("N");
+
+        public string Name  { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+    }
+
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public List<NameValuePair> Value        { get; set; } = [];
+    [Parameter] public RenderFragment?     ChildContent { get; set; }
+
+    [Parameter] public bool                 AllowImport          { get; set; }
+    [Parameter] public bool                 Multiline            { get; set; }
+    [Parameter] public bool                 EnableEncryption     { get; set; } = true;
+    [Parameter] public bool                 EncryptAsFile        { get; set; }
+    [Parameter] public bool                 ShowLabel            { get; set; } = true;
+    [Parameter] public bool                 ImportSeparateValues { get; set; }
+    [Parameter] public List<string>         PossibleNames        { get; set; } = [];
+    [Parameter] public Func<string, string> GetDefaultValue      { get; set; } = _ => string.Empty;
+
+    private static int CalculateSize(string value) => Math.Max(value.Split('\n').Length, value.Split('\r').Length);
+
+#pragma warning disable 1998
+    private async Task SetValue(ChangeEventArgs e, NameValuePair data)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val))
+            return;
+
+        var dataRef = Value.First(x => x.Id == data.Id);
+        dataRef.Value = val;
+        data.Value = val;
+        StateHasChanged();
+    }
+
+    private Task SetName(ChangeEventArgs e, NameValuePair data) => SetName(data, e.Value?.ToString());
+
+    private Task SetName(NameValuePair data, string? newName)
+    {
+        if ( string.IsNullOrWhiteSpace(newName))
+            return Task.CompletedTask;
+            
+        var dataRef = Value.First(x => x.Id == data.Id);
+        dataRef.Name = newName;
+        data.Name = newName;
+
+        var v = GetDefaultValue(newName);
+        dataRef.Value = v;
+        data.Value    = v;
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void AddNewKeyValue()
+    {
+        Value.Add(new () { Name = string.Empty, Value = string.Empty });
+        StateHasChanged();
+    }
+
+    private Task Delete(NameValuePair data)
+    {
+        Value.Remove(data);
+        return InvokeAsync(StateHasChanged);
+    }
+
+#pragma warning restore 1998
+    private async void OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream());
+            var       text   = await reader.ReadToEndAsync();
+
+            if (ImportSeparateValues)
+            {
+                if (text.TrimStart().StartsWith("{")) // json
+                    ImportJson(text);
+                else // try name=value
+                    ImportText(text);
+            }
+            else
+                ImportAsWhole(e, text);
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex.Message, ex);
+        }
+    }
+
+    private void ImportAsWhole(InputFileChangeEventArgs e, string text)
+    {
+        Value.Add(new ()
+        {
+            Name  = e.File.Name,
+            Value = text
+        });
+    }
+
+    private void ImportText(string text)
+    {
+        foreach (var s in text.Replace("\r","").Split("\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pos = s.IndexOf('=');
+            if (s.StartsWith('#') || pos > 0)
+                continue;
+
+            var name = s[..pos];
+            var val  = s[(pos+1)..];
+
+            Value.Add(new ()
+            {
+                Name  = name,
+                Value = val
+            });
+        }
+    }
+
+    private void ImportJson(string text)
+    {
+        var o = JObject.Parse(text);
+        foreach (var element in o.Properties())
+        {
+            var name = element.Name;
+            var val  = element.Value.ToString();
+
+            Value.Add(new ()
+            {
+                Name  = name,
+                Value = val
+            });
+        }
+    }
+
+    private bool IsUpDisabled(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        return index <= 0;
+    }
+
+    private int GetIndex(NameValuePair data)
+    {
+        var index = Value.IndexOf(data);
+        if (index < 0)
+        {
+            var dataRef = Value.FirstOrDefault(x => x.Name == data.Name);
+            if ( dataRef == null)
+                return -1; // not found
+            index = Value.IndexOf(dataRef);
+        }
+
+        return index;
+    }
+
+    private Task Up(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        if (index <= 0)
+            return Task.CompletedTask;
+
+        var dataRef = Value[index];
+        Value.RemoveAt(index);
+        Value.Insert(index - 1, dataRef);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsDownDisabled(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        return index >= Value.Count - 1;
+    }
+
+    private Task Down(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        if (index >= Value.Count - 1)
+            return Task.CompletedTask;
+
+        var dataRef = Value[index];
+        Value.RemoveAt(index);
+        Value.Insert(index + 1, dataRef);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsEncryptDisabled(NameValuePair data) => !EnableEncryption || (!EncryptAsFile && data.Value?.StartsWith('*') == true);
+
+    private async Task Encrypt(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        if (index < 0 )
+            return;
+
+        var dataRef = Value[index];
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Encrypt", $"Do you really want to encrypt entry \"{dataRef.Name}\"?<br>Note that this operation is <b>irreversible</b>!");
+        if ( res?.Cancelled ?? true )
+            return;
+
+        if (EncryptAsFile)
+        {
+            var enc = _passwordManager.EncryptFileContents(dataRef.Value);
+            var dec = _passwordManager.DecryptFileContents(enc);
+
+            if (dataRef.Value != dec)
+                throw new ApplicationException("Encryption is broken");
+            dataRef.Value = enc;
+        }
+        else
+        {
+            var enc = _passwordManager.EncryptPassword(dataRef.Value);
+            var dec = _passwordManager.DecryptPassword(enc);
+
+            if (dataRef.Value != dec)
+                throw new ApplicationException("Encryption is broken");
+            dataRef.Value = enc;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+}

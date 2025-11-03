@@ -1,0 +1,674 @@
+﻿@using System.Text
+@using Newtonsoft.Json
+@using Rms.Risk.Mango.Pivot.Core
+@using Rms.Risk.Mango.Pivot.Core.Models
+
+@inject IPivotSharingService PivotSharingService
+@inject IJSRuntime           Js
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<link rel="stylesheet" href="css/pivot.css" />
+
+<div class="pivot-navigator">
+
+    <div class="container-fluid flex-row d-flex">
+        <PivotNavigatorComponent Collections="@Collections"
+                                 @bind-Collection="@Collection"
+                                 @bind-Pivot="@Pivot"
+                                 @bind-Rows="Rows"
+                                 @bind-UseCache="_useCache"
+                                 IsExportEnabled="@IsExportEnabled"
+                                 ShowCollection="@ShowCollection"
+                                 ExtraFilter="@ExtraFilter"
+                                 RefreshPivotTriggered="@OnRefreshPivot"
+                                 CopyCsvTriggered="@OnCopyCsv"
+                                 ExportCsvTriggered="@OnExportCsv"
+                                 Navigation="@Navigation"
+                                 />
+
+        <div class="mr-3">
+            <div class="form-group mb-1">
+                <button type="button" class="btn btn-secondary" disabled="@IsShareDisabled" @onclick="OnShare" title="Share">
+                    <span class="ui-icon-font icon-chain-sm"></span>
+                </button>
+                <AuthorizeView Policy="@(AllPivotsAccessPolicyName)">
+                    <Authorized Context="ctx2">
+                        <button type="button" class="btn btn-secondary" disabled="@IsDeleteDisabled" @onclick="OnDelete" title="Delete pivot">
+                            <span class="ui-icon-font icon-trash-sm"></span>
+                        </button>
+                        <button type="button" class="btn btn-secondary" disabled="@IsSaveDisabled" @onclick="OnSave" title="Save pivot">
+                            <span class="ui-icon-font icon-save-sm"></span>
+                        </button>
+                        <button type="button" class="btn btn-secondary" disabled="@IsSaveDisabled" @onclick="OnSaveAs" title="Save pivot as...">
+                            <span class="ui-icon-font icon-save-outline-sm"></span>
+                        </button>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+            <div class="form-group">
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="flex-stack-horizontal mt-4">
+
+    <div class="flex-1 container filter-list @FilterHiddenClass">
+        <PivotSettingsControl Pivot="SelectedPivotNode?.Pivot"
+                              SelectedCollectionNode="@SelectedCollectionNode"
+                              PivotService="@PivotService"
+                              GetExtraFilter="@GetExtraFilter" />
+    </div>
+
+    <div class="tiny-separator">
+        <button type="button" class="btn btn-secondary tiny-button" @onclick="@ShowHideFilter">
+            @if (_isFilterHidden)
+            {
+                <span class="ui-icon-font icon-double-chevron-right"></span>
+            }
+            else
+            {
+                <span class="ui-icon-font icon-double-chevron-left"></span>
+            }
+        </button>
+    </div>
+
+    <div class="flex-4 ml-3 mr-3">
+        <div class="fit-content">
+            <PivotTableComponent @ref="PivotTable"
+                                 Collections="@Collections"
+                                 @bind-PivotData="PivotData"
+                                 @bind-CurrentPivot="CurrentPivot"
+                                 SelectedCollectionNode="@SelectedCollectionNode"
+                                 SelectedPivotNode="@SelectedPivotNode"
+                                 Rows="@Rows"
+                                 @bind-UseCache="UseCache"
+                                 ExtraFilter="@GetExtraFilter()"
+                                 PivotService="@PivotService"
+                                 Navigation="@Navigation"
+                                 @bind-IsExportEnabled="IsExportEnabled"
+                                 @bind-LastRefresh="LastRefresh"
+                                 @bind-LastRefreshElapsed="LastRefreshElapsed" />
+        </div>
+    </div>
+</div>
+
+@if (LastRefresh != default || LastRefreshElapsed != TimeSpan.Zero)
+{
+    <p class="last-updated">Last refresh @LastRefresh.ToLongTimeString() took @LastRefreshElapsed.ToString("g")</p>
+}
+
+@code 
+{
+    private const string SavePivotDialogHeader = "Save Pivot";
+    private const string SharePivotDialogHeader = "Share Pivot";
+
+    [CascadingParameter] public  IModalService               Modal                       { get; set; } = null!;
+
+    [Inject] public IUserService         UserSession { get; set; }         = null!;
+
+
+
+    #region Parameters
+    // ================================================= PARAMETERS ========================================================
+    // =                                                                                                                   =
+    // =                                                                                                                   =
+    // =                                                                                                                   =
+    // ================================================= PARAMETERS ========================================================
+
+    [Parameter] public IPivotTableDataSource.PivotType PivotType   { get; set; } = IPivotTableDataSource.PivotType.Predefined;
+    [Parameter] public RenderFragment                  ExtraFilter { get; set; } = null!;
+
+    [Parameter]
+    public IPivotedData? PivotData
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            PivotDataChanged.InvokeAsync(field);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [Parameter] public EventCallback<IPivotedData> PivotDataChanged { get; set; }
+
+    /// <summary>
+    /// Unlike Pivot which contains pivot that would be executed CurrentPivot holds definition
+    /// that is already shown and corresponding to PivotData.
+    /// Always set PivotData and CurrentPivot at the same time.
+    /// </summary>
+    [Parameter]
+    public PivotDefinition? CurrentPivot
+    {
+        get;
+        set
+        {
+            if (value == null || field == value)
+                return;
+            field = value;
+            CurrentPivotChanged.InvokeAsync(field);
+        }
+    }
+
+    [Parameter] public EventCallback<PivotDefinition> CurrentPivotChanged { get; set; }
+
+    [Parameter] public IPivotTableDataSource PivotService   { get; set; } = null!;
+    [Parameter] public bool                  ShowCollection { get; set; } = true;
+
+    [Parameter] public string? Collection
+    {
+        get;
+        set
+        {
+            if ( field == value )
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field))
+            {
+                CollectionChanged.InvokeAsync(field);
+                if (Collections.Count > 0 && SelectedCollectionNode != null)
+                    SelectedPivotNode = SelectedCollectionNode.Pivots.FirstOrDefault(x => x.Text == Pivot);
+            }
+        }
+    }
+
+    [Parameter] public EventCallback<string> CollectionChanged { get; set; }
+
+    [Parameter]
+    public string? Pivot
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field             = value;
+            if (!string.IsNullOrWhiteSpace(field))
+                PivotChanged.InvokeAsync(field);
+            
+            if (Collections.Count > 0 && SelectedCollectionNode != null)
+                SelectedPivotNode = SelectedCollectionNode.Pivots.FirstOrDefault(x => x.Text == Pivot);
+        }
+    }
+
+    [Parameter] public EventCallback<string> PivotChanged { get; set; }
+
+    [Parameter]
+    public DateTime LastRefresh
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            LastRefreshChanged.InvokeAsync(field);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [Parameter] public EventCallback<DateTime> LastRefreshChanged { get; set; }
+
+    [Parameter]
+    public TimeSpan LastRefreshElapsed
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            LastRefreshElapsedChanged.InvokeAsync(field);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [Parameter] public EventCallback<TimeSpan> LastRefreshElapsedChanged { get; set; }
+
+    [Parameter]
+    public Navigation<NavigationUnit>? Navigation
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            NavigationChanged.InvokeAsync(field);
+        }
+    }
+
+    [Parameter] public EventCallback<Navigation<NavigationUnit>> NavigationChanged { get; set; }
+
+
+    [Parameter] public string? AllPivotsAccessPolicyName { get; set; }
+
+    [Parameter] public Func<FilterExpressionTree.ExpressionGroup?> GetExtraFilter { get; set; } = () => null;
+
+    // ReSharper disable UnusedAutoPropertyAccessor.Local
+    // ReSharper disable UnusedMember.Local
+
+    [Parameter]
+    public bool UseCache
+    {
+        get => _useCache;
+        set
+        {
+            if (_useCache == value)
+                return;
+            _useCache = value;
+            UseCacheChanged.InvokeAsync(_useCache);
+        }
+    }
+
+    [Parameter] public EventCallback<bool> UseCacheChanged { get; set; }
+
+    [Parameter]
+    public int Rows
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            RowsChanged.InvokeAsync(field);
+            InvokeAsync(StateHasChanged);
+        }
+    } = 40;
+
+    [Parameter] public EventCallback<int> RowsChanged { get; set; }
+
+    [Parameter, EditorRequired] public List<GroupedCollection> Collections { get; set; } = [];
+
+    // ReSharper restore UnusedMember.Local
+    // ReSharper restore UnusedAutoPropertyAccessor.Local
+
+    // ================================================= END OF PARAMETERS =================================================
+    // =                                                                                                                   =
+    // =                                                                                                                   =
+    // =                                                                                                                   =
+    // ================================================= END OF PARAMETERS =================================================
+    #endregion
+
+    public void NavigateTo(string collection, GroupedPivot pivot)
+    {
+        if (string.IsNullOrWhiteSpace(collection) || pivot.IsGroup)
+            return;
+
+        Collection        = collection;
+        Pivot             = pivot.Pivot.Name;
+        SelectedPivotNode = pivot;
+    }
+
+    private GroupedCollection? SelectedCollectionNode => Collections.FirstOrDefault(x => x.CollectionNameWithPrefix == Collection);
+
+    private GroupedPivot? SelectedPivotNode
+    {
+        get
+        {
+            if (field != null)
+                return field;
+            if (string.IsNullOrWhiteSpace(Pivot))
+                return null;
+            field = SelectedCollectionNode?.Pivots.FirstOrDefault(x => x.Text == Pivot);
+            return field;
+        }
+        set
+        {
+            if ( field == value )
+                return;
+            field = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private bool IsExportEnabled { get; set; }
+    private bool IsShareDisabled => CurrentPivot == null;
+
+    private bool _isFilterHidden = true;
+    private bool          _useCache = true;
+
+    public  PivotTableComponent PivotTable    { get; private set; } = null!;
+    private HashSet<string>     AllDataFields => SelectedCollectionNode?.DataFields ?? [];
+    private HashSet<string>     AllKeyFields  => SelectedCollectionNode?.KeyFields ?? [];
+
+    private Task OnCopyCsv() => PivotTable.CopyCsv();
+    private Task OnExportCsv() => PivotTable.ExportCsv(Uri.EscapeDataString($"{SelectedPivotNode?.Pivot.Name}.csv"));
+
+    private string FilterHiddenClass => _isFilterHidden ? "hidden" : "";
+
+    private Task ShowHideFilter()
+    {
+        _isFilterHidden = !_isFilterHidden;
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Dictionary<string, Type> GetAllFields()
+    {
+        if (SelectedCollectionNode?.FieldTypes != null)
+            return SelectedCollectionNode.FieldTypes
+                .ToDictionary(
+                    x => x.Key, 
+                    x => x.Value.Type 
+                    );
+
+
+        var res = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+
+        if (AllKeyFields.Count > 0)
+        {
+            foreach (var k in AllKeyFields.Where(k => !res.ContainsKey(k)))
+            {
+                res[k] = typeof(string);
+            }
+        }
+
+        if (AllDataFields.Count > 0)
+        {
+            foreach (var k in AllDataFields.Where(k => !res.ContainsKey(k)))
+            {
+                res[k] = typeof(double);
+            }
+        }
+
+        return res;
+    }
+
+    protected override void OnInitialized()
+    {
+        if (SelectedPivotNode == null)
+        {
+            SelectedPivotNode = SelectedCollectionNode?.Pivots.FirstOrDefault(x => x.Text == Pivot);
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+            return;
+
+        Navigation           ??= new(PivotTable.Navigate);
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnRefreshPivot()   => PivotTable.RunPivot();
+    private bool IsSaveDisabled     => Collection == null || SelectedPivotNode == null || SelectedPivotNode.IsGroup || SelectedCollectionNode?.Pivots == null;
+    private bool IsDeleteDisabled   => IsSaveDisabled || SelectedPivotNode?.Pivot.IsPredefined == true;
+
+    private static string Base64Encode(string plainText)
+    {
+        var plainTextBytes = Encoding.UTF8.GetBytes(plainText);
+        return Convert.ToBase64String(plainTextBytes);
+    }
+
+    private Task<string> GetUserName() => Task.FromResult(UserSession.GetEmail());
+
+    protected async Task OnSave()
+    {
+        if (IsSaveDisabled)
+            return;
+
+        var user = await GetUserName();
+        if (string.IsNullOrWhiteSpace(user))
+            return;
+
+        var pivotDef = SelectedPivotNode!.Pivot;
+
+        if (pivotDef.IsPredefined)
+        {
+            var answer = await ModalDialogUtils.ShowConfirmationDialogWithInput(
+                Modal, 
+                SavePivotDialogHeader,
+                $"Do you want to save Pivot \"{pivotDef.Name}\" to group \"{pivotDef.Group}\"?" +
+                "<br> If so, what's the magic word?" +
+                "<p> <i>Note that you can always make your own copy by pressing Save As button.</i> </p>",
+                "Magic word"
+                );
+            if ( string.IsNullOrWhiteSpace(answer) )
+                return;
+
+            var magic = Base64Encode(DateTime.Now.ToString( "yyyy-MM-dd" ));
+            if ( answer != magic )
+            {
+                await ModalDialogUtils.ShowInfoDialog( Modal, SavePivotDialogHeader, "Nope!" );
+                return;
+            }
+
+        }
+        else
+        {
+            var res = await ModalDialogUtils.ShowConfirmationDialog(
+                Modal, 
+                SavePivotDialogHeader,
+                $"Do you want to save Pivot \"{pivotDef.Name}\" to group \"{pivotDef.Group}\"?"
+            );
+            if ( res.Cancelled )
+                return;
+        }
+
+        // update filter
+        pivotDef.DrilldownFilter = "";
+
+        await PivotService.UpdatePivotAsync(Collection!, pivotDef, user, new CancellationTokenSource(5000).Token );
+
+        await ModalDialogUtils.ShowInfoDialog(
+            Modal, 
+            SavePivotDialogHeader,
+            $"Pivot \"{pivotDef.Name}\" updated."
+        );
+    }
+
+    protected async Task OnShare()
+    {
+        if (Collection == null || CurrentPivot == null)
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, SharePivotDialogHeader, "Please select collection and pivot to share.");
+            return;
+        }
+
+        var def = new SharedPivotDef
+        {
+            PivotDef    = CurrentPivot!,
+            Collection  = Collection!,
+            ExtraFilter = GetExtraFilter()?.ToJson(GetAllFields()) ?? "",
+            SharedBy    = await GetUserName(),
+            SharedAtUTC = DateTime.UtcNow
+        };
+
+        await SharePivot(def);
+    }
+
+    protected async Task OnDelete()
+    {
+        if (IsDeleteDisabled)
+            return;
+
+        var myself = await GetUserName();
+        if (string.IsNullOrWhiteSpace(myself))
+            return;
+
+        var pivotDef = SelectedPivotNode!.Pivot;
+        var user = SelectedPivotNode.Pivot.Owner;
+
+        if (!user.Equals(myself, StringComparison.OrdinalIgnoreCase))
+        {
+            await ModalDialogUtils.ShowInfoDialog(
+                Modal, 
+                SavePivotDialogHeader,
+                $"Pivot \"{pivotDef.Name}\" can only be deleted by user \"{user}\"."
+            );
+            return;
+        }
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal, 
+            SavePivotDialogHeader,
+            $"Do you want to delete Pivot \"{pivotDef.Name}\" from group \"{pivotDef.Group}\" for user \"{user}\"?"
+        );
+        if ( res.Cancelled )
+            return;
+
+        await PivotService.DeletePivotAsync(Collection!, pivotDef.Name, pivotDef.Group, user, new CancellationTokenSource(5000).Token );
+
+        Pivot =
+            SelectedCollectionNode!.Pivots.FirstOrDefault(x => x is { IsGroup: false, Pivot.Name: "Summary" })?.Text
+            ?? SelectedCollectionNode.Pivots.FirstOrDefault(x => !x.IsGroup)?.Text
+            ;
+
+        await ModalDialogUtils.ShowInfoDialog(
+            Modal, 
+            SavePivotDialogHeader,
+            $"Pivot \"{pivotDef.Name}\" deleted."
+        );
+    }
+
+    protected async Task OnSaveAs()
+    {
+        if (IsSaveDisabled)
+            return;
+
+        var user = await GetUserName();
+        if (string.IsNullOrWhiteSpace(user))
+            return;
+
+        var pivotDef = SelectedPivotNode!.Pivot;
+
+        var groups = new[] {PivotDefinition.UserPivotsGroup}
+            .Concat(SelectedCollectionNode!.Pivots
+                .Where(x => x is { IsGroup: false, Pivot.IsPredefined: true })
+                .Select(x => x.Pivot.Group)
+                .Distinct()
+            )
+            .ToArray()
+            ;
+
+        var res = await PivotSaveAsComponent.ShowDialog(Modal, pivotDef, groups);
+        if (res == null)
+            return;
+
+        var (name, group, answer) = res; 
+
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        var needMagic = group != PivotDefinition.UserPivotsGroup;
+        var magic = Base64Encode(DateTime.Now.ToString( "yyyy-MM-dd" ));
+        if ( needMagic && answer != magic)
+        {
+            await ModalDialogUtils.ShowInfoDialog( Modal, SavePivotDialogHeader, "Nope!" );
+            return;
+        }
+
+        pivotDef = SelectedPivotNode.Pivot.Clone();
+        pivotDef.Name  = name;
+        pivotDef.Group = group;
+        pivotDef.Owner = user;
+        // update filter
+        pivotDef.DrilldownFilter = "";
+
+        await PivotService.UpdatePivotAsync(Collection!, pivotDef, user, new CancellationTokenSource(5000).Token);
+
+        Pivot =
+            SelectedCollectionNode.Pivots.FirstOrDefault(x => !x.IsGroup && x.Pivot.Group == pivotDef.Group && x.Pivot.Name == pivotDef.Name)?.Text
+            ?? SelectedCollectionNode.Pivots.FirstOrDefault(x => !x.IsGroup)?.Text
+            ;
+
+        await ModalDialogUtils.ShowInfoDialog(
+            Modal, 
+            SavePivotDialogHeader,
+            $"Pivot \"{pivotDef.Name}\" (group \"{pivotDef.Group}\") updated."
+        );
+
+    }
+
+    private Task SharePivot(SharedPivotDef data)
+        => ModalDialogUtils.SafeCall(Modal, "Share Pivot", () => SharePivotUnsafe(data));
+
+    private ValueTask<string> GetCurrentUrlViaJs() => Js.InvokeAsync<string>(  
+        "eval",
+                  "window.location.href");
+
+    private async Task SharePivotUnsafe(SharedPivotDef data)
+    {
+        var json = JsonConvert.SerializeObject(data, Formatting.None);
+        var bytes = Encoding.UTF8.GetBytes(json);
+
+        await using var mem = new MemoryStream();
+        mem.Write(bytes);
+        mem.Position = 0;
+
+        var guid = await PivotSharingService.SharePivot(data);
+
+        var url = await MakeSharedUrl(guid);
+
+        await ModalDialogUtils.ShowInfoDialog(
+            Modal, 
+            SharePivotDialogHeader,
+            "<div><p>This function allows you to share the exact pivot you've just ran even if you made any modification to it.</p>" +
+            $"<p>Pivot \"{data.PivotDef.Name}\" with all modifications applied will be available using this URL:<br/><a href=\"{url}\">{url}</a>.</p>" +
+            "<p>Please copy this URL and send it using instant messaging or by E-Mail." +
+            "This URL will be valid for 7 days.</p><div>"
+        );
+
+    }
+
+    private async Task<string> MakeSharedUrl(string guid)
+    {
+        var url = await GetCurrentUrlViaJs();
+        var idx = url.IndexOf('?');
+        if (idx >= 0)
+            url = url[..idx];
+        url += $"?shared={guid}";
+        return url;
+    }
+
+    public Task NavigateToSharedPivot(string guidStr)
+        => ModalDialogUtils.SafeCall(Modal, "Error running shared pivot", () => NavigateToSharedPivotUnsafe(guidStr));
+
+
+    private async Task NavigateToSharedPivotUnsafe(string guidStr)
+    {
+        var sharedPivot = await PivotSharingService.GetSharedPivot(guidStr);
+        if (sharedPivot == null)
+        {
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        
+        Collection = sharedPivot.Collection;
+
+        var extraFilter = FilterExpressionTree.ParseJson(sharedPivot.ExtraFilter ?? "{}");
+        await InvokeAsync(() => PivotTable.RunPivot(sharedPivot.PivotDef, extraFilter));
+    }
+
+}

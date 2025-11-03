@@ -1,0 +1,79 @@
+﻿@using Rms.Risk.Mango.Components.JForms
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@inherits CmdBase
+@attribute [MongoCommand(CmdType.Admin, "Drop index", "Indexes")]
+
+@if (Parameters != null)
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+    <div class="@Class">
+        <div class="form-row">
+            <JFormCommand CommandTemplate="@CommandTemplate" Template="@_template" CommandChanged="@OnCommandChanged" GetArguments="@GetArguments" />
+        </div>
+        <div class="form-row">
+            <FormJson Value="@(Parameters?.CommandJson)" Class="cmd-json" />
+        </div>
+        <div class="form-row">
+            <FormJson Value="@Result" Class="res-json" />
+        </div>
+    </div>
+}
+
+@code {
+
+    private List<string> _indexes = [];
+
+    private readonly TemplateRec _template = new()
+    {
+        Parameters =
+        [
+            new() { Type = "select", TypeArg=typeof(string).ToString(), Name = "Index name", Path = "$.index", Icon ="icon-wrench-outline-sm" },
+        ]
+    };
+
+    protected override string CommandTemplate => @"{
+     ""dropIndexes"": ""[COLLECTION]"",
+     ""index"": """",
+}";
+
+
+    protected override async Task OnCollectionChanged()
+    {
+        try
+        {
+            var indexes = await UserSession.MongoDbAdmin.GetIndexes(Collection);
+            _indexes = indexes.Indexes
+                .Where(x => x.Key.Count != 1 || !x.Key.ContainsKey("_id"))
+                .Select(x => x.Name)
+                .OrderBy(x => x)
+                .ToList();
+            
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception)
+        {
+            _indexes = [];
+        }
+    }
+
+    private object? GetArguments(TemplateRec.ParamRec arg) => _indexes;
+
+}

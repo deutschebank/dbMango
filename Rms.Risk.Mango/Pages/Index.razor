@@ -1,0 +1,247 @@
+﻿@page "/"
+@* @page "/{DatabaseStr}"
+@page "/{DatabaseStr}/{DatabaseInstanceStr}" *@
+@using Microsoft.Extensions.Options
+@using Rms.Risk.Mango.Services.Context
+@using Rms.Service.Bootstrap
+@using Rms.Risk.Mango.Pivot.Core.MongoDb;
+
+@inject NavigationManager             NavigationManager
+@inject IDatabaseConfigurationService DatabaseConfig
+@inject IUserSession                   Session
+@inject IJSRuntime                    JsRuntime
+@inject IAuthorizationService         Auth
+@inject IOptions<DbMangoSettings>     DbMangoSettings
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<style>
+    .center {
+    margin: auto;
+    width: fit-content;
+    }
+</style>
+
+<PageTitle>Index</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        <div class="row align-items-start">
+            <div class="col col-md-auto">
+                <div class="center"><img width="150px" src="@NavMenu.GetMango()" /></div>
+                <div class="center"><h1>dbMango</h1></div>
+                <div class="center">Version: @(VersionsHelper.Version)</div>
+            </div>
+            <div class="col col-md-auto">
+                <div class="row align-items-start">
+                    <div class="col col-md-auto">
+                        @if (DatabasesNames.Count == 0)
+                        {
+                            <div class="center">It looks like you don't have access to any databases...</div>
+                        }
+                        else
+                        {
+                            <div class="form-row mt-3">
+                                <FormItemSelect @bind-Value="Database" Name="MongoDB server:" Values="@DatabasesNames" />
+                            </div>
+                            @if (Session.IsDatabaseInstanceSelectionAllowed)
+                            {
+                                <div class="form-row">
+                                    <FormItemSelect @bind-Value="DatabaseInstance" Name="Database to connect to:" Values="@DatabaseInstances" />
+                                </div>
+                            }
+                            @if (Error != null)
+                            {
+                                <ExceptionControl Exception="@Error" />
+                            }
+                            <div class="form-row">
+                                <DatabaseInfo Database="@Database" DatabaseInstance="@DatabaseInstance" />
+                            </div>
+                        }
+                    </div>
+                    <div class="col col-md-auto mt-4">
+                        <div>Databases you don't have access to:</div>
+                        <TableControl Items="@NoAccessTo" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
+                            <TableColumnControl Field="Name" />
+                            <TableColumnControl Field="Contacts" />
+                        </TableControl>
+                    </div>
+                </div>
+                <div class="row align-items-start mt-4">
+                    <FormButton Class="mr-2" OnClick="@NavigateToBrowse" Name="Browse" />
+                    <FormButton Class="mr-2" OnClick="@NavigateToPivot" Name="Pivot" />
+                    <FormButton Class="mr-2" OnClick="@NavigateToAfh" Name="Aggregate" />
+                    <AuthorizeView Policy="WriteAccess" Resource="@Database" Context="ctx2">
+                        <Authorized Context="ctx">
+                            <FormButton Class="mr-2" OnClick="@NavigateToShell" Name="Shell" />
+                        </Authorized>
+                    </AuthorizeView>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(DbMangoSettings.Value.SupportLinkLabel))
+                {
+                    <div class="row mt-3">
+                        <a target="_blank" href="@DbMangoSettings.Value.SupportLinkUrl">@DbMangoSettings.Value.SupportLinkLabel</a>
+                    </div>
+                }
+
+            </div>
+        </div>
+    </Authorized>
+
+    <NotAuthorized>
+        <div class="center"><img width="150px" src="@NavMenu.GetMango()"/></div>
+        <div class="center"><h1>dbMango</h1></div>
+        <div class="center">Version: @(VersionsHelper.Version)</div>
+
+        <div style="height: 12px;">&nbsp;</div>
+        <div class="center">Welcome to dbMango - MongoDB administrative tool! Please, consider <a href="Login">logging in</a>.</div>
+        @if (!string.IsNullOrWhiteSpace(DbMangoSettings.Value.SupportLinkLabel))
+        {
+            <div class="mt-3 center">
+                <a target="_blank" href="@DbMangoSettings.Value.SupportLinkUrl">@DbMangoSettings.Value.SupportLinkLabel</a>
+            </div>
+        }
+    </NotAuthorized>
+</AuthorizeView>
+
+@code{
+
+    [Parameter] public string? DatabaseStr { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private List<string> DatabasesNames    { get; }      = [];
+    private List<string> DatabaseInstances { get; set; } = [];
+    private Exception?   Error             { get; set; }
+
+    private record NoAccessToRec(string Name, string Contacts);
+
+    private List<NoAccessToRec> NoAccessTo { get; } = [];
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        DatabasesNames.Clear();
+        foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
+        {
+            if (name.Contains("-placeholder>"))
+                continue;
+
+            if (!await IsUserAuthorized(name))
+                NoAccessTo.Add( new (name, DatabaseConfig.Databases[name].Contacts));
+            else
+                DatabasesNames.Add(name);
+        }
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr) || !await IsUserAuthorized(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string Database
+    {
+        get => Session.Database;
+        set
+        {
+            if (Session.Database == value)
+                return;
+
+            Session.Database = value;
+            SyncUrl();
+
+            _ = Task.Run(DatabaseChanged);
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => Session.DatabaseInstance;
+        set
+        {
+            if (Session.DatabaseInstance == value)
+                return;
+
+            Session.DatabaseInstance = value;
+            SyncUrl();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task DatabaseChanged()
+    {
+        Error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            DatabaseInstances = await GetDatabasesInstanceNames();
+
+            if (DatabaseInstances.All(x=> x != DatabaseInstance) )
+                DatabaseInstance = DatabaseInstances.First();
+
+            SyncUrl();
+        }
+        catch (Exception ex)
+        {
+            Error = ex;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        // var url = NavigationManager.BaseUri + $"{Database}";
+        // if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+        //     url += $"/{DatabaseInstance}";
+        // JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task<List<string>> GetDatabasesInstanceNames()
+    {
+        var admin = Session.MongoDbAdminForAdminDatabase;
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var databases = await admin.ListDatabases(cts.Token);
+        return databases.Select(x => x.Name).ToList();
+    }
+
+    private async Task<bool> IsUserAuthorized(string database)
+    {
+        var readAccess = await Auth.AuthorizeAsync(
+            Session.User.GetUser(),
+            database,
+            [new ReadAccessRequirement()]);
+        return readAccess.Succeeded;
+    }
+
+    private void NavigateToBrowse() => NavigationManager.NavigateTo("/user/browse");
+    private void NavigateToPivot()  => NavigationManager.NavigateTo("/user/pivot");
+    private void NavigateToAfh()    => NavigationManager.NavigateTo("/user/afh");
+    private void NavigateToShell()  => NavigationManager.NavigateTo("/admin/shell");
+
+}

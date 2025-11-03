@@ -1,0 +1,168 @@
+﻿@page "/admin/list-commands"
+@page "/admin/list-commands/{DatabaseStr}"
+@page "/admin/list-commands/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+@inject ICommandListService CommandListService
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .column-admin {
+        min-width: 30px;
+        width: 30px;
+    }
+</style>
+
+<h3 class="mt-3">Commands list</h3>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <FormJson Class="res-field row" Value="@Result"/>
+    }
+    else
+    {
+        <TableControl   Class="table table-hover table-striped table-forge table-forge-striped mr-3" 
+                        Items="@(Result.Cast<dynamic>().ToList())" 
+                        PageSize="28" 
+                        Filterable="true">
+            
+            <TableColumnControl Name="Name" Field="Name" Class="column-name">
+                <Template>
+                    <a href="@GetCommandLink(((CommandDef)context.Row).Name)" target="_blank">
+                        @(((CommandDef)context.Row).Name)
+                    </a>
+                </Template>
+            </TableColumnControl>
+
+            <TableColumnControl Name="Description" Field="Description" Class="column-value">
+                <Template>
+                    @(((CommandDef)context.Row).Description)
+                </Template>
+            </TableColumnControl>
+
+            <TableColumnControl Name="Admin" Field="AdminOnly" Class="column-admin" >
+                <Template>
+                    <FormItemCheckBox Value="@(((CommandDef)context.Row).AdminOnly)" Enabled="false" LabelOn="" LabelOff=""/>
+                </Template>
+            </TableColumnControl>
+        </TableControl>
+
+    }
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+
+    private string?          Error  { get; set; }
+    private List<CommandDef> Result { get; } = [];
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+        StateHasChanged();
+        Task.Run(Run);
+    }
+
+    private async Task Run()
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+
+            var res = await CommandListService.GetCommands(UserSession.MongoDbAdminForAdminDatabase, cts.Token);
+            Result.AddRange(res);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+
+    private Task Display(Exception e)
+    {
+        Error = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/list-commands/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private string GetCommandLink(string name)
+        => $"/admin/shell/{Database}/{DatabaseInstance}/{name}";
+
+}

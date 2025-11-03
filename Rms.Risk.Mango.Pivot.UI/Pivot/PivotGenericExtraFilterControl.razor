@@ -1,0 +1,365 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+@using Rms.Risk.Mango.Pivot.Core.Models
+
+@inject NavigationManager NavigationManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="@Class">
+    @if ( FilterDef.Filter.Count > 0 && _values.Count == FilterDef.Filter.Count )
+    {
+        foreach (var filter in FilterDef.Filter.Select((x,i) => (Position: i, Filter: x)))
+        {
+            <div class="mr-3">
+                @switch (filter.Filter.ControlType)
+                {
+                    case ExtraFilterDefinition.ControlTypeDropDown:
+
+                        <div class="form-group">
+                                <div class="flex-stack-horizontal" style=" min-width: 150pt;">
+                                    <label for="@($"filter{filter.Position}")" class="input-group-text w-50">@filter.Filter.DisplayName</label>
+                                    @if (filter.Filter.AllowMultiselect)
+                                    {
+                                        <label class="toggle-switch toggle-switch-xs input-group-text w-50">
+                                            <input type="checkbox" @bind="_values[filter.Position].MultipleSelected" />
+                                            <span class="slider" data-label-on="multiple" data-label-off="single"></span>
+                                        </label>
+                                    }
+                                </div>
+                            <div class="input-group mr-sm-2">
+                                <div class="input-group-prepend">
+                                    <div class="input-group-text">
+                                        <div class="">
+                                            <span class="ui-icon-font ui-icon-sm icon-list-items"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                @if (!_values[filter.Position].MultipleSelected)
+                                {
+                                    <!--- single department selector -->
+                                    <div class="dropdown form-control p-0">
+                                        <button class="btn btn-secondary dropdown-toggle w-100" id="@($"filter{filter.Position}")" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                            @(_values[filter.Position].Value?.FirstOrDefault() ?? ExtraFilterDefinition.Any)
+                                        </button>
+                                        <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                                            @foreach (var d in filter.Filter.Values)
+                                            {
+                                                <a class="dropdown-item" @onclick="() => SelectElement(d, filter.Position)" @onclick:preventDefault>@d</a>
+                                            }
+                                            <a class="dropdown-item" @onclick="() => { _values[filter.Position].Value = [ExtraFilterDefinition.Any]; return UpdateExtraFilter(); }" @onclick:preventDefault>@ExtraFilterDefinition.Any</a>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <style>
+                                        .dropdown-toggle {
+                                            width: 100% !important;
+                                        }
+                                    </style>
+                                    <!--- multiple departments selector -->
+                                    @* ReSharper disable CSharpWarnings::CS8604 *@
+                                    @* ReSharper disable CSharpWarnings::CS8619 *@
+                                    <MultiSelectCheckboxDropdown Name="@filter.Filter.DisplayName"
+                                                                 Class="form-control w-100 p-0"
+                                                                 DropdownValues="@filter.Filter.Values"
+                                                                 EnableDropdownMenu="false"
+                                                                 SelectedValues="@_values[filter.Position].Value"
+                                                                 ShowSelectionText="true"
+                                                                 SelectedValuesChanged="@(x => OnSelectedValueChanged(x, filter.Position))"
+                                                                 SelectAllByDefault="false" />
+                                }
+                                @* ReSharper restore CSharpWarnings::CS8619 *@
+                                @* ReSharper restore CSharpWarnings::CS8604 *@
+                            </div>
+                        </div>
+
+                        break;
+
+                    case ExtraFilterDefinition.ControlTypeDatePicker:
+
+                        <CobPicker @bind-UseCobRange="_values[filter.Position].MultipleSelected"
+                                   CobStr="@_values[filter.Position].RangeStart"
+                                   CobStrChanged="@(x=> SelectStart(x, filter.Position))"
+                                   CobEndStr="@_values[filter.Position].RangeEnd"
+                                   CobEndStrChanged="@(x=> SelectEnd(x, filter.Position))"
+                                   SupportsCobRanges="@filter.Filter.AllowMultiselect"
+                                   DaysEnabledFunction="@((x) => IsDateAvailable(x, filter.Filter.Values, filter.Filter.Format))"
+                                   Format="@filter.Filter.Format"
+                                   />
+
+                        break;
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+
+    [Parameter] public string Class { get; set; } = "";
+
+    [Parameter]
+    public string Collection
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+
+            var isThereAnythingToUpdate = FilterDef.Filter.Any(fd => fd.Values.Count == 0 || fd.SelectorCollection == ExtraFilterDefinition.CurrentCollectionSignature);
+            if (isThereAnythingToUpdate )
+                InvokeAsync(() => UpdateAvailableSelectorValues(true));
+        }
+    } = "";
+
+    [Parameter]
+    public ExtraFilterDefinition FilterDef
+    {
+        get;
+        set 
+        {
+            if ( field == value )
+                return;
+            field = value;
+            InvokeAsync(() => UpdateAvailableSelectorValues());
+        }
+    } = new();
+
+    [Parameter] public FilterExpressionTree.ExpressionGroup                ExtraFilter        { get; set; } = new();
+    [Parameter] public EventCallback<FilterExpressionTree.ExpressionGroup> ExtraFilterChanged { get; set; }
+    [Parameter] public IPivotTableDataSource?                              PivotService       { get; set; }
+    [Parameter] public bool                                                LoadFilterDef      { get; set; }
+
+    private List<ExtraFilterDefinition.FilterValue> _values          = new();
+    private Dictionary<string, string>              _queryParameters = new();
+    private string _extraFilterJson = "";
+
+    protected override void OnInitialized()
+    {
+        if (_queryParameters.Count == 0 && NavigationManager != null)
+        {
+            // Parse query string parameters
+            var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+            if (!string.IsNullOrEmpty(uri.Query))
+            {
+                _queryParameters = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query)
+                   .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToString());
+            }
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if ( _values.Count == 0 )
+            await ParseExtraFilter(); // Ensure extra filter is parsed after loading selector values
+        else
+            await UpdateExtraFilter();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if ( !firstRender )
+            return;
+
+        if (LoadFilterDef && PivotService != null && FilterDef.Filter.Count == 0)
+            await ReloadFilterDefinition();
+    }
+
+    private string _loadedForCollection = "<none>";
+
+    private async Task ReloadFilterDefinition()
+    {
+        if (
+            await ReloadFilterDefinition(Collection)
+            || await ReloadFilterDefinition("Global-Meta")
+        )
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<bool> ReloadFilterDefinition(string collection)
+    {
+        if (!LoadFilterDef || PivotService == null || string.IsNullOrWhiteSpace(collection) || _loadedForCollection == collection)
+            return false;
+
+        try
+        {
+            KeyValuePair<string, object>[] filterDict = [new("_id", "ExtraFilter")];
+
+            var json = await PivotService.GetDocumentAsync(collection, filterDict, null);
+            if (string.IsNullOrWhiteSpace(json) || json.StartsWith("Not found"))
+                return false;
+
+            var newDef = JsonUtils.FromJson<ExtraFilterDefinition>(json);
+            if (newDef == null)
+                return false;
+            FilterDef = newDef;
+            _loadedForCollection = collection;
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private async Task ParseExtraFilter() 
+    {
+        if ( ExtraFilter.IsEmpty && _queryParameters.Count > 0 )
+            _values = FilterDef.ParseQueryParameters(_queryParameters);
+        else
+            _values = FilterDef.ParseExtraFilter(ExtraFilter);
+        await UpdateExtraFilter(); // Changed to await to ensure async execution
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task UpdateExtraFilter()
+    {
+        var ef = FilterDef.CreateExtraFilter(_values);
+        if (ef.Condition != FilterExpressionTree.ExpressionGroup.ConditionType.And)
+        {
+            // Add additional logic if needed for conditions other than 'And'
+            ef = new()
+            {
+                Condition = FilterExpressionTree.ExpressionGroup.ConditionType.And,
+                Children  = [ef]
+            };
+        }
+
+        var json = ef.ToJson([]);
+        if ( json == _extraFilterJson )
+            return Task.CompletedTask;
+
+        _extraFilterJson = json;
+
+        ExtraFilter.Children.Clear();
+        ExtraFilter.Children.AddRange(ef.Children);
+
+        return ExtraFilterChanged.InvokeAsync(ExtraFilter);
+    }
+
+    private async Task UpdateAvailableSelectorValues(bool force = false)
+    {
+        var updated         = false;
+        var filtersToUpdate = FilterDef.Filter.Where(fd => force || fd.Values.Count == 0);
+        foreach (var fd in filtersToUpdate)
+        {
+            updated |= await LoadSelectorValues(fd);
+        }
+
+        if ( updated )
+            await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<bool> LoadSelectorValues(ExtraFilterDefinition.FilterControl fd)
+    {
+        var collection = fd.SelectorCollection;
+        if (string.IsNullOrWhiteSpace(collection) || collection == ExtraFilterDefinition.CurrentCollectionSignature)
+            collection = Collection;
+
+        if ( fd.Values.Count > 0
+            || PivotService == null
+            || string.IsNullOrWhiteSpace(collection)
+            || collection == ExtraFilterDefinition.CurrentCollectionSignature
+            || string.IsNullOrWhiteSpace(fd.SelectorQuery) 
+            || string.IsNullOrWhiteSpace(fd.FieldName) 
+        )
+        {
+            return false;
+        }
+
+        try
+        {
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            var pivot = new PivotDefinition
+            {
+                Name        = $"__Load {fd.FieldName}",
+                PivotType   = PivotTypeEnum.CustomQuery,
+                CustomQuery = fd.SelectorQuery
+            };
+
+            var values = await PivotService.PivotAsync(collection, pivot, null, false, token: cts.Token);
+
+            var col    = values.Headers.ToList().IndexOf(fd.FieldName);
+            if (col == -1) // Updated to check for -1 instead of null
+                throw new ApplicationException($"Field '{fd.FieldName}' not found in the result set.");
+
+            for( var row = 0; row < values.Count; row++ )
+            {
+                var v = values.Get(col, row);
+                var s = v switch
+                {
+                    DateTime dt => dt.ToString(string.IsNullOrWhiteSpace(fd.Format) ? "yyyy-MM-dd" : fd.Format),
+                    DateOnly d0 => d0.ToString(string.IsNullOrWhiteSpace(fd.Format) ? "yyyy-MM-dd" : fd.Format),
+                    _           => v?.ToString()
+                };
+
+                if (!string.IsNullOrWhiteSpace(s) && !fd.Values.Contains(s))
+                    fd.Values.Add(s);
+            }
+            fd.Values.Sort();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            throw new ApplicationException($"Error fetching distinct values for field '{fd.FieldName}' from collection '{collection}': {ex.Message}", ex);
+        }
+    }
+
+    private bool IsDateAvailable(DateTimeOffset dateTimeOffset, List<string> filterValues, string format)
+    {
+        if ( filterValues.Count == 0)
+            return true;
+        var fmt = string.IsNullOrWhiteSpace(format) ? "yyyy-MM-dd" : format;
+        var dateStr = dateTimeOffset.ToString(fmt);
+        return filterValues.Contains(dateStr);
+    }
+
+    private Task OnSelectedValueChanged(HashSet<string> arg, int pos)
+    {
+        _values[pos].Value = arg; 
+        return UpdateExtraFilter();
+    }
+
+    private Task SelectElement(string d, int pos)
+    {
+        _values[pos].Value = [d]; 
+        return UpdateExtraFilter(); 
+    }
+
+
+    private Task SelectStart(string? x, int pos)
+    {
+        _values[pos].RangeStart = x; 
+        return UpdateExtraFilter();
+    }
+
+    private Task SelectEnd(string? y, int pos)
+    {
+        _values[pos].RangeEnd = y; 
+        return UpdateExtraFilter();
+    }
+
+}

@@ -1,0 +1,9 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Rms.Risk.Mango.Pivot.Core\Rms.Risk.Mango.Pivot.Core.csproj" />
+    <ProjectReference Include="..\Rms.Service.Bootstrap\Rms.Service.Bootstrap.csproj" />
+  </ItemGroup>
+</Project>

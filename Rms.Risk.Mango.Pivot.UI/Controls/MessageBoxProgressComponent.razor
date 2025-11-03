@@ -1,0 +1,103 @@
+﻿@using System.Collections.Concurrent
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<style>
+    .text-area{
+        width: 1200px;
+        height: 700px;
+        overflow: auto;
+        font-family: "monospace";
+    }
+    .text-area pre {
+        font-size: 87.5%;
+        color: #e3e3e3;
+        margin-bottom: 0;
+    }
+</style>
+
+<div>
+    <div class="text-area">
+        <pre>
+        @foreach (var m in _messages)
+        {
+            @m<br/>
+        }
+        </pre>
+    </div>
+    <div class="form-row modal-footer w-100 p-0">
+        <button class="btn btn-primary" @onclick="@OnOK" disabled="@_inProgress">OK</button>
+    </div>
+</div>
+
+@code
+{
+    [CascadingParameter] BlazoredModalInstance  BlazoredModal { get; set; } = null!;
+
+    [Parameter] public Func<ActionProgressCallback, Task> Action          { get; set; } = _ => Task.CompletedTask;
+    [Parameter] public string                             TextEditorClass { get; set; } = "text-area";
+
+    private readonly ConcurrentQueue<string> _messages = [];
+    private bool _inProgress;
+
+    private Task OnOK() => BlazoredModal.CloseAsync(ModalResult.Ok(true));
+
+    private void OnProgress(string message, bool isError = false, object? extraInfo = null)
+    {
+        foreach( var m in message.Split( "\n" ))
+            _messages.Enqueue( m );
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DoAction()
+    {
+        _inProgress = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await Action(OnProgress);
+            _messages.Enqueue("----------------------------- COMPLETE ----------------------------- ");
+
+            _inProgress = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch ( Exception ex)
+        {
+            var text = ex.ToString().Split( '\n' );
+            _messages.Enqueue("----------------------------- ERROR ----------------------------- ");
+            foreach (var s in text )
+            {
+                _messages.Enqueue( s );
+            }
+
+            _inProgress = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync( bool firstRender )
+    {
+        if (!firstRender)
+            return;
+
+        _inProgress = true;
+        await InvokeAsync(StateHasChanged);
+        _ = Task.Run(DoAction);
+    }
+}

@@ -1,0 +1,150 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿
+<style>
+    pre {
+        font-size: inherit;
+        color: inherit;
+        border: initial;
+        padding: initial;
+        font-family: inherit;
+    }
+
+    .m-body {
+        width: 100%;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .red-border {
+        border-color: red;
+    }
+</style>
+
+<p>@((MarkupString)Text)</p>
+
+@if (ShowInputText)
+{
+    <div class="pb-2">
+        <label for="inp">@InputTextLabel</label>
+        <input id="inp" type="text" class="form-control @InputClass" @bind="InputText" @onfocusout="OnCommentsFocusOut" />
+    </div>
+}
+
+<div class="m-body">
+    @if (_infoData != null)
+    {
+        <TableControl Class="table table-hover table-striped table-forge table-forge-numbered" Items="@_infoData" PageSize="10">
+            <TableColumnControl Name="Name" Field="Key" />
+            <TableColumnControl Name="Value" Field="Value" />
+        </TableControl>
+    }
+</div>
+
+<div class="form-row modal-footer w-100 p-0">
+    @if (ShowCancel)
+    {
+        <button class="btn btn-secondary" @onclick="@(() => BlazoredModal.CancelAsync())">@CancelButtonName</button>
+    }
+    <button class="btn btn-primary" @onclick="@OnOK">@OkButtonName</button>
+</div>
+
+@code
+{
+    [CascadingParameter] BlazoredModalInstance BlazoredModal { get; set; } = null!;
+
+    [Parameter]
+    public IEnumerable<KeyValuePair<string, string>>? Info
+    {
+        get;
+        set
+        {
+            if (value == null)
+            {
+                field = null;
+                _infoData = null;
+                return;
+            }
+
+            field = value.ToList();
+            _infoData = field.Select(x => new KeyValue(x.Key, x.Value)).ToList();
+        }
+    }
+
+    [Parameter] public bool    ShowCancel           { get; set; }
+    [Parameter] public bool    ShowInputText        { get; set; }
+    [Parameter] public bool    IsInputTextMandatory { get; set; }
+    [Parameter] public string  Text                 { get; set; } = "";
+    [Parameter] public string  OkButtonName         { get; set; } = "OK";
+    [Parameter] public string  CancelButtonName     { get; set; } = "Cancel";
+    [Parameter] public string? InputTextLabel       { get; set; } 
+
+    [Parameter]
+    public string InputText
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            InputTextChanged.InvokeAsync(field);
+        }
+    } = "";
+
+    [Parameter] public EventCallback<string> InputTextChanged { get; set; }
+
+    private string InputClass => string.IsNullOrWhiteSpace(InputText)
+        ? "red-border"
+        : "";
+
+    // ReSharper disable NotAccessedPositionalProperty.Local
+    private record KeyValue(string Key, string Value);
+    // ReSharper restore NotAccessedPositionalProperty.Local
+
+    private List<KeyValue>? _infoData;
+
+    private Task OnOK()
+    {
+        if (ShowInputText)
+        {
+            if (IsInputTextMandatory && string.IsNullOrWhiteSpace(InputText))
+            {
+                return InvokeAsync(StateHasChanged);
+            }
+            return BlazoredModal.CloseAsync(ModalResult.Ok(InputText));
+        }
+        else
+            return BlazoredModal.CloseAsync(ModalResult.Ok(true));
+    }
+
+    private static string Truncate(string? value, int maxLength, string truncationSuffix = "…") =>
+        value?.Length > maxLength
+            ? value[..(maxLength - truncationSuffix.Length)] + truncationSuffix
+            : value!;
+
+
+    private async Task OnCommentsFocusOut()
+    {
+        if (!ShowInputText)
+            return;
+
+        await InvokeAsync(StateHasChanged);
+    }
+}

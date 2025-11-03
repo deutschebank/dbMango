@@ -1,0 +1,189 @@
+﻿@using System.Diagnostics
+
+@inject IJSRuntime JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div>
+    <style>
+        .CodeMirror {
+        /* height: 300px; */
+        /* width: 100%; */
+        min-height: 35px;
+        /* max-height: 300px; */
+        z-index: 1;
+        }
+
+        .CodeMirror pre.CodeMirror-line, .CodeMirror pre.CodeMirror-line-like {
+        padding: 0px 32px;
+        }
+    </style>
+    
+    @if (string.IsNullOrWhiteSpace(Name))
+    {
+        <div class="@(_initialized ? "" : "d-none")">
+            <textarea id="@_id" class="" @bind-value="Text" @bind-value:event="oninput"></textarea>
+        </div>
+
+        <div class="d-none" @ref="_scriptEditorReference"></div>
+    }
+    else
+    {
+        <div class="form-group @Class">
+            <div class="flex-stack-horizontal form-mw">
+                <label for="@_id" class="input-group-text w-100">@Name</label>
+            </div>
+            <div class="input-group mr-sm-2">
+                @if (Icon != null)
+                {
+                    <div class="input-group-prepend">
+                        <div class="input-group-text">
+                            <div class="">
+                                <span class="ui-icon-font ui-icon-sm @Icon"></span>
+                            </div>
+                        </div>
+                    </div>
+                }
+                <div>
+                    <div class="@(_initialized ? "" : "d-none")">
+                        <textarea id="@_id" class="" @bind-value="Text" @bind-value:event="oninput"></textarea>
+                    </div>
+
+                    <div class="d-none" @ref="_scriptEditorReference"></div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string _id = $"h{Random.Shared.Next():X8}";
+
+    [Parameter]
+    public string Text
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            
+            if (_noUpdate)
+                return;
+
+            try
+            {
+                JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, value);
+            }
+            catch (Exception)
+            {
+                // ignore
+            }
+        }
+    } = "";
+
+    [Parameter] public EventCallback<string> TextChanged { get; set; }
+    [Parameter] public string                MediaType   { get; set; } = "text/plain";
+    [Parameter] public string                Class       { get; set; } = "";
+    [Parameter] public string                Name        { get; set; } = "";
+    [Parameter] public string?               Icon        { get; set; }
+
+    [Parameter]
+    public bool Readonly
+    {
+        get;
+        set
+        {
+            field = value;
+            SetReadonlyMode();
+        }
+    } = false;
+
+
+    private ElementReference                       _scriptEditorReference;
+    private DotNetObjectReference<FormCodeEditor>? _objRef      = null;
+    private bool                                   _initialized = false;
+    private bool                                   _noUpdate    = false;
+
+    public Task InsertAtCursor(string text) 
+        => JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_InsertTextAtCursor", _scriptEditorReference, text).AsTask();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        _objRef = DotNetObjectReference.Create(this);
+
+        await JsRuntime.InvokeVoidAsync( "DashboardUtils.LoadCodeEditor",
+                                            _id,
+                                            MediaType,
+                                            _scriptEditorReference,
+                                            _objRef,
+                                            "UpdateScriptField",
+                                            Readonly );
+        _initialized = true;
+
+        await InvokeAsync(StateHasChanged);
+
+        var sw = Stopwatch.StartNew();
+
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, Text);
+
+        sw.Stop();
+    }
+    private async void SetReadonlyMode()
+    {
+        try
+        {
+            if (_objRef == null)
+            {
+                return;
+            }
+
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_SetParam", _scriptEditorReference, "readOnly", Readonly);
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+    }
+
+    [JSInvokable("UpdateScriptField")]
+    public async Task UpdateScriptField(string codeValue)
+    {
+        if (Text == codeValue)
+            return;
+
+        try
+        {
+            _noUpdate = true;
+            Text      = codeValue;
+        }
+        finally
+        {
+            _noUpdate = false;
+        }
+
+        await TextChanged.InvokeAsync(codeValue);
+    }
+
+}

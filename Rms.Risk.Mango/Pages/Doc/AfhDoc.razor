@@ -1,0 +1,779 @@
+﻿@page "/doc/afh"
+
+@inject IJSRuntime JsRuntime
+@inject NavigationManager NavigationManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .tab-content {
+    max-width: fit-content;
+    border-right-width: 3px;
+    border-right-color: #00acff;
+    border-right-style: solid;
+    min-width: fit-content;
+    } 
+
+    .tab-page {
+    margin-left: 20px;
+    }
+
+    .doc-page {
+    max-width: 1600px;
+    margin-left: 20px;
+    display: flex;
+    }
+
+    .example {
+    width: 80%;
+    }
+
+    .complex-example .CodeMirror {
+    height: calc(100vh - 140px) !important;
+    }
+
+    pre {
+    width: 100%;
+    padding: 10px;
+    margin: 5px;
+    background-color: @Night.dark;
+    }
+
+    pre code {
+    color: aquamarine;
+    }
+</style>
+
+<h3>Aggregation for Humans documentation</h3>
+
+<TabControl Vertical="true" Class="doc-page mt-3" @bind-ActivePage="ActivePage">
+    <TabPage Text="Overview" IsSelectable="false"/>
+    <TabPage Text="Aggregation framework">
+        <p>The MongoDB Aggregation Framework is a powerful tool for processing and transforming data within MongoDB. 
+            It allows you to perform complex operations on collections of documents, similar to SQL queries 
+            but with a more flexible and expressive syntax. The framework operates on the concept of a
+            "pipeline," where data flows through a series of stages, each stage performing a specific
+            transformation.</p>
+
+        <p>Here's a breakdown of key concepts and common stages:</p>
+
+        <b>Key Concepts:</b>
+        <ul>
+            <li><strong>Pipeline:</strong> A sequence of data processing stages. Each stage takes the output of the previous stage as its input and applies a transformation.</li>
+            <li><strong>Stages:</strong> Individual operations within the pipeline, such as filtering, grouping, projecting, sorting, and more.</li>
+            <li><strong>Documents:</strong> The basic unit of data in MongoDB, represented as JSON-like objects.</li>
+            <li><strong>Fields:</strong> Key-value pairs within a document.</li>
+            <li><strong>Expressions:</strong> Used within stages to compute values, access fields, and perform operations on data.</li>
+        </ul>
+        <p>More information can be found on <a href="https://www.mongodb.com/docs/manual/core/aggregation-pipeline/" target="_blank">MongoDB site</a>.</p>
+    </TabPage>
+    <TabPage Text="Reasoning for AFH">
+        <p>Reasons why MongoDB Aggregation JSON is not ideal for human writing</p>
+
+        <ul>
+            <li><strong>Verbosity and Nesting:</strong> Aggregation pipelines often involve deeply nested JSON structures, making them lengthy and difficult to parse.</li>
+            <li><strong>Operator-Centric Approach:</strong> The syntax relies heavily on operators (e.g., <code>$match</code>, <code>$group</code>, <code>$avg</code>), which can be less intuitive than declarative SQL.</li>
+            <li><strong>Error-Prone:</strong> The strict JSON syntax means minor errors (missing commas, incorrect brackets) can lead to invalid queries that are hard to debug.</li>
+            <li><strong>Lack of Readability:</strong> JSON isn't naturally conducive to human understanding of complex logic; the data flow can be obscured.</li>
+            <li><strong>Difficult to Visualize:</strong> It's hard to mentally visualize data transformations at each stage from raw JSON.</li>
+            <li><strong>Repetitive Patterns:</strong> Similar structures might be repeated, making queries tedious to write and maintain.</li>
+            <li><strong>Limited Code Reuse:</strong> No built-in mechanism for easily reusing pipeline parts or defining functions within the query.</li>
+        </ul>
+
+        <p>
+            While powerful, MongoDB aggregation's JSON syntax can be challenging for humans due to its verbosity and operator-centric nature. 
+            The provided grammar (MongoAggregationForHumans) aims to address these issues with a more human-friendly syntax.
+        </p>
+
+    </TabPage>
+
+    <TabPage Text="Example">
+        <p>Here is an example of the pretty complex AFH pipeline and its equivalent using MongoDB aggregation Json. We hope you'll understand why we created AFH :)</p>
+        <AggregationExample Text="@StageComplexExample" Class="complex-example" />
+    </TabPage>
+
+    <TabPage Text="Syntax" IsSelectable="false"/>
+    <TabPage Text="Language overview">
+        <h2>MongoAggregationForHumans Language Syntax</h2>
+
+        <p>The <code>MongoAggregationForHumans</code> grammar defines a language for expressing MongoDB aggregation pipelines in a more human-readable format.  It aims to simplify the creation and understanding of these pipelines compared to the standard JSON syntax.</p>
+
+        <h3>Overall Structure</h3>
+
+        <p>A program in this language consists of a single statement that defines an aggregation pipeline:</p>
+
+        <pre>
+            <code>
+                file
+                : 'FROM' STRING pipeline_def
+                ;
+            </code>
+        </pre>
+
+        <p>This indicates that a pipeline operates on a collection specified by <code>STRING</code> (the collection name) and is defined by a <code>pipeline_def</code>.</p>
+
+        <h3>Pipeline Definition</h3>
+
+        <p>A pipeline is a sequence of stages enclosed in curly braces:</p>
+
+        <pre>
+            <code>
+                pipeline_def
+                : 'PIPELINE' '{'  stages_list '}'
+                ;
+            </code>
+        </pre>
+
+        <h3>Stages</h3>
+
+        <p>The <code>stages_list</code> allows for one or more <code>stage_def</code>, which represent the individual operations in the pipeline:</p>
+
+        <pre>
+            <code>
+                stages_list
+                : stage_def
+                | stages_list stage_def
+                ;
+            </code>
+        </pre>
+
+        <p>The grammar supports the following stage types:</p>
+
+        <pre>
+            <code>
+                stage_def
+                : match_def       // WHERE clause for filtering
+                | addfields_def   // ADD new fields
+                | project_def     // PROJECT fields (include or exclude)
+                | group_by_def    // GROUP BY a key and calculate aggregates
+                | sort_def        // SORT BY specified fields
+                | join_def        // JOIN with another collection
+                | unwind_def      // UNWIND an array field
+                | replace_def     // REPLACE the root document
+                | do_def          // DO (likely for custom operations or embedding JSON)
+                ;
+            </code>
+        </pre>
+
+        <h3>Stage Details</h3>
+
+        <p>Each stage has its own syntax. Here are some examples:</p>
+
+        <ul>
+            <li>
+                <strong><code>match_def</code> (WHERE):</strong>
+                <pre>
+                    <code>
+                        match_def: 'WHERE' expression ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Filters documents based on an <code>expression</code>.  An optional <code>OPTIONS</code> clause allows for specifying JSON options.</p>
+            </li>
+
+            <li>
+                <strong><code>addfields_def</code> (ADD):</strong>
+                <pre>
+                    <code>
+                        addfields_def
+                        : 'ADD' let_list ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Adds new fields defined in a <code>let_list</code>.  Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>project_def</code> (PROJECT):</strong>
+                <pre>
+                    <code>
+                        project_def
+                        : 'PROJECT' ('ID' '{' id_list=let_list '}')? data_list=let_list ('OPTIONS' json)?     # ProjectInclude
+                        | 'PROJECT' 'EXCLUDE' var_list ('OPTIONS' json)?                    # ProjectExclude
+                        ;
+                    </code>
+                </pre>
+                <p>Includes or excludes fields.  <code>ProjectInclude</code> allows specifying an <code>ID</code> and a <code>data_list</code> of fields to include. <code>ProjectExclude</code> uses a <code>var_list</code> to specify fields to exclude. Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>group_by_def</code> (GROUP BY):</strong>
+                <pre>
+                    <code>
+                        group_by_def: 'GROUP' 'BY' id_list=let_list ('LET' data_list=let_list)? ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Groups documents by fields specified in <code>id_list</code> and calculates aggregates defined in the optional <code>data_list</code> (using <code>LET</code>). Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>sort_def</code> (SORT BY):</strong>
+                <pre>
+                    <code>
+                        sort_def: 'SORT' 'BY' sort_var_list ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Sorts documents based on fields in <code>sort_var_list</code>, which can include <code>ASC</code> or <code>DESC</code> order. Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>join_def</code> (JOIN):</strong>
+                <pre>
+                    <code>
+                        join_def: 'JOIN' STRING 'AS' (VARIABLE | STRING) 'ON' equivalence_list ('LET' let_list )? ('PIPELINE' '{'  stages_list '}')? ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Performs a join with another collection (specified by <code>STRING</code>).  The joined collection is aliased using <code>AS</code> (either a <code>VARIABLE</code> or <code>STRING</code>).  The join condition is defined by <code>equivalence_list</code>.  An optional <code>LET</code> clause allows defining new fields based on the joined data.  A sub-pipeline can be applied to the joined collection. Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>unwind_def</code> (UNWIND):</strong>
+                <pre>
+                    <code>
+                        unwind_def: 'UNWIND' VARIABLE ('INDEX' VARIABLE)? ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Unwinds an array field (specified by <code>VARIABLE</code>). An optional <code>INDEX</code> clause specifies a variable to store the index of the array element. Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>replace_def</code> (REPLACE):</strong>
+                <pre>
+                    <code>
+                        replace_def
+                        : 'REPLACE' 'ID' '{' id_list=let_list '}' data_list=let_list ('OPTIONS' json)?
+                        ;
+                    </code>
+                </pre>
+                <p>Replaces the root document.  It uses <code>id_list</code> and <code>data_list</code> to define the replacement document. Optional <code>OPTIONS</code>.</p>
+            </li>
+
+            <li>
+                <strong><code>do_def</code> (DO):</strong>
+                <pre>
+                    <code>
+                        do_def: 'DO' json
+                        ;
+                    </code>
+                </pre>
+                <p>This stage seems to allow embedding arbitrary JSON (<code>json</code>) within the pipeline. Its exact behavior would depend on the implementation.</p>
+            </li>
+        </ul>
+
+        <h3>Expressions</h3>
+
+        <p>The language uses a hierarchy of expressions to define conditions, calculations, and field manipulations.  The grammar includes rules for:</p>
+
+        <ul>
+            <li><code>expression</code>:  Combines <code>comparison_expression</code> with logical operators (<code>AND</code>, <code>OR</code>).</li>
+            <li><code>comparison_expression</code>: Combines <code>additive_expression</code> with comparison operators (<code>==</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>).</li>
+            <li><code>additive_expression</code>: Combines <code>multiplicative_expression</code> with addition and subtraction (<code>+</code>, <code>-</code>).</li>
+            <li><code>multiplicative_expression</code>: Combines <code>unary_expression</code> with multiplication and division (<code>*</code>, <code>/</code>).</li>
+            <li><code>unary_expression</code>: Handles unary operators (<code>+</code>, <code>-</code>, <code>NOT</code>) and various primary expressions.</li>
+            <li><code>brackets_expression</code>:  Includes atoms, function calls, "IN" expressions, "IS" (projection) expressions, "EXISTS" expressions, and bracketed expressions.</li>
+            <li><code>atom</code>: Represents basic values like strings, numbers, booleans, null, and variables.</li>
+        </ul>
+
+        <p>The grammar also defines rules for <code>let_list</code> (for defining fields and expressions), <code>var_list</code> (for lists of variables), <code>sort_var_list</code> (for sorting specifications), and <code>equivalence_list</code> (for join conditions).</p>
+
+        <h3>JSON Integration</h3>
+
+        <p>The language integrates with JSON for specifying options and potentially within the <code>do_def</code> stage.  The <code>JsonGrammar.g4</code> file (also provided) defines the JSON syntax used.</p>
+
+        <h3>Key Features and Improvements</h3>
+
+        <p>Compared to standard MongoDB JSON, this language offers:</p>
+
+        <ul>
+            <li><strong>More Readable Keywords:</strong> Uses keywords like <code>FROM</code>, <code>PIPELINE</code>, <code>WHERE</code>, <code>ADD</code>, <code>PROJECT</code>, <code>GROUP BY</code>, <code>SORT BY</code>, <code>JOIN</code>, <code>UNWIND</code>, <code>REPLACE</code>, making the structure clearer.</li>
+            <li><strong>Simplified Syntax:</strong> Aims to reduce nesting and verbosity, especially for common operations.</li>
+            <li><strong>More Natural Expression Syntax:</strong> Uses familiar operators (<code>==</code>, <code>&gt;</code>, <code>&lt;</code>, <code>AND</code>, <code>OR</code>) and function call syntax.</li>
+        </ul>
+
+        <p>Overall, <code>MongoAggregationForHumans</code> provides a more user-friendly way to express MongoDB aggregation pipelines, potentially reducing errors and improving developer productivity.</p>
+    </TabPage>
+    <TabPage Text="Expressions">
+        <h3>expression</h3>
+        <img src="images/expression/expression.rrd.svg"/><br/>
+        <h3>comparizon_expression</h3>
+        <img src="images/expression/comparizon_expression.rrd.svg" /><br />
+        <h3>additive_expression</h3>
+        <img src="images/expression/additive_expression.rrd.svg" /><br />
+        <h3>multiplicative_expression</h3>
+        <img src="images/expression/multiplicative_expression.rrd.svg" /><br />
+        <h3>unary_expression</h3>
+        <img src="images/expression/unary_expression.rrd.svg" /><br />
+        <h3>brackets_expression</h3>
+        <img src="images/expression/brackets_expression.rrd.svg" /><br />
+        <h3>atom</h3>
+        <img src="images/expression/atom.rrd.svg" /><br />
+        <h3>named_args_list</h3>
+        <img src="images/expression/named_args_list.rrd.svg" /><br />
+        <h3>unnamed_args_list</h3>
+        <img src="images/expression/unnamed_args_list.rrd.svg" /><br />
+        <h3>expression_array</h3>
+        <img src="images/expression/expression_array.rrd.svg" /><br />
+        <h3>expression_array_item</h3>
+        <img src="images/expression/expression_array_item.rrd.svg" /><br />
+        <h3>Variables</h3>
+        <img src="images/expression/VAR_FRAGMENT.rrd.svg" /><br />
+        <h3>Strings</h3>
+        <img src="images/expression/STRING_FRAGMENT.rrd.svg" /><br />
+        <h3>Operators</h3>
+        <pre><code>
+                AND: 'AND' | '&&';
+                OR: 'OR' | '||';
+                NOT: 'NOT' | '!';
+                EQ: '==';
+                NEQ: '&lt;&gt;' | '!=';
+                GT: '>';
+                GTE: '>=';
+                LT: '&lt;';
+                LTE: '&gt;=';
+                ASC: 'ASC';
+                DESC: 'DESC';
+                MUL: '*';
+                DIV: '/';
+                PLUS: '+';
+                MINUS: '-';
+            </code></pre>
+    </TabPage>
+    <TabPage Text="WHERE">
+        <img src="images/stages/match_def.rrd.svg" /><br />
+        <AggregationExample Text="@StageWhere" Class="example"/>
+    </TabPage>
+    <TabPage Text="ADD">
+        <img src="images/stages/addfields_def.rrd.svg" /><br/>
+        <img src="images/stages/let_list.rrd.svg" /><br />
+        <img src="images/stages/let_list_item.rrd.svg" /><br />
+        <AggregationExample Text="@StageAdd" Class="example" />
+    </TabPage>
+    <TabPage Text="BUCKET">
+        <img src="images/stages/bucket_def.rrd.svg" />
+        <img src="images/stages/let_list.rrd.svg" /><br />
+        <img src="images/stages/let_list_item.rrd.svg" /><br />
+        <AggregationExample Text="@StageBucket" Class="example" />
+    </TabPage>
+    <TabPage Text="FACET">
+        <img src="images/stages/facet_def.rrd.svg" />
+        <h3>pipeline_def</h3>
+        <img src="images/stages/pipeline_def.rrd.svg" />
+        <AggregationExample Text="@StageFacet" Class="example" />
+    </TabPage>
+    <TabPage Text="GROUP BY">
+        <img src="images/stages/group_by_def.rrd.svg" />
+        <img src="images/stages/let_list.rrd.svg" /><br />
+        <img src="images/stages/let_list_item.rrd.svg" /><br />
+        <AggregationExample Text="@StageGroupBy" Class="example" />
+    </TabPage>
+    <TabPage Text="JOIN">
+        <img src="images/stages/join_def.rrd.svg" />
+        <img src="images/stages/let_list.rrd.svg" /><br />
+        <img src="images/stages/let_list_item.rrd.svg" /><br />
+        <img src="images/stages/equivalence_list.rrd.svg" /><br />
+        <AggregationExample Text="@StageJoin" Class="example" />
+    </TabPage>
+    <TabPage Text="PROJECT">
+        <img src="images/stages/project_def.rrd.svg" />
+        <img src="images/stages/let_list.rrd.svg" /><br />
+        <img src="images/stages/let_list_item.rrd.svg" /><br />
+        <img src="images/stages/var_list.rrd.svg" /><br />
+        <AggregationExample Text="@StageProject" Class="example" />
+    </TabPage>
+    <TabPage Text="REPLACE">
+        <img src="images/stages/replace_def.rrd.svg" />
+        <img src="images/stages/let_list.rrd.svg" /><br />
+        <img src="images/stages/let_list_item.rrd.svg" /><br />
+        <AggregationExample Text="@StageReplace" Class="example" />
+    </TabPage>
+    <TabPage Text="SORT">
+        <img src="images/stages/sort_def.rrd.svg" />
+        <img src="images/stages/sort_var_list.rrd.svg" />
+        <AggregationExample Text="@StageSort" Class="example" />
+    </TabPage>
+    <TabPage Text="UNWIND">
+        <img src="images/stages/unwind_def.rrd.svg" />
+        <AggregationExample Text="@StageUnwind" Class="example" />
+    </TabPage>
+    <TabPage Text="DO">
+        <img src="images/stages/do_def.rrd.svg" />
+        <AggregationExample Text="@StageDo" Class="example" />
+    </TabPage>
+</TabControl>
+
+@code
+{
+    private string StageWhere =
+@"
+WHERE 
+    ( cob == ""2025-04-22"" && Department == ""FX Options"" )
+    && Book NOT IN (""CHFX"", ""JPYPJPY"")
+
+";
+
+    private string StageAdd =
+@"
+ADD // special syntax
+    pv + premiumPV AS TotalPV,
+    abs( pv + pvMove ) AS MyPnl,                                    // function call
+    dateToString( format: ""%Y-%m-%d"", date: field1 ) AS ""TodayStr"", // named args
+    {
+        ""data"" AS Key,
+        ""value"" AS Value
+    } AS Nested,                                                     // nested object
+    [{
+        ""data1"" AS Key,
+        ""v1"" AS Value
+    },
+    {
+        ""data2"" AS Key,
+        ""v2"" AS Value
+    }] AS NestedArray                                                // nested array
+";
+
+    private string StageGroupBy =
+@"
+GROUP BY
+  CurveKey
+  LET
+    max( Order ) AS Order,
+    sum( Value ) AS Value
+";
+    private string StageBucket =
+        @"
+BUCKET
+  Field1 / 100.1
+  BOUNDARIES 1, 10, 100, 1000
+  DEFAULT ""Ignored""
+  LET
+    Field1 / 100.1 AS Gain
+";
+    private string StageJoin =
+@"
+JOIN ""PnL-Market"" AS Market ON
+  $_id.CurveKey == _id
+";
+    private string StageProject =
+@"
+PROJECT
+  HedgeLVSVInstruments,
+  CurvePrefix,
+  objectToArray( VegaDetails ) AS VegaDetails
+";
+    private string StageReplace =
+@"
+REPLACE ID {
+    $_id.CcyPair AS CcyPair,
+    $_id.Tenor AS Tenor
+  }
+  Order,
+  'DN OpeningCurve',
+  '10RR OpeningCurve'
+";
+    private string StageSort =
+@"
+SORT BY
+      $_id.CcyPair,
+      Order
+";
+    private string StageUnwind =
+@"
+UNWIND Data INDEX Order
+";
+    private string StageDo =
+@"
+DO 
+{
+  ""$replaceRoot"": {
+    ""newRoot"": ""$_id""
+  }
+}
+";
+
+    private string StageFacet =
+        @"
+FACET
+  categorizedByTags PIPELINE {
+    UNWIND tags
+    DO 
+    {
+      ""$sortByCount"": ""$tags""
+    }
+  },
+  categorizedByPrice PIPELINE {
+    WHERE
+      price == exists( 1 )
+    BUCKET
+      price
+      BOUNDARIES 0, 150, 200, 300, 400
+      DEFAULT ""Other""
+      LET
+        sum( 1 ) AS count,
+        push( title ) AS titles
+  },
+  'categorizedByYears(Auto)' PIPELINE {
+    BUCKET AUTO
+      year
+      BUCKETS 4
+  }
+";
+
+    private string StageComplexExample =
+@"
+  WHERE
+    COB == date( ""2025-05-15T00:00:00Z"" )
+    AND (Department == ""FX Options Controlling"" )
+  WHERE
+    $VegaDetails.VegaImpact == exists( true )
+  PROJECT
+    HedgeLVSVInstruments,
+    $VegaDetails.OpeningVega,
+    $VegaDetails.ClosingVega,
+    $VegaDetails.VegaImpact,
+    $VegaDetails.Vega2ndOrderImpact,
+    concat( dateToString( 
+        format: ""%Y%m%d"", 
+        date: COB
+      ), ""-"", toString( OpeningVolRateSetId ), ""-"", toString( ClosingVolRateSetId ), ""-PnL-Vol-"" ) AS CurvePrefix
+  PROJECT
+    HedgeLVSVInstruments,
+    CurvePrefix,
+    objectToArray( VegaDetails ) AS VegaDetails
+  UNWIND VegaDetails
+  PROJECT
+    HedgeLVSVInstruments,
+    CurvePrefix,
+    $VegaDetails.k AS Type,
+    objectToArray( $VegaDetails.v ) AS Data
+  UNWIND Data
+  WHERE
+    (Type == ""OpeningVega""
+      OR Type == ""VegaImpact""
+      OR Type == ""Vega2ndOrderImpact"")
+  PROJECT
+    concat( CurvePrefix, $Data.v.CcyPair, ""-"", HedgeLVSVInstruments, ""-"" ) AS CurvePrefix,
+    Type,
+    $Data.v.CcyPair AS CcyPair,
+    objectToArray( $Data.v.Data ) AS Data
+  UNWIND Data INDEX Order
+  PROJECT
+    CurvePrefix,
+    CcyPair,
+    $Data.k AS Tenor,
+    Order,
+    Type,
+    objectToArray( $Data.v ) AS Data
+  UNWIND Data
+  PROJECT
+    CurvePrefix,
+    concat( CurvePrefix, Tenor, ""-"", $Data.k ) AS CurveKey,
+    CcyPair,
+    Type,
+    Tenor,
+    Order,
+    $Data.k AS Delta,
+    $Data.v AS Value
+  WHERE
+    (Delta == ""10RR""
+      OR Delta == ""10FLY""
+      OR Delta == ""25RR""
+      OR Delta == ""25FLY""
+      OR Delta == ""10C""
+      OR Delta == ""10P""
+      OR Delta == ""25C""
+      OR Delta == ""25P""
+      OR Delta == ""DN"")
+  GROUP BY
+    CurvePrefix,
+    CcyPair,
+    Type,
+    Tenor,
+    Delta,
+    CurveKey
+    LET
+      max( Order ) AS Order,
+      sum( Value ) AS Value
+  JOIN ""PnL-Market"" AS Market ON
+    $_id.CurveKey == _id
+  UNWIND Market
+  ADD
+    Order AS ""_id.Order"",
+    [
+      {
+        ""OpeningCurve"" AS ""k"",
+        $Market.Opening AS ""v""
+      },
+      {
+        ""CurveMove"" AS ""k"",
+        $Market.Move AS ""v""
+      },
+      {
+        ""Value"" AS ""k"",
+        Value AS ""v""
+      }
+    ] AS ""_id.Data""
+  DO 
+  {
+    ""$replaceRoot"": {
+      ""newRoot"": ""$_id""
+    }
+  }
+  UNWIND Data
+  PROJECT
+    CurvePrefix,
+    CcyPair,
+    Tenor,
+    Order,
+    Delta,
+    cond( 
+      if: $Data.k == ""OpeningCurve""
+        OR $Data.k == ""CurveMove"", 
+      then: $Data.k, 
+      else: Type
+    ) AS Type,
+    $Data.v AS Value
+  GROUP BY
+    CurvePrefix,
+    CcyPair,
+    Tenor
+    LET
+      max( Order ) AS Order,
+      addToSet( 
+        Name: concat( Delta, "" "", Type ), 
+        Value: Value
+      ) AS Items
+  PROJECT
+    _id,
+    Order,
+    arrayToObject( zip( 
+        inputs: [
+            $Items.Name,
+            $Items.Value
+          ]
+      ) ) AS tmp
+  ADD
+    _id AS ""tmp._id"",
+    Order AS ""tmp.Order""
+  DO 
+  {
+    ""$replaceRoot"": {
+      ""newRoot"": ""$tmp""
+    }
+  }
+  WHERE
+    'DN OpeningVega' != NULL
+    AND 'DN OpeningVega' != NULL
+  REPLACE ID {
+      $_id.CcyPair AS CcyPair,
+      $_id.Tenor AS Tenor
+    }
+    Order,
+    'DN OpeningCurve',
+    '10RR OpeningCurve',
+    '25RR OpeningCurve',
+    '10FLY OpeningCurve',
+    '25FLY OpeningCurve',
+    '25P OpeningCurve',
+    '10P OpeningCurve',
+    '10C OpeningCurve',
+    '25C OpeningCurve',
+    'DN CurveMove',
+    '10RR CurveMove',
+    '25RR CurveMove',
+    '10FLY CurveMove',
+    '25FLY CurveMove',
+    '25P CurveMove',
+    '10P CurveMove',
+    '10C CurveMove',
+    '25C CurveMove',
+    'DN OpeningVega',
+    '10RR OpeningVega',
+    '25RR OpeningVega',
+    '10FLY OpeningVega',
+    '25FLY OpeningVega',
+    '25P OpeningVega',
+    '10P OpeningVega',
+    '10C OpeningVega',
+    '25C OpeningVega',
+    'DN VegaImpact',
+    '10RR VegaImpact',
+    '25RR VegaImpact',
+    '10FLY VegaImpact',
+    '25FLY VegaImpact',
+    '25P VegaImpact',
+    '10P VegaImpact',
+    '10C VegaImpact',
+    '25C VegaImpact',
+    'DN Vega2ndOrderImpact',
+    '10RR Vega2ndOrderImpact',
+    '25RR Vega2ndOrderImpact',
+    '10FLY Vega2ndOrderImpact',
+    '25FLY Vega2ndOrderImpact',
+    '25P Vega2ndOrderImpact',
+    '10P Vega2ndOrderImpact',
+    '10C Vega2ndOrderImpact',
+    '25C Vega2ndOrderImpact'
+  SORT BY
+        $_id.CcyPair,
+        Order
+  PROJECT EXCLUDE
+    Order
+";
+
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Sync the URL with the current tab page
+            NavigationManager.GetQueryParameters().TryGetValue("tab", out var tabPage);
+            ActivePage = tabPage ?? "Overview";
+            SyncUrl();
+            StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + "doc/afh";
+        if (!string.IsNullOrWhiteSpace(ActivePage))
+            url += $"?tab={Uri.EscapeDataString(ActivePage)}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private string ActivePage
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            SyncUrl();
+        }
+    } = "Overview";
+}

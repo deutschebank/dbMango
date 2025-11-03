@@ -1,0 +1,66 @@
+﻿@using Rms.Risk.Mango.Components.JForms
+@inherits CmdBase
+@attribute [MongoCommand(CmdType.Admin, "Compact", "Collections")]
+
+@if (Parameters != null)
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+    <div class="@Class">
+        <div class="form-row">
+            <JFormCommand CommandTemplate="@CommandTemplate" Template="@_template" CommandChanged="@OnCommandChanged"/>
+        </div>
+        <div class="form-row">
+            <FormJson Value="@(Parameters?.CommandJson)" Class="cmd-json" />
+        </div>
+        <div class="form-row">
+            <FormJson Value="@Result" Class="res-json"/>
+        </div>
+    </div>
+}
+
+@code {
+
+    private readonly TemplateRec _template = new()
+    {
+        Parameters =
+        [
+            new() { Type = "bool", Name = "Dry run",                Path = "$.dryRun",            Icon ="icon-wrench-outline-sm" },
+            new() { Type = "bool", Name = "Force",                  Path = "$.force",             Icon ="icon-wrench-outline-sm" },
+            new() { Type = "int",  Name = "Free space target (MB)", Path = "$.freeSpaceTargetMB", Icon ="icon-alarm-clock-sm"},
+        ]
+    };
+
+    protected override string CommandTemplate => @"{
+    ""compact"" : ""[COLLECTION]"",
+    ""dryRun"" : ""True"",
+    ""force"" : ""False"",
+    ""freeSpaceTargetMB"" : ""20""
+}";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        if (Parameters != null)
+            Parameters.RequiredConnectionType = CommandParams.DatabaseConnectionType.Shard;
+    }
+
+}

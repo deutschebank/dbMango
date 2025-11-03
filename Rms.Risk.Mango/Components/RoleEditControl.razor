@@ -1,0 +1,299 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿<style>
+    .full-width {
+    width: 408px !important;
+    }
+
+    .column-cb {
+        min-width: 30px;
+        width: 30px;
+    }
+
+    .min-w {
+        min-width: 100px;
+    }
+
+</style>
+
+<EditForm EditContext="EditContext">
+    <div class="d-flex flex-row fit-content">
+        <div class="fit-content mr-3">
+            <div class="form-row fit-content">
+                <FormItemText   Class="mr-2" Name="Role name"     Enabled="@IsNew" @bind-Value="Value.RoleName" Icon="icon-document-blank-sm" />
+                @if (string.IsNullOrWhiteSpace(Value.Db))
+                {
+                    <FormItemText Class="mr-2" Name="Create within" Enabled="false" Value="Builtin" Icon="icon-annotate-sm" />
+                }
+                else
+                {
+                    <FormItemSelect Class="mr-2" Name="Create within" Enabled="@IsNew" @bind-Value="Value.Db" Icon="icon-annotate-sm" Values="@AllDatabases" />
+                }
+            </div>
+
+            <div class="form-row fit-content">
+                <RolesSelector Value="@Value.Roles"
+                               AllRoles="@AllRoles" 
+                               IsEnabled="@IsEnabled" />
+            </div>
+
+        </div>
+        <div class="fit-content">
+            <div class="d-flex flex-column">
+
+                <div class="form-row fit-content mb-3">
+                    <TableControl   Class="table table-hover table-striped table-forge table-forge-striped mr-3" 
+                                    Items="@Value.Privileges" 
+                                    PageSize="25"
+                                    Selectable="true"
+                                    SelectionChanged="@SelectedPrivilegeChanged"
+                                    Filterable="true">
+            
+                        <TableColumnControl Name="Db" Field="Db" Class="column-name">
+                            <Template Context="ctx">
+                                @if (ctx.Row is PrivilegeModel privilege)
+                                {
+                                    if (privilege.Resource.AnyResource)
+                                    {
+                                        <span class="badge badge-secondary mr-1">Any</span>
+                                    }
+                                    else if (privilege.Resource.Cluster)
+                                    {
+                                        <span class="badge badge-secondary mr-1">Cluster</span>
+                                    }
+                                    else if (
+                                        string.IsNullOrWhiteSpace(privilege.Resource.Db) 
+                                        && string.IsNullOrWhiteSpace(privilege.Resource.Collection) 
+                                        && !string.IsNullOrWhiteSpace(privilege.Resource.Buckets)
+                                    )
+                                    {
+                                        <span class="badge badge-secondary mr-1">Buckets</span>
+                                    }
+                                    else
+                                    {
+                                        @privilege.Resource.Db
+                                    }
+                                }
+                            </Template>
+                        </TableColumnControl> 
+
+                        <TableColumnControl Name="Collection" Field="Collection" Class="column-name" >
+                            <Template Context="ctx">
+                                @if (ctx.Row is PrivilegeModel privilege)
+                                {
+                                    @privilege.Resource.Collection
+                                }
+                            </Template>
+                        </TableColumnControl>
+
+                        <TableColumnControl Name="Actions" Field="" >
+                            <Template Context="ctx">
+                                @foreach (var action in ((PrivilegeModel)ctx.Row).Actions)
+                                {
+                                    <span class="badge badge-secondary mr-1">@action</span>
+                                }
+                            </Template>
+                        </TableColumnControl>
+                    </TableControl>
+                </div>
+
+                <div class="form-row fit-content mb-3">
+                    <FormButton Name="Add"    Enabled="IsEnabled" OnClick="AddPrivileges"    Icon="icon-plus-sm" />
+                    <FormButton Name="Delete" Enabled="IsEnabled" OnClick="DeletePrivileges" Icon="icon-trash-sm" />
+                </div>
+
+                <div class="form-row fit-content mb-3">
+                    <FormItemText Class="mr-2" Enabled="IsEnabled" Name="Database"   @bind-Value="SelectedPrivilege.Resource.Db" Icon="icon-database-sm" />
+                    <FormItemText Class="mr-2" Enabled="IsEnabled" Name="Collection" @bind-Value="SelectedPrivilege.Resource.Collection" Icon="icon-folder-outline-sm" />
+                </div>
+
+                <div class="form-row fit-content mb-3">
+                    <FormItemCheckBox Class="mr-2" Enabled="IsEnabled" Name="AnyResource" @bind-Value="SelectedPrivilege.Resource.AnyResource" Icon="icon-number-outline"/>
+                    <FormItemCheckBox Class="mr-2" Enabled="IsEnabled" Name="Cluster" @bind-Value="SelectedPrivilege.Resource.Cluster" Icon="icon-number-outline" />
+                </div>
+
+                <div class="form-row fit-content mb-3">
+                    <FormItemText Class="full-width" Enabled="IsEnabled" Name="Buckets" @bind-Value="SelectedPrivilege.Resource.Buckets" Icon="icon-layers-sm" />
+                </div>
+
+                <div class="form-row fit-content">
+                    <TableControl   Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3" 
+                                    Items="@SelectableActions" 
+                                    PageSize="25" 
+                                    Filterable="true">
+            
+                        <TableColumnControl Name="Name" Field="Name" Class="column-name"/>
+
+                        <TableColumnControl Name="IsSelected" Field="IsSelected" Class="column-cb">
+                            <Template Context="ctx">
+                                <FormItemCheckBox @bind-Value="@(((SelectableString)ctx.Row).IsSelected)" Enabled="@IsEnabled" LabelOn="" LabelOff=""/>
+                            </Template>
+                        </TableColumnControl>
+                    </TableControl>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+
+</EditForm>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string              Name       { get; set; } = $"newRole{++_count}";
+
+    [Parameter]
+    public RoleInfoModel       Value
+    {
+        get => field;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateSelectable();
+        }
+    } = new();
+
+    [Parameter]
+    public List<RoleInDbModel> AllRoles
+    {
+        get;
+        set 
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateSelectable();
+        }
+    } = [];
+
+    [Parameter]
+    public List<string>        AllActions
+    {
+        get;
+        set 
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateSelectable();
+        }
+    } = [];
+
+    [Parameter] public List<string> AllDatabases { get; set; } = [];
+    [Parameter] public bool IsEnabled  { get; set; } = true;
+    [Parameter] public bool IsNew      { get; set; }
+
+    private static int           _count;
+
+    private EditContext   EditContext => _editContext!;
+    private EditContext?  _editContext;
+
+    public class SelectableString(string name, bool isSelected, Action<SelectableString, bool> update)
+    {
+        public override string ToString() => $"[{(IsSelected ? "X" : " ")}] {Name} {Db}";
+
+        public string Name { get; } = name;
+        public string Db   { get; init; } = string.Empty;
+
+        public bool IsSelected
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                update(this, field);
+            }
+        } = isSelected;
+    }
+
+    private List<SelectableString> SelectableActions { get; set; } = [];
+
+    private PrivilegeModel         SelectedPrivilege
+    {
+        get;
+        set
+        {
+            field = value;
+            UpdateSelectable();
+        }
+    } = new();
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(this);
+    }
+
+    private void UpdateSelectable()
+    {
+        SelectableActions = AllActions
+           .Select(x => new SelectableString
+                   (
+                       x,
+                       SelectedPrivilege.Actions.Contains(x),
+                       UpdateAllowedActions
+                   ))
+           .ToList();
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateAllowedActions(SelectableString name, bool isSelected)
+    {
+        if (isSelected)
+        {
+            if (!SelectedPrivilege.Actions.Contains(name.Name))
+                SelectedPrivilege.Actions.Add(name.Name);
+        }
+        else
+        {
+            SelectedPrivilege.Actions.Remove(name.Name);
+        }
+    }
+
+    private async Task SelectedPrivilegeChanged((dynamic row, string col) arg)
+    {
+        if (arg.row is not PrivilegeModel privilege)
+            return;
+
+        SelectedPrivilege = privilege;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task AddPrivileges()
+    {
+        var newPrivilege = new PrivilegeModel();
+        Value.Privileges.Add(newPrivilege);
+        SelectedPrivilege = newPrivilege;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task DeletePrivileges()
+    {
+        Value.Privileges.Remove(SelectedPrivilege);
+        SelectedPrivilege = Value.Privileges.FirstOrDefault() ?? new PrivilegeModel();
+        return InvokeAsync(StateHasChanged);
+    }
+
+}

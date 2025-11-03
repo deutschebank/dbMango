@@ -1,0 +1,546 @@
+﻿@page "/user/aggregate"
+@page "/user/aggregate/{DatabaseStr}/{CollectionStr}"
+@page "/user/aggregate/{DatabaseStr}/{DatabaseInstanceStr}/{CollectionStr}"
+@attribute [Authorize]
+@using MongoDB.Bson.Serialization
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        /* height: 100px; */
+        position: relative;
+        width: 100%;
+    }
+
+    .res-field {
+        width: 100%;
+        height: calc(100vh - 150px);
+        overflow: auto;
+        background-color: #1d2a3b;
+    }
+
+    pre {
+        width: 100%;
+        height: 100%;
+        font-size: 10pt;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+
+    .CodeMirror {
+        height: 150px;
+    }
+</style>
+
+<h3 class="mt-3">Aggregate: @SelectedCollection</h3>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <FormItemSelect   Enabled="@IsReady" Class="mr-2" Name="Collection"     @bind-Value="SelectedCollection" Values="@Collections" Icon="icon-folder-outline-sm" />
+            <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)"  @bind-Value="Timeout"   InputType="number" Icon="icon-clock-sm"/>
+            <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number" Icon="icon-download-selected-sm" />
+            <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Show as Json"   @bind-Value="ShowAsJson"                   Icon="icon-tos-sm" />
+            <div class="flex-stack-vertical">
+                <div class="flex-stack-horizontal">
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Run" Icon="icon-running-man-sm" OnClick="Run" IsPrimary="true" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Explain" Icon="icon-layers-sm" OnClick="Explain" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Format" Icon="icon-pencil-sm" OnClick="Format" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Copy" Icon="icon-duplicate-document-sm" OnClick="Copy" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Paste" Icon="icon-paste" OnClick="Paste" IsPrimary="false" />
+                    </div>
+                </div>
+                <div class="flex-stack-horizontal">
+                    <a href="https://www.mongodb.com/docs/manual/reference/command/aggregate/" target="_blank" class="mr-1">See documentation...</a>
+                    <a href="https://www.mongodb.com/docs/manual/reference/operator/aggregation-pipeline/#std-label-aggregation-pipeline-operator-reference" target="_blank">Stages</a>
+                </div>
+            </div>
+        </div>
+
+    </EditForm>
+
+    <div class="row">
+        <div class="col-6">
+            @for (var i = 0; i < Stages.Count; i++)
+            {
+                var index = i;
+
+                <div class="flex-stack-horizontal flex-align-end">
+                    <FormItemSelect Enabled="@IsReady" @bind-Value:get="@GetStageType(index)" @bind-Value:set="@(x => SetStageType(index, x))" Values="@_availableStages" />
+                    <button type="button" class="btn btn-secondary" @onclick="() => AddStageAfter(index)" title="Add row">
+                        <span class="ui-icon-font icon-plus-sm"></span>
+                    </button>
+                    @if (index > 0)
+                    {
+                        <button type="button" class="btn btn-secondary" @onclick="() => MoveStageUp(index)" title="Up">
+                            <span class="ui-icon-font icon-arrow-up-sm"></span>
+                        </button>
+                    }
+                    @if (index < Stages.Count - 1)
+                    {
+                        <button type="button" class="btn btn-secondary" @onclick="() => MoveStageDown(index)" title="Down">
+                            <span class="ui-icon-font icon-arrow-down-sm"></span>
+                        </button>
+                    }
+                    @if (index > 0)
+                    {
+                        <button type="button" class="btn btn-secondary" @onclick="() => RemoveStage(index)" title="Remove row">
+                            <span class="ui-icon-font icon-trash-sm"></span>
+                        </button>
+                    }
+                    <FormItemCheckBox @bind-Value="Stages[index].Use"/>
+                </div>
+
+                <div class="js-field">
+                    <FormCodeEditor @bind-Text="Stages[index].Text" MediaType="application/x-json" Class=""/>
+                </div>
+            }
+        </div>
+
+        <div class="col-6">
+            @if (ShowAsJson)
+            {
+                <FormJson Class="res-field row" Value="@Result"/>
+            }
+            else
+            {
+                <SimplePivotComponent PivotName="find"
+                    CollectionName="find"
+                    PivotData="@ResultPivot"
+                    />
+            }
+        </div>
+    </div>
+</AuthorizedOnly>
+
+@code {
+    [Parameter] public string? DatabaseStr   { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [Parameter] public string? CollectionStr { get; set; }
+
+    private class StageRec
+    {
+        public string Text { get;  set; } = @"{
+  ""_id"": {
+    ""$ne"": """"
+  }
+}";
+        public bool   Use  { get; set; } = true;
+        public string Type { get; set; } = "match";
+    }
+
+    private List<StageRec> Stages { get; set; } = [new ()];
+
+    private static readonly string[] _availableStages =
+    new[]{
+        "addFields",
+        "bucket",
+        "bucketAuto",
+        "changeStream",
+        "changeStreamSplitLargeEvent",
+        "collStats",
+        "count",
+        "currentOp",
+        "densify",
+        "documents",
+        "facet",
+        "fill",
+        "geoNear",
+        "graphLookup",
+        "group",
+        "indexStats",
+        "limit",
+        "listLocalSessions",
+        "listSampledQueries",
+        "listSearchIndexes",
+        "listSessions",
+        "lookup",
+        "match",
+        "merge",
+        "out",
+        "planCacheStats",
+        "project",
+        "querySettings",
+        "queryStats",
+        "redact",
+        "replaceRoot",
+        "replaceWith",
+        "sample",
+        "search",
+        "searchMeta",
+        "set",
+        "setWindowFields",
+        "shardedDataDistribution",
+        "skip",
+        "sort",
+        "sortByCount",
+        "unionWith",
+        "unset",
+        "unwind",
+        "vectorSearch",
+    }.OrderBy(x => x).ToArray();
+
+    private IReadOnlyCollection<string> Collections        { get; set; } = [];
+
+    private string                      SelectedCollection
+    {
+        get => UserSession.Collection;
+        set
+        {
+            if (UserSession.Collection == value)
+                return;
+            UserSession.Collection = value;
+            SyncUrl();
+        }
+    }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+
+    private string Timeout     { get; set; } = "20";
+    private string FetchSize   { get; set; } = "10";
+    private bool   IsReady     { get; set; }
+    private bool   ShowAsJson  { get; set; }
+
+    private string              Result      { get; set; } = "{}";
+    private List<BsonDocument>  ResultBson  { get; set; } = [];
+    public  ArrayBasedPivotData ResultPivot { get; set; } = new([]);
+
+    private EditContext?   _editContext;
+    private EditContext    EditContext => _editContext!;
+
+    protected override void OnInitialized()
+    {
+        _editContext = new (this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        if (string.IsNullOrWhiteSpace(CollectionStr))
+            CollectionStr = SelectedCollection;
+        else
+            SelectedCollection = CollectionStr;
+        SyncUrl();
+
+        var text = await JsRuntime.LoadFromLocalStorage("Aggregate");
+        if ( !string.IsNullOrWhiteSpace(text))
+            UpdateStages(text);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var admin = UserSession.MongoDbAdmin;
+
+                Collections = await admin.ListCollections();
+                if (!Collections.Contains(SelectedCollection))
+                    SelectedCollection = Collections.FirstOrDefault() ?? "";
+
+                IsReady = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception e)
+            {
+                await Display(e);
+            }
+        });
+    }
+
+    private async Task Format()
+    {
+        foreach (var stage in Stages)
+        {
+            if (!BsonDocument.TryParse(stage.Text, out var doc))
+                continue;
+            stage.Text = doc.ToJson(new() { Indent = true });
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task Run()     => Run(false);
+    private Task Explain() => Run(true);
+
+    private async Task Run(bool explain)
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            var text = GetCombinedPipelineText();
+
+            await JsRuntime.SaveToLocalStorage("Aggregate", text, cts.Token);
+
+            var res = explain
+                ? await RunExplain(text, cts.Token)
+                : await RunAggregate(text, cts.Token)
+                ;
+            ResultPivot = res.Item1;
+            ResultBson  = res.Item2;
+
+            await Display(ResultBson);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string GetCombinedPipelineText()
+    {
+        var text = "[" + string.Join(",", Stages.Where(x => x.Use && !string.IsNullOrWhiteSpace(x.Text)).Select(CombineStage)) + "]";
+        var arr  = BsonSerializer.Deserialize<BsonArray>(text);
+        return arr.ToJson(new() { Indent = true });
+    }
+
+    private string CombineStage(StageRec arg) => $"{{ ${arg.Type} : {arg.Text} }}";
+
+    private Task Display(Exception e)
+    {
+        ShowAsJson = true;
+        Result     = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task Display(IEnumerable<BsonDocument> res)
+    {
+        Result = res.ToJson(new() { Indent = true });
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunExplain(string text, CancellationToken token)
+    {
+        var service = UserSession.MongoDb;
+        var command = $@"{{
+    ""aggregate"" : ""{SelectedCollection}"",
+    ""pipeline"" : {text},
+    ""cursor"" : {{}}
+}}";
+        var res = await service.ExplainAsync(command, token);
+        ShowAsJson = true;
+        return (ArrayBasedPivotData.NoData, [res]);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunAggregate(string text, CancellationToken token)
+    {
+        var service = UserSession.MongoDb;
+        var results = service.AggregateAsyncRaw(text, int.Parse(FetchSize), token: token);
+
+        var fieldMap = new ConcurrentDictionary<string, FieldMapping>
+        {
+            ["find"] = new(false)
+        };
+
+        var (pd, list) = await MongoDbDataSource.FetchPivotData(
+            "find",
+            "find",
+            fieldMap,
+            results,
+            null,
+            true,
+            int.Parse(FetchSize),
+            false,
+            token);
+
+        if (list.Count == 0)
+            list.Add(BsonDocument.Parse(@$"{{""Result"": ""No data fetched from {SelectedCollection}""}}"));
+
+        return (pd, list);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/aggregate/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        url += $"/{SelectedCollection}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task AddStageAfter(int i)
+    {
+        Stages.Insert(i+1,new());
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RemoveStage(int i)
+    {
+        if (i == 0)
+            return;
+
+        Stages.RemoveAt(i);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task MoveStageUp(int i)
+    {
+        if (i == 0)
+            return;
+
+        var item = Stages[i];
+        Stages.RemoveAt(i);
+        Stages.Insert(i - 1, item);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task MoveStageDown(int i)
+    {
+        if (i >= Stages.Count-1)
+            return;
+
+        var item = Stages[i];
+        Stages.RemoveAt(i);
+        Stages.Insert(i+1, item);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Copy()
+    {
+        var text = GetCombinedPipelineText();
+
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", text);
+    }
+
+    private async Task Paste()
+    {
+        try
+        {
+            Result = "";
+            await InvokeAsync(StateHasChanged);
+
+            var text = await JsRuntime.InvokeAsync<string>("DashboardUtils.PasteFromClipboard");
+            UpdateStages(text);
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+    }
+
+    private void UpdateStages(string text)
+    {
+        try
+        {
+            text = string.IsNullOrWhiteSpace(text)
+                ? ""
+                : text.Trim()
+                ;
+
+            if (!text.StartsWith("[") || text.StartsWith("]"))
+                return;
+
+            var arr = BsonSerializer.Deserialize<BsonArray>(text);
+            if (arr == null || arr.Count == 0)
+                return;
+
+            var newStages = new List<StageRec>();
+            foreach (var stage in arr.OfType<BsonDocument>().Where(x => x.ElementCount == 1))
+            {
+                var type = stage.ElementAt(0).Name;
+                var txt = stage.ElementAt(0).Value.ToJson(new(){Indent = true});
+                newStages.Add(new() { Type = type[1..], Text = txt, Use = true });
+            }
+
+            Stages.Clear();
+            Stages.AddRange(newStages);
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+
+        if ( Stages.Count == 0 )
+            Stages.Add(new());
+    }
+
+    private string GetStageType(int index) => Stages[index].Type;
+
+    private void SetStageType(int index, string value)
+    {
+        Stages[index].Type = value;
+    }
+
+}

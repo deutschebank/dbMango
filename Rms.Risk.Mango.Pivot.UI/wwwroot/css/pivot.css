@@ -1,0 +1,127 @@
+.form-mw {
+    min-width: 150pt;
+}
+
+.t-zero {
+    color: #586d85;
+    text-align: right;
+    cursor: pointer;
+}
+.t-neg {
+    color: red;
+    text-align: right;
+    cursor: pointer;
+}
+.t-pos {
+    color: lightgreen;
+    text-align: right;
+    cursor: pointer;
+}
+
+.tiny-separator {
+    border-left: #2f7ee8;
+    border-left-width: 1px;
+    border-left-style: solid;
+}
+
+.tiny-button {
+    width: 16pt !important;
+    height: 16pt !important;
+    padding: 0;
+    border-left: none;
+}
+
+.hidden {
+    display: none;
+}
+
+.filter-list {
+    min-width: 350px;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+@media only screen and (max-width: 500px) {
+    .tiny-separator {
+        display: none;
+    }
+
+    .filter-list {
+        display: none;
+    }
+}
+
+.last-updated {
+     padding-top: 5px;
+     font-size: smaller;
+     color: #586d85;
+     text-align: right;
+ }
+
+.pivot-navigator {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap
+}
+
+.datepicker-control {
+    cursor: pointer;
+    padding: 5px 10px;
+    border: 1px solid #556880;
+    line-height: 14px;
+    border-radius: 2px;
+    padding-top: 3px !important;
+}
+
+.table-forge btn {
+    color: #FFFFFF;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.table-forge td:hover {
+    border-left-color: #2f7ee8 !important;
+    border-left-width: 1px !important;
+    border-left-style: solid !important;
+}
+
+.table-forge th {
+    height: 1px;
+}
+
+.table-forge td {
+    padding: 1px;
+    vertical-align: middle;
+    width: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left-width: 1px !important;
+    border-left-style: solid !important;
+    border-left-color: transparent;
+}
+
+.table-forge-top-align td {
+    vertical-align: top !important;
+}
+
+.table-forge th:hover {
+    background-color: #213e69;
+}
+
+.table-forge-striped tr:nth-child(even) {
+    background-color: #1f2d3f;
+}
+
+.table-forge td .tc-row-number {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.table-nowrap{
+    white-space: nowrap;
+}
+
+.table-forge-hover tbody tr:hover {
+    background-color: #213e69 !important;
+}

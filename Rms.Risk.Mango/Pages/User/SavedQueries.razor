@@ -1,0 +1,351 @@
+﻿@page "/user/saved-queries"
+@page "/user/saved-queries/{DatabaseStr}"
+@page "/user/saved-queries/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<h3>Saved queries</h3>
+
+<style>
+    .tree-container {
+        height: calc(100vh - 80px);
+        width: 100%;
+        overflow: auto;
+    }
+
+    .tab-container {
+        width: 100%;
+        height: calc(100vh - 80px);
+        overflow: auto;
+    }
+
+    .tab-page {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .pivot-settings-tab {
+        width: 100%;
+        height: calc(100vh - 182px);
+        overflow: auto;
+    }
+
+    ul {
+        padding-left: 10px !important;
+    }
+</style>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+
+    <SplitPanel Orientation="horizontal" InitialSplit="0.3">
+        <First>
+            <TreeComponent TItem="GroupedPivot" RootNodes="@_rootNodes" OnNodeChanged="@HandleNodeChanged" @bind-SelectedNode="SelectedPivotNode"/>
+        </First>
+        <Second>
+            <div class="tab-container">
+                <TabControl PersistAllTabs="true">
+                    <TabPage Text="Pivot">
+                        <div class="pivot-navigator">
+                            <PivotNavButtonsControl
+                                Navigation="@_navigation"
+                                IsRefreshEnabled="@IsRefreshEnabled"
+                                IsExportEnabled="@IsExportEnabled"
+                                RefreshPivotTriggered="@OnRefreshPivot"
+                                CopyCsvTriggered="@OnCopyCsv"
+                                ExportCsvTriggered="@OnExportCsv"
+                                @bind-UseCache="@UseCache"
+                            />
+                            <div class="fit-content">
+                                <PivotTableComponent @ref="PivotTable"
+                                                     Collections="@_collections"
+                                                     @bind-PivotData="PivotData"
+                                                     @bind-CurrentPivot="CurrentPivot"
+                                                     SelectedCollectionNode="@SelectedCollectionNode"
+                                                     SelectedPivotNode="@SelectedPivotNode?.Data"
+                                                     Rows="@Rows"
+                                                     @bind-UseCache="UseCache"
+                                                     ExtraFilter="@GetExtraFilter()"
+                                                     PivotService="@UserSession.PivotDataSource"
+                                                     Navigation="@_navigation"
+                                                     @bind-IsExportEnabled="IsExportEnabled"
+                                                     @bind-LastRefresh="LastRefresh"
+                                                     @bind-LastRefreshElapsed="LastRefreshElapsed" />
+                            </div>
+
+                        </div>
+                    </TabPage>
+                    <TabPage Text="Settings">
+                        <PivotSettingsControl Vertical="false"
+                                              Pivot="SelectedPivotNode?.Data?.Pivot"
+                                              SelectedCollectionNode="@SelectedCollectionNode"
+                                              PivotService="@UserSession.PivotDataSource"
+                        />
+                    </TabPage>
+                </TabControl>
+            </div>
+        </Second>
+    </SplitPanel>
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal               { get; set; } = null!;
+    [Parameter]          public string?       DatabaseStr         { get; set; }
+    [Parameter]          public string?       DatabaseInstanceStr { get; set; }
+
+    private readonly List<TreeNode<GroupedPivot>>          _rootNodes          = [];
+    private          Navigation<NavigationUnit>            _navigation         = null!;
+    private          Dictionary<string, GroupedCollection> _groupedCollections = new();
+
+    private bool     IsRefreshEnabled => SelectedPivotNode != null && SelectedPivotNode.Data != null;
+
+    private bool     IsExportEnabled    { get; set; } = true;
+    private DateTime LastRefresh        { get; set; }
+    private TimeSpan LastRefreshElapsed { get; set; }
+
+    private PivotTableComponent                   PivotTable        { get; set; } = null!;
+    private bool                                  UseCache          { get; set; } = true;
+    private IPivotedData?                         PivotData         { get; set; }
+    private PivotDefinition?                      CurrentPivot      { get; set; }
+    private int                                   Rows              { get; set; } = 35;
+
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    public TreeNode<GroupedPivot>? SelectedPivotNode
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            //if (field?.Data != null)
+            //{
+            //    // If a pivot is selected, navigate to the pivot page
+            //    var url = NavigationManager.BaseUri + $"user/pivot/{Database}/{field.Data.Collection}/{field.Data.Name}/{UserSession.Department}";
+            //    JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+            //}
+            //else
+            //{
+            //    // If no pivot is selected, just update the state
+            //    StateHasChanged();
+            //}
+        }
+    }
+
+    // Extracts the name of the direct descendant of the root parent (Base)
+    private TreeNode<GroupedPivot>? BaseNode
+    {
+        get
+        {
+            var node = SelectedPivotNode;
+            if (node == null) return null;
+            // Traverse up to the root
+            while (node.Parent != null && node.Parent.Parent != null)
+            {
+                node = node.Parent;
+            }
+            // node is now the direct child of root (i.e., Base)
+            return node.Parent != null ? node : null;
+        }
+    }
+
+    private string? Base => BaseNode?.Label.Split(":").FirstOrDefault();
+    private string? Collection => BaseNode?.Label.Split(":").LastOrDefault();
+    private List<GroupedCollection> _collections = [];
+
+    // Concatenation of names of nodes between Collection and SelectedPivotNode, excluding both
+    private string Path
+    {
+        get
+        {
+
+            // Now, walk from SelectedPivotNode up to Collection, excluding both
+            var names = new List<string>();
+            var temp = SelectedPivotNode;
+            var baseNode = BaseNode;
+            while (temp != null && temp != baseNode)
+            {
+                if (temp != SelectedPivotNode) // Exclude SelectedPivotNode itself
+                    names.Insert(0, temp.Label);
+                temp = temp.Parent;
+            }
+
+            return string.Join("/", names);
+        }
+    }
+
+    private GroupedCollection? SelectedCollectionNode
+    {
+        get
+        {
+            if (SelectedPivotNode == null || BaseNode == null)
+                return null;
+            // Find the grouped collection that matches the current collection name
+            _groupedCollections.TryGetValue(BaseNode.Label, out var groupedCollection);
+            return groupedCollection;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        _navigation = new(PivotTable.Navigate);
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = UserSession.Database;
+        else
+            UserSession.Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = UserSession.DatabaseInstance;
+        else
+            UserSession.DatabaseInstance = DatabaseInstanceStr;
+
+        var cts         = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var ds          = UserSession.PivotDataSource;
+        _collections = await ds.GetAllMeta(token: cts.Token);
+
+        if (_collections.Count == 0)
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Problem", "No collections found that have corresponding -Meta collections.");
+            return;
+        }
+
+        _groupedCollections = _collections
+            .Where(x => !x.IsGroup)
+            .ToDictionary(x => x.CollectionNameWithPrefix, x => x);
+
+        var root = new TreeNode<GroupedPivot>()
+        {
+            Label = "Saved queries",
+            Data = null,
+            Parent = null,
+            IsExpanded = true
+        };
+
+        PopulateRootNodes(ds, root, _collections, cts.Token);
+        _rootNodes.Add(root);
+
+        SyncUrl();
+        StateHasChanged();
+    }
+
+    private static void PopulateRootNodes(IPivotTableDataSource ds, TreeNode<GroupedPivot> root, List<GroupedCollection> collections, CancellationToken token)
+    {
+        // Clear any existing children
+        root.Children.Clear();
+
+        foreach (var collection in collections.Where( x => !x.IsGroup))
+        {
+            // Each collection becomes a child node under the root
+            var node = new TreeNode<GroupedPivot>
+            {
+                Label = collection.CollectionNameWithoutPrefix,
+                Data       = null,
+                Parent     = root,
+                IsExpanded = false
+            };
+            root.Children.Add(node);
+
+            // Group pivots by GroupName (null or empty group names go under "Ungrouped")
+            var groupedPivots = collection.Pivots
+               .Where(x => !x.IsGroup)
+               .GroupBy(p => string.IsNullOrWhiteSpace(p.Pivot.Group) ? "Ungrouped" : p.Pivot.Group)
+               .OrderBy(g => g.Key);
+
+            foreach (var group in groupedPivots)
+            {
+                // Create a group node under the collection node
+                var groupNode = new TreeNode<GroupedPivot>
+                {
+                    Label      = group.Key,
+                    Data       = null,
+                    Parent     = root.Children.Last(), // The collection node just added
+                    IsExpanded = false
+                };
+                root.Children.Last().Children.Add(groupNode);
+
+                // Add all pivots in this group as children of the group node
+                foreach (var pivot in group.OrderBy(x => x.Pivot.Name))
+                {
+                    var childNode = new TreeNode<GroupedPivot>
+                    {
+                        Label      = pivot.Pivot.Name,
+                        Data       = pivot,
+                        Parent     = groupNode,
+                        IsExpanded = false
+                    };
+                    groupNode.Children.Add(childNode);
+                }
+            }
+        }
+    }
+
+    private async Task HandleNodeChanged(TreeNode<GroupedPivot> node)
+    {
+        if (node.Data == null)
+        {
+            // If the node has no data, it means it's a collection or group node, so we don't do anything
+            return;
+        }
+        node.Data.Pivot.Name = node.Label;  // Update the pivot name to match the node label
+        await InvokeAsync(StateHasChanged); // Refresh the UI
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/saved-queries/{Database}";
+        if (!string.IsNullOrWhiteSpace(UserSession.DatabaseInstance))
+            url += $"/{UserSession.DatabaseInstance}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private readonly FilterExpressionTree.ExpressionGroup _noFilter = new ();
+
+    private FilterExpressionTree.ExpressionGroup GetExtraFilter() => _noFilter;
+
+
+    private Task OnRefreshPivot() => PivotTable.RunPivot();
+    private Task OnCopyCsv()      => PivotTable.CopyCsv();
+
+    private Task OnExportCsv() => Task.CompletedTask; //PivotTable.ExportCsv(Uri.EscapeDataString($"{CobStr}-{Department}-{Pivot?.Pivot.Name}.csv"));
+
+}

@@ -1,0 +1,293 @@
+﻿@page "/user/logs"
+@page "/user/logs/{DatabaseStr}"
+@page "/user/logs/{DatabaseStr}/{DatabaseInstanceStr}"
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@attribute [Authorize]
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .chart-display {
+        width: 90vw;
+        height: 90vh;
+    }
+</style>
+
+<h3 class="mt-3">Logs</h3>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+
+    <div class="form-row">
+        <FormItemSelect Class="mr-2" Name="Category"      @bind-Value="_state.LogCategory" Values="@LogCategories" Enabled="@IsReady" />
+        <FormItemText   Class="mr-2" Name="Rows per page" @bind-Value="RowsPerPageStr" InputType="number" Icon="icon-download-selected-sm" />
+        <div class="form-group">
+            <FormButton Enabled="@IsReady" Name="Fetch" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
+        </div>
+    </div>
+
+    @if (Error != null)
+    {
+        <ExceptionControl Exception="@Error"/>
+    }
+
+    <div class="mr-3 ml-3">
+        <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@Result" PageSize="@_state.RowsPerPage" Filterable="true">
+            <TableColumnControl Name="Time" Field="Time">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Time.ToString("yyyy-MM-dd HH:mm:ss.fff"))
+                    </span>
+                </Template>
+            </TableColumnControl>
+            <TableColumnControl Name="Severity" Field="Severity" Filterable="true" FilterDropdownValues="@AvailableSeverity">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Severity)
+                    </span>
+                </Template>
+            </TableColumnControl>          
+            <TableColumnControl Name="Category" Field="Category" Filterable="true" FilterDropdownValues="@AvailableCategories">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Category)
+                    </span>
+                </Template>
+            </TableColumnControl>          
+            <TableColumnControl Name="Id" Field="Id">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Id)
+                    </span>
+                </Template>
+            </TableColumnControl>        
+            <TableColumnControl Name="Svc" Field="Svc">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Svc)
+                    </span>
+                </Template>
+            </TableColumnControl>       
+            <TableColumnControl Name="Ctx" Field="Ctx">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Ctx)
+                    </span>
+                </Template>
+            </TableColumnControl>  
+            <TableColumnControl Name="Msg" Field="Msg">
+                <Template>
+                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
+                        @(((LogRecordModel)context.Row).Msg)
+                    </span>
+                </Template>
+            </TableColumnControl>            
+            <TableColumnControl Name="Attributes" Field="Attr" Template="@GetAttributes" />
+        </TableControl>
+    </div>
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+
+    private Exception?           Error  { get; set; }
+    private List<LogRecordModel> Result { get; set; } = new();
+    private List<string>         AvailableSeverity = [];
+    private List<string>         AvailableCategories = [];
+
+    private string RowsPerPageStr
+    {
+        get => _state.RowsPerPage.ToString();
+        set
+        {
+            if (int.TryParse(value, out var newValue))
+                _state.RowsPerPage = newValue;
+        }
+    }
+
+    private string[] LogCategories { get; set; } = ["global"];
+    private bool IsReady           { get; set; } = false;
+
+    private class LogsPageState
+    {
+        public string LogCategory { get; set; } = "global";
+        public int    RowsPerPage { get; set; } = 28;
+    }
+
+    private LogsPageState _state = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+
+        var state = await JsRuntime.LoadFromLocalStorage("Logs");
+        if (state != null)
+        {
+            _state = JsonUtils.FromJson<LogsPageState>(state) ?? new();
+        }
+
+        try
+        {
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            LogCategories = await UserSession.MongoDbAdminForAdminDatabase.GetLogCategories(cts.Token);
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+
+        StateHasChanged();
+        _ = Task.Run(Run);
+    }
+
+    private async Task Run()
+    {
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            IsReady = false; // Indicate that the process is starting
+            await InvokeAsync(() => JsRuntime.SaveToLocalStorage("Logs", JsonUtils.ToJson(_state), cts.Token));
+            await InvokeAsync(StateHasChanged);
+
+            var res = await UserSession.MongoDbAdminForAdminDatabase.GetLogs(token:cts.Token);
+            await Display(res);
+        }
+        catch (Exception e)
+        {
+            IsReady = true; // Indicate that the process has finished
+            await Display(e);
+        }
+        finally
+        {
+            IsReady = true; // Indicate that the process has finished
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+
+    private Task Display(List<LogRecordModel> model)
+    {
+        Error  = null;
+        
+        model.Reverse();
+        Result = model;
+
+        AvailableCategories = model
+            .Select(x => x.Category)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        AvailableSeverity = model
+            .Select(x => x.Severity)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+    private Task Display(Exception e)
+    {
+        Error = e;
+        Result.Clear();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/logs/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private RenderFragment GetAttributes((dynamic Row, TableColumnControl Column) value)
+    {
+        LogRecordModel doc = value.Row;
+
+        var json = doc.Attr?.ToJson() ?? "";
+        if (json.Length > 100)
+            json = json[..100] + "...";
+
+        return @<span @onclick="@(() => OnCellClick(doc))">@json</span>;
+    }
+
+    private async Task OnCellClick(LogRecordModel doc)
+    {
+        var json = doc.ToJson(new () { Indent = true });
+
+        await ModalDialogUtils.ShowTextDialog(
+            Modal,
+            "Log event",
+            json, // Pass the JSON representation instead of the doc
+            "Press F11 to enter fullscreen mode. Use ESC to exit it."
+        );
+    }
+
+}

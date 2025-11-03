@@ -1,0 +1,312 @@
+﻿@page "/user/audit"
+@page "/user/audit/{DatabaseStr}"
+@page "/user/audit/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+@using Rms.Risk.Mango.Services.Audit
+
+@inject NavigationManager     NavigationManager
+@inject IUserSession           UserSession
+@inject IJSRuntime            JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        height: 300px;
+        position: relative;
+    }
+
+    .res-field {
+        width: 100vw;
+        height: calc(100vh - (150px + 300px));
+        overflow: auto;
+    }
+
+    pre {
+        width: 100%;
+        height: 100%;
+        font-size: 10pt;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+</style>
+
+<h3 class="mt-3">Audit</h3>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <FormItemDate     Enabled="@IsReady" Class="mr-2" Name="Date range"     @bind-StartDate="StartDate" @bind-EndDate="EndDate" SelectDateRange="true"/>
+            <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number" Icon="icon-download-selected-sm" />
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <FormButton Enabled="@IsReady" Name="Run" Icon="icon-running-man-sm" OnClick="Run" IsPrimary="true"/>
+            </div>
+        </div>
+
+    </EditForm>
+
+    @if (ShowAsJson)
+    {
+        <FormJson Class="res-field row" Value="@Result"/>
+    }
+    else
+    {
+        <SimplePivotComponent
+            PivotName="audit"
+            CollectionName="audit"
+            PivotData="@ResultPivot"
+            HandleCellClick="@OnCellClick"
+            GetColumnDescriptor="@GetColumnDescriptor"
+            />
+    }
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private string FetchSize { get; set; } = "100";
+    private bool      IsReady    { get; set; } = true;
+    private bool      ShowAsJson { get; set; }
+    private DateOnly? StartDate  { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow - TimeSpan.FromDays(7));
+    private DateOnly? EndDate    { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private string              Result      { get; set; } = "{}";
+    private List<BsonDocument>  ResultBson  { get; set; } = [];
+    private ArrayBasedPivotData ResultPivot { get; set; } = new([]);
+
+
+
+    private EditContext?   _editContext;
+    private EditContext    EditContext => _editContext!;
+
+    protected override void OnInitialized()
+    {
+        _editContext = new (this);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        UserSession.Collection = AuditService.AuditCollection;
+
+        SyncUrl();
+    }
+
+    private async Task Run()
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            var res = await RunAudit(cts.Token);
+            //            var res = await RunAuditFind(cts.Token);
+
+            ResultPivot = res.Item1;
+            ResultBson = res.Item2;
+
+            await Display(ResultBson);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task Display(Exception e)
+    {
+        ShowAsJson = true;
+        Result     = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task Display(IEnumerable<BsonDocument> res)
+    {
+        Result = res.ToJson(new() { Indent = true });
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunAudit(CancellationToken token)
+    {
+        if (StartDate == null || EndDate == null)
+            return (ArrayBasedPivotData.NoData,[]);
+
+        var audit = UserSession.Audit;
+        var res = await audit.Audit(StartDate.Value.ToDateTime(TimeOnly.MinValue), EndDate.Value.ToDateTime(TimeOnly.MaxValue), token);
+
+        var pd = new ArrayBasedPivotData([
+            "Timestamp UTC",
+            "Collection"   ,
+            "Command"      ,
+            "Success"      ,
+            "Ticket"       ,
+            "Email"        ,
+            "Comment"      ,
+            "Error"        ,
+            "Json"         ,
+            "_id"
+    ]);
+
+        var list = new List<BsonDocument>();
+        var id   = 0;
+        foreach (var auditRecord in res)
+        {
+            var row = new object?[pd.Headers.Count];
+            var i   = 0;
+
+            row[i++] = auditRecord.Timestamp;
+            row[i++] = auditRecord.Command.ElementAt(0).Value.ToString() ?? "";
+            row[i++] = auditRecord.Command.ElementAt(0).Name; 
+            row[i++] = auditRecord.Success;
+            row[i++] = auditRecord.Ticket;
+            row[i++] = auditRecord.Email;
+            row[i++] = auditRecord.Command.GetValue("comment", "").ToString();
+            row[i++] = auditRecord.Error;
+            row[i++] = auditRecord.Command.ToJson(new(){ Indent = true });
+            row[i  ] = ++id;
+
+            var json = auditRecord.ToJson(new() { Indent = true });
+            var d = BsonDocument.Parse(json);
+            d["_id"] = id;
+
+            pd.Add(row);
+            list.Add(d);
+        }
+
+        if (list.Count == 0)
+            list.Add(BsonDocument.Parse("{\"Result\": \"No data fetched\"}"));
+        else
+        {
+            var newPd = (ArrayBasedPivotData)pd.FilterColumns(
+            [
+                "Timestamp UTC" ,
+                "Collection"    ,
+                "Command"       ,
+                "Success"       ,
+                "Ticket"        ,
+                "Email"         ,
+                "Comment"       ,
+                "Error"         ,
+                "_id"
+            ]);
+            pd = newPd;
+        }
+
+        return (pd, list);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/audit/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task<bool> OnCellClick(DynamicObject row, string columnName)
+    {
+        try
+        {
+            var id = TableControl.GetDynamicMember(row, "_id");
+            if (id == null)
+                return true;
+
+            var bson = ResultBson.FirstOrDefault(x => x["_id"].ToString() == id.ToString());
+            if (bson == null)
+                return true;
+
+//            var oldId = bson["_id"];
+
+            // _ = await Auth.AuthorizeAsync(
+            //     UserSession.User.GetUser(), 
+            //     UserSession.Database, 
+            //     [new ReadAccessRequirement()]);
+
+            _ = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, false);
+        }
+        catch (Exception e)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", e);
+        }
+        return true;
+    }
+
+
+    private PivotColumnDescriptor? GetColumnDescriptor(string column)
+    {
+        if (column != "Timestamp UTC")
+            return null;
+
+        return new()
+        {
+            Format = "yyyy-MM-dd HH:mm:ss"
+        };
+    }
+
+}

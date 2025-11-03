@@ -1,0 +1,168 @@
+﻿@typeparam T
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="form-group @Class">
+    <style>
+        .opt-group{
+            font-weight: bold;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+            color: greenyellow
+        }
+    </style>
+
+    @if (!string.IsNullOrWhiteSpace(Name))
+    {
+        <div class="flex-stack-horizontal form-mw">
+            <label for="@_id" class="input-group-text w-100">@Name</label>
+        </div>
+    }
+
+    <div id="@_id" class="form-control h-auto flex-stack-vertical @ListClass">
+        @{
+            var groupedValues = GetGroupedValues();
+            foreach ( var g in groupedValues )
+            {
+                if ( groupedValues.Count > 1)
+                {
+                    <div class="opt-group">@g.Name</div>
+                }
+                @foreach (var v in g.Values)
+                {
+                    if (v.Value?.Equals(v) ?? false)
+                    {
+                        @GetSelectedOption(v)
+                    }
+                    else
+                    {
+                        @GetOption(v)
+                    }
+                }
+            }
+         }
+    </div>
+</div>
+
+
+
+
+@code {
+
+    public class SelectableItem(T val)
+    {
+        public bool                Selected
+        {
+            get;
+            set
+            {
+                if (field == value)
+                    return;
+                field = value;
+                SelectedChanged.InvokeAsync(field);
+            }
+        }
+        public T                   Value           { get; } = val;
+        public EventCallback<bool> SelectedChanged { get; set; }
+    }
+
+    [Parameter] public string Name { get; set; } = "";
+
+    [Parameter]
+    public List<SelectableItem> Values
+    {
+        get;
+        set
+        {
+            if (field?.Equals(value) ?? false)
+                return;
+            field = value;
+            InvokeAsync(StateHasChanged);
+        }
+    } = [];
+
+    [Parameter] public string?            Icon                   { get; set; }
+    [Parameter] public string             Class                  { get; set; } = "";
+    [Parameter] public string             ListClass              { get; set; } = "";
+    [Parameter] public bool               Enabled                { get; set; } = true;
+    [Parameter] public Func<T,bool>       IsSelectable           { get; set; } = _ => true;
+    [Parameter] public Func<T, string>    GetText                { get; set; } = x => x?.ToString() ?? "<null>";
+    [Parameter] public RenderFragment<T>? OptionTemplate         { get; set; }
+    [Parameter] public RenderFragment<T>? SelectedOptionTemplate { get; set; }
+
+    private string _id = $"h{Random.Shared.Next():X8}";
+
+    private class Group
+    {
+        public string  Name   { get; set; } = string.Empty;
+        public List<SelectableItem> Values { get; set; } = new ();
+    }
+
+    private List<Group> GetGroupedValues()
+    {
+        var    groups       = new List<Group>();
+        Group? currentGroup = null;
+
+        foreach (var v in Values)
+        {
+            if (!IsSelectable(v.Value))
+            {
+                // Start a new group with this name
+                currentGroup = new () { Name = GetText(v.Value) };
+                groups.Add(currentGroup);
+            }
+            else
+            {
+                if (currentGroup == null)
+                {
+                    // If no group has been started, create a default group
+                    currentGroup = new () { Name = "Not grouped" };
+                    groups.Add(currentGroup);
+                }
+                currentGroup.Values.Add(v);
+            }
+        }
+
+        return groups;
+    }
+
+    private RenderFragment GetOption(SelectableItem v)
+    {
+        if (OptionTemplate != null)
+        {
+            return 
+               @<div class="flex-stack-horizontal">
+                    <FormItemCheckBox @bind-Value="v.Selected" />
+                    @OptionTemplate(v.Value)
+                </div>;
+        }
+        else
+        {
+            return 
+               @<div class="flex-stack-horizontal">
+                    <FormItemCheckBox @bind-Value="v.Selected" />
+                    <div>@GetText(v.Value)</div>
+                </div>;
+        }
+    }
+
+    private RenderFragment GetSelectedOption(SelectableItem v) => GetOption(v);
+
+}

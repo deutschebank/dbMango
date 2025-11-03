@@ -1,0 +1,207 @@
+﻿@using System.Text.RegularExpressions
+@attribute [Authorize]
+
+@inject IMongoDbServiceFactory MongoDbServiceFactory
+@inject IUserSession            UserSession
+@inject IAuthorizationService  Auth
+
+@if (Error != null)
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+    <ExceptionControl Exception="@Error"/>
+}
+else if (_loading)
+{
+    <ProgressSpinner/>
+}
+else
+{
+    <table>
+        @foreach (var item in _stats.Where(x => !_exclude.Contains(x.Key)))
+        {
+            <tr> <td><div class="mr-4">@(FormatName(item)):</div></td> <td><div class="text-right">@FormatValue(item)</div></td> </tr>
+        }
+    </table>
+}
+
+@code {
+
+    /// <summary>
+    /// This parameter value is unused, but any change initiating stats reloading
+    /// </summary>
+    [Parameter]
+    public string? Database
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>
+    /// This parameter value is unused, but any change initiating stats reloading
+    /// </summary>
+    [Parameter]
+    public string? DatabaseInstance
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Dictionary<string, object> _stats = new();
+    private string                     _loadedFor = "";
+    private Exception?                 Error { get; set; }
+    private bool                       _loading;
+    private HashSet<string> _exclude =
+    [
+        "raw",
+        "ok",
+        "$clusterTime",
+        "operationTime",
+    ];
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        var loadingFor = $"{UserSession.Database},{UserSession.DatabaseInstance}";
+        if (_loading || _loadedFor == loadingFor)
+            return Task.CompletedTask;
+
+        _ = Task.Run(Refresh);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task Refresh()
+    {
+        var loadingFor = $"{UserSession.Database},{UserSession.DatabaseInstance}";
+
+        if (_loading || _loadedFor == loadingFor)
+            return;
+        _loading   = true;
+        _loadedFor = loadingFor;
+        try
+        {
+            Error = null;
+            _stats.Clear();
+            await InvokeAsync(StateHasChanged);
+
+            await RefreshInternal();
+        }
+        catch (Exception e)
+        {
+            Error = e;
+        }
+        finally
+        {
+            _loading = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshInternal()
+    {
+        var admin = UserSession.DatabaseInstance == null 
+            ? UserSession.MongoDbAdminForAdminDatabase 
+            : UserSession.MongoDbAdmin
+            ;
+
+        var stats = await admin.RunCommand(
+           BsonDocument.Parse( @"{
+dbStats: 1,
+scale: 1,
+freeStorage: 0
+}"));
+        _stats = stats.ToDictionary();
+
+        var readAccess = await Auth.AuthorizeAsync(
+            UserSession.User.GetUser(), 
+            Database, 
+            [new ReadAccessRequirement()]);
+        var writeAccess = await Auth.AuthorizeAsync(
+            UserSession.User.GetUser(),
+            Database,
+            [new WriteAccessRequirement()]);
+        var adminAccess = await Auth.AuthorizeAsync(
+            UserSession.User.GetUser(),
+            Database,
+            [new AdminAccessRequirement()]);
+
+        _stats["Read access"]  = readAccess.Succeeded;
+        _stats["Write access"] = writeAccess.Succeeded;
+        _stats["Admin access"] = adminAccess.Succeeded;
+
+    }
+
+    private static HashSet<string> _byteMeasures =
+    [
+        "avgObjSize",
+        "dataSize",
+        "storageSize",
+        "totalSize",
+        "indexSize",
+        "fileSize",
+        "fsUsedSize",
+        "fsTotalSize",
+    ];
+
+    private static HashSet<string> _numberMeasures =
+    [
+        "objects",
+        "indexes",
+        "scaleFactor",
+    ];
+
+    private static string SplitCamelCase(string input)
+    {
+        return Regex.Replace(input, "([A-Z])", " $1", RegexOptions.Compiled).Trim();
+    }
+
+    private string FormatName(KeyValuePair<string, object> item)
+    {
+        var s = SplitCamelCase(item.Key)
+           .Split(" ", StringSplitOptions.RemoveEmptyEntries)
+           .Select((x, i) => i == 0 ? char.ToUpper(x[0]) + x[1..] : char.ToLower(x[0]) + x[1..])
+        ;
+        return string.Join(" ", s);
+    }
+
+    private string FormatValue(KeyValuePair<string, object> item)
+    {
+        if (_byteMeasures.Contains(item.Key))
+            return NumbersUtils.ToHumanReadable(Convert.ToDouble(item.Value));
+        if (_numberMeasures.Contains(item.Key))
+            return Convert.ToDouble(item.Value).ToString("N0");
+        return item.Value?.ToString() ?? "";
+    }
+
+}
