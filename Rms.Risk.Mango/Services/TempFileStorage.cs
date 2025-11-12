@@ -96,7 +96,7 @@ public class TempFileStorage : ITempFileStorage, IDisposable
     {
         if ( Directory.Exists( TempFolder ) )
         {
-            SafeDeleteFolder( TempFolder );
+            FileUtils.SafeDeleteFolder( TempFolder );
         }
     }
 
@@ -114,19 +114,13 @@ public class TempFileStorage : ITempFileStorage, IDisposable
 
         foreach ( var name in outdatedFolders )
         {
-            SafeDeleteFolder(name);
+            _log.Debug( $"Deleting temporary Folder=\"{name}\"" );
+            var sw = Stopwatch.StartNew();
+
+            FileUtils.SafeDeleteFolder(name);
+            _log.Debug( $"Temporary Folder=\"{name}\" deleted. Elapsed=\"{sw.Elapsed:g}\"" );
         }
     }
-
-    private static void SafeDeleteFolder(string name)
-    {
-        _log.Debug( $"Deleting temporary Folder=\"{name}\"" );
-        var sw = Stopwatch.StartNew();
-
-        Directory.Delete(name);
-        _log.Debug( $"Temporary Folder=\"{name}\" deleted. Elapsed=\"{sw.Elapsed:g}\"" );
-    }
-
 
     public string TempFolder            { get; }
     public string LocalPersistentFolder { get; }

@@ -6,9 +6,11 @@
 @using System.Reflection
 @using Rms.Risk.Mango.Components.Commands
 
-@inject NavigationManager NavigationManager
-@inject IUserSession       UserSession
-@inject IJSRuntime        JsRuntime
+@inject NavigationManager           NavigationManager
+@inject IUserSession                UserSession
+@inject IJSRuntime                  JsRuntime
+@inject AuthenticationStateProvider AuthProvider;
+@inject IAuthorizationService       AuthService;
 
 @*
  *                                dbMango
@@ -84,7 +86,7 @@
 
 <h3 class="mt-3">Commands</h3>
 
-<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
     <EditForm EditContext="EditContext">
 
         <div class="form-row">
@@ -100,10 +102,10 @@
     </EditForm>
 
     <TabControl Class="row flex-stack-horizontal px-3" Vertical="true" @bind-ActivePage="SelectedCommand" TabGroupClass="tab-group" PersistAllTabs="true">
-        @foreach (var (group, controls) in _availableCommands)
+        @foreach (var (group, controls) in _userAvailableCommands)
         {
             <TabPage Text="@group" IsSelectable="false"/>
-            @foreach (var (name, control) in controls)
+            @foreach (var (name, _, control) in controls)
             {
                 var parameters = new Dictionary<string, object>()
                 {
@@ -184,7 +186,7 @@
         }
     } = "Statistics";
 
-    private static string[] _groupsOrder =
+    private static readonly string[] _groupsOrder =
     [
         "Informational",
         "Admin",
@@ -195,23 +197,30 @@
 
 
     private string Timeout { get; set; } = "20";
-    private string Error { get; set; } = "";
+    private string Error   { get; set; } = "";
+    private bool   IsReady { get; set; }
 
-    private bool IsReady { get; set; }
     private bool IsReadyToRun => IsReady && CanExecute && !string.IsNullOrWhiteSpace(CommandJson);
 
     private EditContext? _editContext;
     private EditContext  EditContext => _editContext!;
 
     private string                                       CommandName            => _commandParams[SelectedCommand].Name;
+    private CmdType                                      CommandType            => _commandParams[SelectedCommand].CommandType;
     private string                                       CommandJson            => _commandParams[SelectedCommand].CommandJson;
     private bool                                         CanExecute             => _commandParams[SelectedCommand].CanExecute;
     private bool                                         NeedConfirmation       => _commandParams[SelectedCommand].NeedConfirmation;
     private CmdBase.CommandParams.DatabaseConnectionType RequiredConnectionType => _commandParams[SelectedCommand].RequiredConnectionType;
 
-    private static readonly List<(string Group, List<(string Name, Type Control)> Controls)> _availableCommands;
-    private                 Dictionary<string, CmdBase.CommandParams>                        _commandParams          = null!;
-    private readonly        Dictionary<string, Shell.ShardProperties>                        _shardConnectionStrings = [];
+    private static readonly List<(string Group, List<(string Name, CmdType CommandType, Type Control)> Controls)> _availableCommands;
+    private                 List<(string Group, List<(string Name, CmdType CommandType, Type Control)> Controls)> _userAvailableCommands = [];
+
+    private                 Dictionary<string, CmdBase.CommandParams> _commandParams          = null!;
+    private readonly        Dictionary<string, Shell.ShardProperties> _shardConnectionStrings = [];
+
+    private bool _isWrite;
+    private bool _isRead;
+    private bool _isAdmin;
 
     private string                      Shard  { get; set; } = "";
     private IReadOnlyCollection<string> Shards => _shardConnectionStrings.Keys.OrderBy(x => x).ToList();
@@ -232,7 +241,7 @@
             })
            .Where(x => x.Attr != null)
            .GroupBy(x => x.Attr!.Group)
-           .Select(x => (Group: x.Key, Commands: x.OrderBy(y => y.Attr!.Name).Select(y => (y.Attr!.Name, Control: y.Type) ).ToList()))
+           .Select(x => (Group: x.Key, Commands: x.OrderBy(y => y.Attr!.Name).Select(y => (y.Attr!.Name, CommandType: y.Attr.Type, Control: y.Type) ).ToList()))
            .Where(x => _groupsOrder.Contains(x.Group))
            .OrderBy(x => Array.IndexOf(_groupsOrder, x.Group))
            .ToList()
@@ -248,7 +257,7 @@
         _commandParams = new(
             _availableCommands
                .SelectMany(x => x.Controls)
-               .Select(x => new KeyValuePair<string, CmdBase.CommandParams>(x.Name, new (x.Name,  OnChanged))
+               .Select(x => new KeyValuePair<string, CmdBase.CommandParams>(x.Name, new (x.Name, x.CommandType, OnChanged))
                 )
             );
     }
@@ -258,7 +267,7 @@
         InvokeAsync(StateHasChanged);
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
             return;
@@ -280,6 +289,8 @@
             SelectedCollection = CollectionStr;
 
         SyncUrl();
+        await Authorize();
+        SelectAvailableCommands();
 
         _ = Task.Run(async () =>
         {
@@ -297,6 +308,41 @@
         });
         SyncUrl();
         StateHasChanged();
+    }
+
+    private void SelectAvailableCommands()
+    {
+        _userAvailableCommands = _availableCommands
+            .Select(x =>
+                x with {
+                    Controls = x.Controls
+                        .Where(y =>
+                            y.CommandType switch 
+                            { 
+                                CmdType.Admin => _isAdmin, 
+                                CmdType.Read  => _isRead, 
+                                CmdType.Write => _isWrite, 
+                                _             => false 
+                            })
+                        .ToList() 
+                })
+           .Where(x => x.Controls.Count > 0)
+           .ToList();
+    }
+
+    private async Task Authorize()
+    {
+        var user = (await AuthProvider.GetAuthenticationStateAsync()).User;
+
+        var readTask  = AuthService.AuthorizeAsync(user, UserSession.Database, "ReadAccess");
+        var writeTask = AuthService.AuthorizeAsync(user, UserSession.Database, "WriteAccess");
+        var adminTask = AuthService.AuthorizeAsync(user, UserSession.Database, "AdminAccess");
+
+        var results = await Task.WhenAll(readTask, writeTask, adminTask);
+
+        _isRead  = results[0].Succeeded;
+        _isWrite = results[1].Succeeded;
+        _isAdmin = results[2].Succeeded;
     }
 
     private async Task LoadCollections()
@@ -372,7 +418,7 @@
                 return;
         }
 
-        var ticket = await CanExecuteCommand();
+        var ticket =  CommandType == CmdType.Read ? "N/A" : await CanExecuteCommand();
         if (string.IsNullOrWhiteSpace(ticket))
             return;
 

@@ -20,9 +20,10 @@
  *@
     [Inject] protected IUserSession UserSession { get; set; } = null!;
 
-    public class CommandParams(string name, Action<CommandParams> changed)
+    public class CommandParams(string name, CmdType commandType, Action<CommandParams> changed)
     {
-        public string Name        { get; } = name;
+        public string  Name        { get; } = name;
+        public CmdType CommandType { get; } = commandType;
 
         public string CommandJson
         {
@@ -148,7 +149,7 @@
             Validate();
 
             Parameters.ResultChanged = _ => OnResultReceived();
-            
+
             StateHasChanged();
         }
     }
@@ -227,4 +228,10 @@
         return result;
     }
 
+    public MongoCommandAttribute? GetCommandAttribute() =>
+        GetType().GetCustomAttributes(typeof(MongoCommandAttribute), true)
+           .OfType<MongoCommandAttribute>()
+           .FirstOrDefault();
+
+    public CmdType CommandType => GetCommandAttribute()?.Type ?? CmdType.Admin;
 }

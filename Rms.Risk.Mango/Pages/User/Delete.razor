@@ -155,7 +155,7 @@
     protected override void OnInitialized()
     {
         _editContext  = new(this);
-        _commandParams = new("Delete Documents", OnChanged);
+        _commandParams = new("Delete Documents", CmdType.Write, OnChanged);
     }
 
     private void OnChanged(CmdBase.CommandParams arg)
