@@ -92,5 +92,5 @@ The project also includes custom MSBuild targets (`IncludeProjectReferencesWithP
 ## Contributing
 
 Please refer to the contribution guidelines of the Rms.Risk.Mango project if you wish to contribute.
-Drop a email to mailto:forge@list.db.com.
+
 

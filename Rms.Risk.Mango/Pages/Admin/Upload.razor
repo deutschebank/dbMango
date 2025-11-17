@@ -208,10 +208,6 @@
                 SelectedJob = RunningJobs[0];
 
             _ = Task.Run(() => RefreshLoop(_cts.Token), _cts.Token);
-
-// #if DEBUG
-//             await PrepareCollectionNames("C:\\shabale\\Downloads\\dbMango_data.zip");
-// #endif
         }
         catch (Exception ex)
         {
