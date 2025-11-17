@@ -1,0 +1,160 @@
+﻿@using MongoDB.Bson
+@using MongoDB.Bson.IO
+@using Rms.Risk.Mango.Language
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<style>
+
+    .CodeMirror {
+    width: 1180px;
+    height: 680px;
+    }
+
+</style>
+
+<div>
+    <TabControl PersistAllTabs="true" @bind-ActivePage="ActivePage">
+        <TabPage Text="Script">
+            <FormCodeEditor @bind-Text="Text" MediaType="@MimeType" Readonly="true" />
+        </TabPage>
+        @if ( ShowJson )
+        {
+            <TabPage Text="Json">
+                <FormCodeEditor @bind-Text="TextJson" MediaType="application/json" Readonly="true"/>
+            </TabPage>
+        }
+        @if ( !string.IsNullOrWhiteSpace(ErrorMessage) )
+        {
+            <TabPage Text="Error">
+                <FormCodeEditor @bind-Text="ErrorMessage" MediaType="text/plain" Readonly="true"/>
+            </TabPage>
+        }
+    </TabControl>
+
+    <div class="form-row modal-footer w-100 p-0">
+        <button class="btn btn-primary" @onclick="@OnOK">@OkButtonName</button>
+    </div>
+
+</div>
+
+@code
+{
+    private static readonly System.Text.Json.JsonSerializerOptions _prettyPrint = new()
+    {
+        WriteIndented = true
+    };
+
+    [CascadingParameter] BlazoredModalInstance  BlazoredModal { get; set; } = null!;
+
+    [Parameter] public string Text            { get; set; } = "";
+    [Parameter] public string TextJson        { get; set; } = "";
+    [Parameter] public bool   ShowJson        { get; set; } = true;
+    [Parameter] public string OkButtonName    { get; set; } = "OK";
+    [Parameter] public string MimeType        { get; set; } = "text/x-afh";
+
+    private string ActivePage { get; set; } = "Script";
+
+    private string? ErrorMessage { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(Text) && string.IsNullOrWhiteSpace(TextJson))
+        {
+            UpdatePipelineJson();
+        }
+        else if (string.IsNullOrWhiteSpace(Text) && !string.IsNullOrWhiteSpace(TextJson))
+        {
+            UpdatePipelineScript();
+        }
+    }
+
+    private async Task OnOK()
+    {
+        await  BlazoredModal.CloseAsync(ModalResult.Ok(true));
+    }
+
+    private void UpdatePipelineJson()
+    {
+        try
+        {
+            var json = GetCombinedPipelineText();
+            TextJson = json;
+            ActivePage = "Script";
+       }
+        catch (Exception e)
+        {
+            ErrorMessage = e.ToString();
+            ActivePage = "Error";
+        }
+
+    }
+
+    private void UpdatePipelineScript()
+    {
+        if ( !JsonUtils.IsValidJson(TextJson) )
+        {
+            Text     = TextJson;
+            MimeType = "text/plain";
+            TextJson = "";
+            ShowJson = false;
+            return;
+        }
+
+        try
+        {
+            var ast  = LanguageParser.ParseAggregationJsonToAST("collection-name-here", TextJson);
+            Text = ast.AsText();
+        }
+        catch (Exception e)
+        {
+            ErrorMessage = e.ToString();
+            ActivePage = "Error";
+
+            try
+            {
+                // Attempt to parse as BsonDocument if the JSON is not valid for the AST parser
+                if (BsonDocument.TryParse(TextJson, out var bson))
+                {
+                    var newJson = bson.ToJson(new() { Indent = true, OutputMode = JsonOutputMode.RelaxedExtendedJson });
+                    var ast     = LanguageParser.ParseAggregationJsonToAST("collection-name-here", newJson);
+                    Text       = ast.AsText();
+                    ActivePage = "Json";
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = ex.ToString();
+                ActivePage   = "Error";
+            }
+        }
+
+    }
+
+    private string GetCombinedPipelineText()
+    {
+        var ast  = LanguageParser.ParseScriptToAST(Text);
+        var json = ast.AsJson();
+
+        var result = json?.ToJsonString(_prettyPrint) ?? "";
+        return result;
+    }
+
+}

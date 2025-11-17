@@ -1,0 +1,92 @@
+﻿@inject IJSRuntime JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .text-area{
+    width: 1200px;
+    height: 700px;
+    overflow: auto;
+    }
+
+</style>
+
+<div class="m-3">
+    <p>View or edit Json document</p>
+    <div>
+        <TextEditorComponent Class="text-area" @bind-Text="Text" MimeType="application/json" />
+
+        <div class="form-row modal-footer w-100 p-0">
+            <FormButton Name="" OnClick="OnCopy" Icon="icon-duplicate-document" />
+            @if (EnableWrite)
+            {
+                <FormButton Name=""       OnClick="OnPaste"  Icon="icon-paste" />
+                <FormButton Name="Update" OnClick="OnUpdate" Icon="icon-document-upload-sm" />
+                <FormButton Name="Delete" OnClick="OnDelete" Icon="icon-trash-sm" />
+            }
+            <FormButton Name="Cancel" IsPrimary="true" OnClick="@(() => BlazoredModal.CancelAsync())"/>
+        </div>
+    </div>
+</div>
+
+@code
+{
+    public class ResultType
+    {
+        public bool   ShouldUpdate { get; init; }
+        public string Json         { get; init; } = "";
+    }
+
+    [CascadingParameter]        BlazoredModalInstance BlazoredModal { get; set; } = null!;
+    [CascadingParameter] public IModalService         Modal         { get; set; } = null!;
+
+    [Parameter] public string Text        { get; set; } = "";
+    [Parameter] public bool   EnableWrite { get; set; }
+
+    private async Task OnUpdate()
+    {
+        if (!EnableWrite)
+            await BlazoredModal.CancelAsync();
+        else
+            await BlazoredModal.CloseAsync(ModalResult.Ok(new ResultType { ShouldUpdate = true, Json = Text }));
+    }
+
+    private async Task OnDelete()
+    {
+        if (!EnableWrite)
+            await BlazoredModal.CancelAsync();
+        else
+            await BlazoredModal.CloseAsync(ModalResult.Ok(new ResultType { ShouldUpdate = false, Json = Text }));
+    }
+
+    private async Task OnCopy()
+    {
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", Text);
+        await ModalDialogUtils.ShowInfoDialog(Modal, "Success", "Copied to the clipboard.");
+
+    }
+    private async Task OnPaste()
+    {
+        if (!EnableWrite)
+            return;
+        Text = await JsRuntime.InvokeAsync<string>("DashboardUtils.PasteFromClipboard");
+        StateHasChanged();
+    }
+}

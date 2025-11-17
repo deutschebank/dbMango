@@ -1,0 +1,496 @@
+﻿@page "/admin/download"
+@page "/admin/download/{DatabaseStr}"
+@page "/admin/download/{DatabaseStr}/{DatabaseInstanceStr}"
+
+@implements IDisposable
+
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@attribute [Authorize]
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+@inject IMigrationEngine  MigrationEngine
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<h3 class="mt-3">Download</h3>
+
+<style>
+    .meta {
+        color: gray;
+        font-style: italic;
+    }
+    .idx {
+        color: lightgreen;
+        margin-top: 5px;
+    }
+</style>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    <div class="row mt-3">
+        <SplitPanel Orientation="horizontal" InitialSplit="0.3">
+            <First>
+                <div class="ml-1 mr-1">
+                    <div class="form-row">
+                        <FormButton Name="Select meta" OnClick="OnSelectAllMeta"     Icon="icon-context-info-outline-sm" Class=""/>
+                        <FormButton Name="Select all"  OnClick="OnSelectAllCurrent"  Icon="icon-view-sm"     Class=""/>
+                        <FormButton Name="Select none" OnClick="OnSelectNoneCurrent" Icon="icon-hide-sm"     Class=""/>
+                    </div>
+                    <div class="mt-3">
+                        <TreeComponent TItem="IndexTreeItem" RootNodes="@_currentNodes" ReadOnly="true">
+                            <LabelTemplate Context="item">
+                                <div class="row ml-1">
+                                    @if ( item.Data == null ) // index label
+                                    {
+                                        <div class="idx">@item.Label</div>
+                                    }
+                                    else if (item.Data.Collection != null ) // collection node
+                                    {
+                                        <FormItemCheckBox LabelOn="" LabelOff="" Value="@item.Data.IsSelected" ValueChanged="@(x => SetSourceItem(item, x))"/>
+                                        if (item.Data.Collection.Name.EndsWith("-Meta"))
+                                        {
+                                            <div class="meta ml-1">@item.Label</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="ml-1">@item.Label</div>
+                                        }
+                                    }
+                                </div>
+                            </LabelTemplate>
+                        </TreeComponent>
+                    </div>
+                </div>
+            </First>
+            <Second>
+                <div class="ml-1 mr-1">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <FormButton Name="Download"    OnClick="OnDownload" Icon="icon-download-sm" Class="mr-2"/>
+                            <label>&nbsp;</label>
+                        </div>
+                        <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="Running jobs:" @bind-Value="SelectedJob" Values="@RunningJobs" />
+
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <FormButton Enabled="@IsReadyToCancel" Name="Cancel job" Icon="icon-trash-sm" OnClick="CancelJob" IsPrimary="false" Class="btn-outline-danger" />
+                        </div>
+
+                    </div>
+                    <TableControl Items="@SelectedJob.Status" PagerSize="35" Class="table table-hover table-striped table-forge table-forge-striped">
+                        <TableColumnControl Name="Collection" Field="DestinationCollection" />
+                        <TableColumnControl Name="Count"      Field="Count"         Format="N0" />
+                        <TableColumnControl Name="Copied"     Field="Copied"        Format="N0" />
+                        <TableColumnControl Name="Progress"   Field="Progress"      Format="P2" />
+                        <TableColumnControl Name="DPS"        Field="DocsPerSecond" Format="N0" />
+                        <TableColumnControl Name="Elapsed"    Field="Elapsed"       Format="hh\:mm\:ss" />
+                        <TableColumnControl Name="Remaining"  Field="Remaining"     Format="hh\:mm\:ss" />
+                        <TableColumnControl Name="Complete"   Field="Complete" />
+                        <TableColumnControl Name="Error"      Field="Error" />
+                    </TableControl>
+
+                    @if (!string.IsNullOrWhiteSpace(Error))
+                    {
+                        <pre class="wf-converter-syntax-error">@Error</pre>
+                    }
+
+                    @if ( SelectedJob.Complete && !string.IsNullOrWhiteSpace(SelectedJob.DownloadUrl) )
+                    {
+                        <a class="mt-3" target="_blank" href="@SelectedJob.DownloadUrl">Download results</a>
+                    }
+                </div>
+            </Second>
+        </SplitPanel>
+    </div>
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    public class IndexTreeItem
+    {
+        public DatabaseStructureLoader.CollectionStructure? Collection { get; set; }
+        public bool IsSelected { get; set; }
+    }
+
+    private bool               IsReady         { get; set; }
+    private bool               IsReadyToCancel => IsReady && !SelectedJob.Complete;
+    private string             Error           { get; set; } = "";
+    private List<MigrationJob> RunningJobs     { get; set; } = [];
+
+    private CancellationTokenSource _cts = new();
+
+    private readonly List<TreeNode<IndexTreeItem>> _currentNodes =
+    [
+        new ()
+        {
+            Label    = "Collections",
+            Children = []
+        }
+    ];
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private MigrationJob SelectedJob
+    {
+        get;
+        set
+        {
+            if (field.JobId == value.JobId)
+                return;
+            field = value;
+            StateHasChanged();
+        }
+    } = new() { Complete = true };
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+
+        try
+        {
+            RunningJobs = MigrationEngine.List().Where(x => x.Type == MigrationJob.JobType.Download).ToList();
+            if (RunningJobs.Count > 0)
+                SelectedJob = RunningJobs[0];
+
+            _ = Task.Run(() => RefreshLoop(_cts.Token), _cts.Token);
+
+            var cts2 = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
+            var (_, root) = await LoadStructure(UserSession.MongoDbAdmin, UserSession.MongoDbAdminForAdminDatabase, cts2.Token);
+            _currentNodes.Clear();
+            _currentNodes.Add(root);
+
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, $"Error loading structure for {Database}", ex);
+            return;
+        }
+
+        IsReady = true;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+
+    private async Task RefreshLoop(CancellationToken token)
+    {
+        // percents are always increasing, so it safe to compare sum()
+        var prevState   = -1.0;
+        var prevJobId   = SelectedJob.JobId;
+        var oldComplete = false;
+
+        while (!token.IsCancellationRequested)
+        {
+            if (prevJobId != SelectedJob.JobId)
+            {
+                prevJobId   = SelectedJob.JobId;
+                prevState   = -1.0;
+                oldComplete = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                var newState = SelectedJob.Status.Sum(x => x.Count + x.Copied + (x.Cleared ?? 0));
+
+                if (SelectedJob.Complete != oldComplete || Math.Abs(newState - prevState) > 0.01)
+                {
+                    prevState   = newState;
+                    oldComplete = SelectedJob.Complete;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+        }
+    }
+
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/download/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    public static async Task<(List<DatabaseStructureLoader.CollectionStructure>, TreeNode<IndexTreeItem>)> LoadStructure(IMongoDbDatabaseAdminService db, IMongoDbDatabaseAdminService admin, CancellationToken token)
+    {
+        var root = new TreeNode<IndexTreeItem>
+        {
+            Label = "Collections"
+        };
+
+        var collStructure = await DatabaseStructureLoader.LoadCollections(db, admin, token);
+
+        var collections = (collStructure)
+       .Select(x =>
+               new
+               {
+                   Group =
+                        x.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
+                            ? " Meta"
+                            : x.Name.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
+                                ? " Cache"
+                                : " Data",
+                   Value = x
+               }
+            )
+            .ToList();
+
+        var allCollections = collections
+            .OrderBy(x => x.Value.Name)
+            .Select( x => x.Value )
+            .ToList();
+
+        // Add collections to the root node
+        var collectionNodes = collections
+            .GroupBy(x => x.Group)
+            .OrderBy(x => x.Key)
+            .Select(gr => new TreeNode<IndexTreeItem>
+            {
+                Label    = gr.Key,
+                IsExpanded = true,
+                Children = gr
+                    .OrderBy(x => x.Value.Name)
+                    .Select(coll => new TreeNode<IndexTreeItem>
+                    {
+                        Label      = coll.Value.Name,
+                        IsExpanded = false,
+                        Data       = new() 
+                        { 
+                            Collection = coll.Value, 
+                        }
+                    })
+                    .ToList()
+            })
+            .ToList();
+
+        root.Children   = collectionNodes;
+        root.IsExpanded = true;
+        Set(root, false);
+
+        foreach( var node in root.Children)
+            Set(node, true, x => x.Data?.Collection?.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase) ?? false);
+
+        return (collStructure, root);
+    }
+
+    private static void Set(TreeNode<IndexTreeItem> item, bool value, Func<TreeNode<IndexTreeItem>, bool>? filter = null )
+    {
+        filter ??= _ => true;
+
+        if (item.Data != null && filter(item))
+        {
+            item.Data.IsSelected = value;
+        }
+        foreach (var child in item.Children)
+        {
+            Set(child, value, filter);
+        }
+    }
+
+    private Task OnSelectAllCurrent()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, true);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectAllMeta()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, true, x => x.Data?.Collection?.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase) ?? false);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectNoneCurrent()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, false);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SetSourceItem(TreeNode<IndexTreeItem> item, bool b)
+    {
+        Set(item, b);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private static IEnumerable<TreeNode<IndexTreeItem>> GetAllNodes(TreeNode<IndexTreeItem> node)
+    {
+        yield return node;
+        foreach (var child in node.Children)
+        {
+            foreach (var descendant in GetAllNodes(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private async Task OnDownload()
+    {
+        var newJob = new MigrationJob
+        {
+            Type                        = MigrationJob.JobType.Download,
+            SourceDatabase              = UserSession.Database,
+            SourceDatabaseInstance      = UserSession.DatabaseInstance,
+            DestinationDatabase         = UserSession.Database,
+            DestinationDatabaseInstance = UserSession.DatabaseInstance!,
+            Email                       = UserSession.User.GetEmail(),
+            Upsert                      = false,
+            ClearDestinationBefore      = false,
+            BatchSize                   = 1,
+            Status = GetAllNodes(_currentNodes[0])
+                    .Where(x => (x.Data?.IsSelected ?? false) && x.Data.Collection != null)
+                    .Select(x => new MigrationJob.CollectionJob
+                     {
+                         SourceCollection      = x.Data!.Collection!.Name,
+                         DestinationCollection = x.Data!.Collection!.Name,
+                     })
+                    .ToList()
+        };
+
+        if (newJob.Status.Count == 0)
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Download data", "Please, select at least one collection.");
+            return;
+        }
+
+        var info = GetInfo(newJob);
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Download data",
+            $"Are you sure to start downloading of {newJob.Status.Count} collection(s) from {newJob.SourceDatabase}?",
+            info
+        );
+
+        if (res.Cancelled)
+            return;
+
+        await RegisterNewJob(newJob);
+    }
+
+    private async Task CancelJob()
+    {
+        if (SelectedJob.Complete)
+            return;
+
+        var info = GetInfo(SelectedJob);
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Migration",
+            $"Are you sure to cancel migration of {SelectedJob.Status.Count} collection(s) from {SelectedJob.SourceDatabase} to {SelectedJob.DestinationDatabase}?",
+            info
+        );
+        if (res.Cancelled)
+            return;
+
+        await MigrationEngine.Cancel(SelectedJob, UserSession.User.GetUser());
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Dictionary<string, string> GetInfo(MigrationJob job)
+    {
+        var info = new Dictionary<string, string>
+        {
+            ["from"]            = job.SourceDatabase,
+            ["batchSize"]       = job.BatchSize.ToString(),
+        };
+        return info;
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+    private async Task RegisterNewJob(MigrationJob newJob)
+    {
+        try
+        {
+            var ticket = await CanExecuteCommand();
+            if (string.IsNullOrWhiteSpace(ticket))
+                return;
+
+            newJob.Ticket = ticket;
+
+            await MigrationEngine.Add(newJob, UserSession.User.GetUser());
+            SelectedJob = newJob;
+            RunningJobs = MigrationEngine.List();
+        }
+        catch (Exception e)
+        {
+            Error = e.ToString();
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+}

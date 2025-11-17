@@ -1,0 +1,388 @@
+﻿@using Microsoft.Extensions.Options
+@using MongoDB.Driver
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@using Rms.Risk.Mango.Services.Context
+@using Rms.Service.Bootstrap.Security
+
+@inject IDatabaseConfigurationService DatabaseConfig
+@inject IUserSession                   UserSession
+@inject IJSRuntime                    JsRuntime
+@inject IPasswordManager              PasswordManager
+@inject IOptions<DbMangoSettings>     Settings
+@inject IUserService                  UserService
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .full-width {
+    width: 408px !important;
+    }
+</style>
+
+<EditForm EditContext="EditContext">
+    <div class="d-flex flex-row fit-content">
+        <div class="fit-content mr-3">
+            <div class="form-row fit-content">
+                <FormItemText Class="full-width" Name="Configuration name" @bind-Value="Name" Icon="icon-document-blank-sm" />
+            </div>
+
+            <div class="form-row fit-content">
+                <FormItemText Class="full-width" Name="Contacts" @bind-Value="Value.Contacts" Icon="icon-mail-sm" />
+            </div>
+
+            <div class="form-row fit-content">
+                <FormItemText Class="mr-2" Name="Database" @bind-Value="Value.Config.MongoDbDatabase" Icon="icon-annotate-sm" />
+                <FormItemCheckBox Class="mr-2" Name="Use TLS" @bind-Value="Value.Config.UseTls" Icon="icon-wrench-outline-sm" />
+            </div>
+
+            <div class="form-row fit-content">
+                <FormItemText Class="full-width" Name="URL" @bind-Value="Value.Config.MongoDbUrl" Icon="icon-wrench-outline-sm" />
+            </div>
+
+            <div class="form-row fit-content">
+                <FormItemCheckBox Class="mr-2" Name="Direct connection" @bind-Value="Value.Config.DirectConnection" Icon="icon-wrench-outline-sm"/>
+                <FormItemCheckBox Class="mr-2" Name="Shard access" @bind-Value="Value.Config.AllowShardAccess"      Icon="icon-wrench-outline-sm"/>
+            </div>
+
+            <div class="form-row fit-content">
+                <FormItemText Class="mr-2" Name="Auth database" @bind-Value="AuthDatabase" Icon="icon-cog-sm" />
+                <FormItemText Class="mr-2" Name="Auth method" @bind-Value="AuthMethod"     Icon="icon-cog-sm" />
+            </div>
+
+        </div>
+        <div class="fit-content">
+            <div class="d-flex flex-column">
+
+                <div class="form-row fit-content">
+                    <FormItemText Class="mr-2" Name="User" @bind-Value="UserUser"        Icon="icon-wrench-outline-sm" />
+                    <FormItemPassword Class="mr-2" Name="Password" @bind-Value="UserPassword" Icon="icon-unlock-outline-sm" />
+                </div>
+
+                <div class="form-row fit-content">
+                    <FormItemText Class="mr-2" Name="Admin User" @bind-Value="AdminUser" Icon="icon-wrench-outline-sm" />
+                    <FormItemPassword Class="mr-2" Name="Admin Password" @bind-Value="AdminPassword" Icon="icon-unlock-outline-sm" />
+                </div>
+
+                <div class="form-row fit-content">
+                    <FormItemText Class="full-width" Name="LDAP Read group" @bind-Value="Value.Groups.ReadOnly" Icon="icon-layers-sm" />
+                </div>
+                <div class="form-row fit-content">
+                    <FormItemText Class="full-width" Name="LDAP Write group" @bind-Value="Value.Groups.ReadWrite" Icon="icon-layers-sm" />
+                </div>
+                <div class="form-row fit-content">
+                    <FormItemText Class="full-width" Name="LDAP Admin group" @bind-Value="Value.Groups.Admin" Icon="icon-layers-sm" />
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <div class="form-row fit-content">
+        <FormButton Name="Update" OnClick="Update" Icon="icon-document-upload-sm" />
+        <FormButton Name="Delete" OnClick="Delete" Icon="icon-trash-sm" />
+        <FormButton Name=""       OnClick="Copy"   Icon="icon-duplicate-document" />
+        <FormButton Name=""       OnClick="Paste"  Icon="icon-paste" />
+        <FormButton Name="Test"   OnClick="Test"   Icon="icon-flame" />
+    </div>
+
+</EditForm>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string                         Name      { get; set; } = "New connection";
+    [Parameter] public DatabasesConfig.DatabaseConfig Value     { get; set; } = new();
+    [Parameter] public EventCallback                  OnRefresh { get; set; }
+
+    private EditContext EditContext => _editContext!;
+
+    private EditContext? _editContext;
+
+    private string UserUser
+    {
+        get => Value.Config.Auth?.User ?? "";
+        set
+        {
+            Value.Config.Auth    ??= new();
+            Value.Config.Auth.User = value;
+        }
+    }
+
+    private string UserPassword
+    {
+        get => Value.Config.Auth?.Password ?? "";
+        set
+        {
+            Value.Config.Auth        ??= new();
+            Value.Config.Auth.Password = value;
+        }
+    }
+
+    private string AuthDatabase
+    {
+        get => Value.Config.Auth?.AuthDatabase ?? "";
+        set
+        {
+            Value.Config.Auth            ??= new();
+            Value.Config.Auth.AuthDatabase = value;
+        }
+    }
+
+    private string AuthMethod
+    {
+        get => Value.Config.Auth?.Method ?? "";
+        set
+        {
+            Value.Config.Auth      ??= new();
+            Value.Config.Auth.Method = value;
+        }
+    }
+
+    private string AdminUser
+    {
+        get => Value.Config.AdminAuth?.User ?? "";
+        set
+        {
+            Value.Config.AdminAuth ??= new();
+            Value.Config.AdminAuth.User = value;
+        }
+    }
+
+    private string AdminPassword
+    {
+        get => Value.Config.AdminAuth?.Password ?? "";
+        set
+        {
+            Value.Config.AdminAuth          ??= new();
+            Value.Config.AdminAuth.Password =   value;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(this);
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+
+    private async Task Update()
+    {
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Update configuration",
+            $"Are you sure want to update configuration for {Name}?"
+        );
+        if (res.Cancelled)
+            return;
+
+        try
+        {
+            PrepareForSaving();
+            await DatabaseConfig.Update(Name, Value, UserSession.User.GetEmail());
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Success", $"Configuration {Name} was updated successfully.");
+
+            // exception in Audit() call can lead to 2 dialogs shown in total: Success in config change + error recording audit
+            try
+            {
+                await Audit(ticket, "update", Name);
+            }
+            catch (Exception ex2)
+            {
+                await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex2);
+            }
+
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await Audit(ticket, "update", Name, ex);
+            }
+            catch (Exception ex2)
+            {
+                await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex2);
+            }
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+
+        await OnRefresh.InvokeAsync();
+    }
+
+    private async Task Audit(string ticket, string action, string configName, Exception? exception = null)
+    {
+        var doc = new BsonDocument
+        {
+            ["dbMangoOnboarding"] = exception?.Message ?? "Success",
+            ["action"]            = action,
+            ["configName"]        = configName,
+            ["ticket"]            = ticket
+        };
+
+        var auditRecord = new AuditRecord(UserSession.Database, DateTime.UtcNow, UserService.GetEmail(), ticket, exception == null, doc, exception?.Message);
+        await UserSession.Audit.Record(auditRecord);
+    }
+
+
+    private async Task Delete()
+    {
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Delete configuration",
+            $"Are you sure want to delete configuration for {Name}? (Note that pre-configured databases can't be deleted.)"
+        );
+        if (res.Cancelled)
+            return;
+
+        try
+        {
+            await DatabaseConfig.Delete(Name, UserSession.User.GetEmail());
+
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Success", $"Configuration {Name} was deleted successfully.");
+            try
+            {
+                await Audit(ticket, "delete", Name);
+            }
+            catch (Exception ex2)
+            {
+                await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex2);
+            }
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await Audit(ticket, "delete", Name, ex);
+            }
+            catch (Exception ex2)
+            {
+                await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex2);
+            }
+
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+
+        await OnRefresh.InvokeAsync();
+    }
+
+    private void PrepareForSaving()
+    {
+        if (string.IsNullOrWhiteSpace(Value.Config.Auth?.Password) || string.IsNullOrWhiteSpace(Value.Config.Auth?.User))
+            Value.Config.Auth = null;
+        if (string.IsNullOrWhiteSpace(Value.Config.AdminAuth?.Password) || string.IsNullOrWhiteSpace(Value.Config.AdminAuth?.User))
+            Value.Config.AdminAuth = null;
+    }
+
+    private class ClipboardFormat
+    {
+        public string Name { get; set; } = "";
+        public DatabasesConfig.DatabaseConfig Value { get; set; } = new();
+    }
+
+    private async Task Copy()
+    {
+        try
+        {
+            PrepareForSaving();
+
+            var obj = new ClipboardFormat
+                {
+                    Name  = Name,
+                    Value = Value
+                };
+
+            var json = JsonUtils.ToJson(obj, new() {WriteIndented = true});
+            var clone = JsonUtils.FromJson<ClipboardFormat>(json);
+            if (clone == null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(clone.Value.Config.Auth?.Password))
+                clone.Value.Config.Auth.Password = PasswordManager.EncryptPassword(clone.Value.Config.Auth.Password);
+            if (!string.IsNullOrWhiteSpace(clone.Value.Config.AdminAuth?.Password))
+                clone.Value.Config.AdminAuth.Password = PasswordManager.EncryptPassword(clone.Value.Config.AdminAuth.Password);
+
+            json = JsonUtils.ToJson(clone, new() { WriteIndented = true });
+
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", json);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", $"Configuration {Name} was copied to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+    }
+
+    private async Task Paste()
+    {
+        try
+        {
+            var json = await JsRuntime.InvokeAsync<string>("DashboardUtils.PasteFromClipboard");
+
+            var clone = JsonUtils.FromJson<ClipboardFormat>(json);
+            if (clone == null)
+                return;
+
+            if (clone.Value.Config.Auth?.Password.StartsWith('*') ?? false)
+                clone.Value.Config.Auth.Password = PasswordManager.DecryptPassword(clone.Value.Config.Auth.Password);
+            if (clone.Value.Config.AdminAuth?.Password.StartsWith('*') ?? false)
+                clone.Value.Config.AdminAuth.Password = PasswordManager.DecryptPassword(clone.Value.Config.AdminAuth.Password);
+
+            Name = clone.Name;
+            Value = clone.Value;
+
+            await InvokeAsync(StateHasChanged);
+
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", $"Configuration {Name} was successfully parsed. You still need to save it!");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }    
+    }
+
+    private async Task Test()
+    {
+        try
+        {
+            var databaseInstance = !string.IsNullOrWhiteSpace(Value.Config.MongoDbDatabase) ? Value.Config.MongoDbDatabase : "admin";
+
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var db  = MongoDbHelper.GetDatabase(Value.Config, Settings.Value.Settings, databaseInstance);
+            _ = await db.RunCommandAsync(
+                new BsonDocumentCommand<BsonDocument>(BsonDocument.Parse( @"{ ""ping"" : 1 }")),
+                   cancellationToken: cts.Token);
+
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Success", $"Successfully connected to {Name}.");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }    
+    }
+}

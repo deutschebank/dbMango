@@ -1,0 +1,126 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug",
+      "Microsoft.Extensions.Http.DefaultHttpClientFactory": "Information",
+      "Microsoft.AspNetCore.Authentication": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.Extensions.Diagnostics.HealthChecks": "Information",
+      "Rms": "Trace"
+    }
+  },
+  "DetailedErrors": true,
+  "AllowedHosts": "*",
+  "HealthCheckPublisher": {
+    "Delay": "00:00:10",
+    "Period": "00:15:00"
+  },
+  "Kestrel": {
+    "EndpointDefaults": {
+      "Protocols": "Https"
+    }
+  },
+  "SecuritySettings": {
+    "MasterKeyFileName": "<master-key-filename-placeholder>.p12",
+    // dotnet user-secrets set "SecuritySettings:MasterKeyPassword" "actual value"
+    "MasterKeyPassword": "",
+
+    // for Development environment generate (and trust to) dev https keys using these commands:
+    //     dotnet dev-certs https
+    //     dotnet dev-certs https --trust
+    // Leave the following 2 parameters blank
+    "CertificateFileName": "",
+    "CertificatePassword": "",
+
+    "LogoffIdlePeriod": "05:00:00",
+
+    "Oidc": {
+      "ClientId": "<oidc-clientid-placeholder>",
+      "Secret": "<oidc-password-placeholder>",
+      "ValidClientIds": [],
+      // dotnet user-secrets set "SecuritySettings:Oidc:Secret" "actual value"
+      "ConfigUrl": "https://<oidc-host-name-placeholder>/oauth2/global",
+      "ConfigCacheFile": "%TEMP%/.oidc.json"
+    },
+    "Ldap": {
+      "Url": "ldaps://<ldap-host-name-placeholder>",
+      "UserName": "<ldap-user-placeholder>",
+      "Password": "<ldap-password-placeholder>",
+      "EntryPoint": "<ldap-entrypoint-placeholder>",
+
+      "RoleGroupMapping": {
+      }
+    },
+    "CASubjectToAccept": [
+      "CN=<allowed-CA-common-name-placeholder>"
+    ],
+    "ClientCertWhiteList": []
+  },
+  "DbMangoSettings": {
+    "InstanceName": "dbMango",
+    "EnableDatabaseOverrides": false,
+    "Initial": "<initial-database-name-placeholder>",
+    "AuditExpireDays": 7,
+    "DefaultTimeout": "00:00:15",
+    //"MongoDbDocUrl": "<this can be local zip file>",
+    "MongoDbDocUrl": "https://raw.githubusercontent.com/mongodb/docs/5084326383812cc65297bc8151760b9250a723b6/content/manual/v7.0/source/reference/command/",
+    "MongoDbDocProxyUrl": "",
+    "RequestAccessURL": "<placeholder for LDAP group membership request URL>",
+    "RequestAccessLabel": "<placeholder for label>",
+    "SupportLinkLabel": "",
+    "SupportLinkUrl": "",
+    "Settings": {
+      "MongoDbSocketTimeout": "00:02:00",
+      "MongoDbServerSelectionTimeout": "00:00:10",
+      "MongoDbConnectTimeout": "00:00:10",
+      "MongoDbMinConnectionPoolSize": "0",
+      "MongoDbMaxConnectionPoolSize": "100",
+      "MaxConnectionIdleTime": "00:10:00",
+      "MaxConnectionLifeTime": "00:30:00",
+      "MongoDbQueryTimeout": "60",
+      "MongoDbPingTimeoutSec": "5",
+      "MongoDbQueryBatchSize": "5000",
+      "MongoDbConnectionRetries": "1",
+      "MongoDbRetryTimeoutSec": "5"
+    },
+    // only used within DB
+    "AuditLogsInOracle": false,
+    "OracleConnectionSettings": {
+      "ConnectionString": "",
+      "Password": "",
+      "AuditConnectionString": "",
+      "AuditPassword": ""
+    }
+  },
+  // only used within DB
+  "ChangeNumberCheckerSettings": {
+    "CheckChangeNumber": false,
+    "ServerGridUrl": "",
+    "ServerGridUser": "",
+    "ServerGridPassword": ""
+  },
+  "DatabasesConfig": {
+    "Databases": {
+      "<initial-database-name-placeholder>": {
+        "Groups": {
+          "Admin": "<ldap-group-name-placeholder>",
+          "ReadOnly": "<ldap-group-name-placeholder>",
+          "ReadWrite": "<ldap-group-name-placeholder>"
+        },
+        "Config": {
+          "MongoDbUrl": "mongodb://<host-name-placeholder>:27017",
+          "MongoDbDatabase": "",
+          "DirectConnection": false,
+          "UseTls": true,
+          "AllowShardAccess": false,
+          "Auth": {
+            "User": "<admin-user-name-placeholder>",
+            "Password": "<admin-password-placeholder>",
+            "AuthDatabase": "admin",
+            "Method": "SCRAM-SHA-256"
+          }
+        }
+      }
+    }
+  }
+}

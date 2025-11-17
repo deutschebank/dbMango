@@ -1,0 +1,125 @@
+﻿@typeparam TItem
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="tree-container">
+
+<style>
+
+.tree-node {
+    margin-left: 5px;
+}
+
+.node-header {
+    display: flex;
+    align-items: center;
+}
+
+.node-selected {
+    background-color: @Night.BackgroundLight;
+}
+
+.node-text {
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.no-padding {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.btn-placeholder {
+    width: 30px;
+    height: 24px;
+}
+
+</style>
+
+
+    <CascadingValue Value="_currentlyEditingNode" Name="CurrentlyEditingNodeRef">
+        <CascadingValue Value="SetCurrentlyEditingNode" Name="SetCurrentlyEditingNodeRef">
+            <CascadingValue Value="SelectedNode" Name="SelectedNodeRef">
+                <CascadingValue Value="SetCurrentlySelectedNode" Name="SetSelectedNodeRef">
+                    <CascadingValue Value="ReadOnly" Name="ReadOnly">
+                        @if (AllowAddRootNode)
+                        {
+                            <button class="btn btn-secondary" @onclick="AddRootNode">Add Root Node</button>
+                        }
+                        <ul>
+                            @foreach (var node in RootNodes)
+                            {
+                                <TreeNodeComponent Node="node" OnNodeChanged="OnNodeChanged" LabelTemplate="@LabelTemplate" BodyTemplate="@BodyTemplate"/>
+                            }
+                        </ul>
+                    </CascadingValue>
+                </CascadingValue>
+            </CascadingValue>
+        </CascadingValue>
+    </CascadingValue>
+</div>
+
+@code {
+    [Parameter] public List<TreeNode<TItem>>            RootNodes        { get; set; } = [];
+    [Parameter] public EventCallback<TreeNode<TItem>>   OnNodeChanged    { get; set; }
+    [Parameter] public bool                             AllowAddRootNode { get; set; }
+    [Parameter] public bool                             ReadOnly         { get; set; }
+
+    [Parameter] public RenderFragment<TreeNode<TItem>>? LabelTemplate    { get; set; }
+    [Parameter] public RenderFragment<TreeNode<TItem>>? BodyTemplate     { get; set; }
+
+    [Parameter]
+    public TreeNode<TItem>? SelectedNode
+    {
+        get;
+        set
+        {
+            if (!EqualityComparer<TreeNode<TItem>?>.Default.Equals(field, value))
+            {
+                field = value;
+                SelectedNodeChanged.InvokeAsync(value);
+                StateHasChanged();
+            }
+        }
+    } = null;
+
+    [Parameter]
+    public EventCallback<TreeNode<TItem>?> SelectedNodeChanged { get; set; }
+
+    private void AddRootNode()
+    {
+        var newNode = new TreeNode<TItem> { Data = default }; // Or initialize with a default TItem
+        RootNodes.Add(newNode);
+        OnNodeChanged.InvokeAsync(newNode);
+    }
+
+    private TreeNode<TItem>? _currentlyEditingNode = null;
+
+    private void SetCurrentlyEditingNode(TreeNode<TItem>? node)
+    {
+        _currentlyEditingNode = node;
+        StateHasChanged(); // Crucial to propagate the change
+    }
+
+    private void SetCurrentlySelectedNode(TreeNode<TItem>? node)
+    {
+        SelectedNode = node;
+    }
+}

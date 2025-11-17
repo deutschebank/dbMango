@@ -1,0 +1,150 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+@using Rms.Risk.Mango.Pivot.Core.Models
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<TabControl Vertical="@Vertical" PersistAllTabs="true">
+    <TabPage Text="Filter">
+        <PivotFilterComponent Pivot="@Pivot" Class="mt-1 pivot-settings-tab"
+            AllFields="@GetAllFields()" />
+    </TabPage>
+    <TabPage Text="Keys">
+        <PivotKeysComponent Class="mt-1 pivot-settings-tab" AllKeys="@AllKeyFields" @bind-Value="CurrentPivotKeyFields" />
+    </TabPage>
+    <TabPage Text="Data">
+        <PivotKeysComponent Class="mt-1 pivot-settings-tab" AllKeys="@AllDataFields" @bind-Value="CurrentPivotDataFields" />
+    </TabPage>
+    <TabPage Text="Query">
+        <PivotQueryComponent Class="mt-1 pivot-settings-tab" Pivot="Pivot"
+                             ExtraFilter="@GetExtraFilter()"
+            Collection="@SelectedCollectionName"
+            PivotService="@PivotService"
+            GetQueryText="@GetQueryText"
+            />
+    </TabPage>
+    <TabPage Text="DD">
+        <PivotDrilldownComponent Class="mt-1 pivot-settings-tab" Pivot="@Pivot"
+                                 AllPivots="@AllPivots"
+            />
+    </TabPage>
+    <TabPage Text="Options">
+        <PivotOptionsComponent Class="mt-1 pivot-settings-tab" Pivot="@Pivot" />
+    </TabPage>
+</TabControl>
+
+@code {
+    [Parameter] public GroupedCollection?    SelectedCollectionNode                { get; set; }
+
+    [Parameter]
+    public PivotDefinition?      Pivot
+    {
+        get;
+        set 
+        {
+            if (field == value)
+                return;
+            field = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [Parameter] public Func<FilterExpressionTree.ExpressionGroup?>  GetExtraFilter { get; set; } = () => null;
+    [Parameter] public IPivotTableDataSource PivotService                          { get; set; } = null!;
+    [Parameter] public bool                  Vertical                              { get; set; }
+
+    private string Filter
+    {
+        get => Pivot?.Filter ?? "";
+        set 
+        {
+            if ( Pivot != null )
+                Pivot.Filter = value;
+        }
+    }
+
+    private HashSet<string>    AllDataFields => SelectedCollectionNode?.DataFields ?? [];
+    private HashSet<string>    AllKeyFields  => SelectedCollectionNode?.KeyFields ?? [];
+    private List<GroupedPivot> AllPivots     => SelectedCollectionNode?.Pivots ?? [];
+
+    private string[] CurrentPivotKeyFields
+    {
+        get => Pivot?.KeyFields ?? [];
+        set
+        {
+            if (Pivot != null )
+                Pivot.KeyFields = value;
+        }
+    }
+
+    private string[] CurrentPivotDataFields
+    {
+        get => Pivot?.DataFields ?? [];
+        set
+        {
+            if ( Pivot != null )
+                Pivot.DataFields = value;
+        }
+    }
+
+    private string? SelectedCollectionName => SelectedCollectionNode is { IsGroup: false }
+        ? SelectedCollectionNode.CollectionNameWithPrefix
+        : null;
+
+    private Dictionary<string, Type> GetAllFields()
+    {
+        if (SelectedCollectionNode?.FieldTypes != null)
+            return SelectedCollectionNode.FieldTypes
+               .ToDictionary(
+                    x => x.Key, 
+                    x => x.Value.Type 
+                );
+
+        var res = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+
+        if ((AllKeyFields?.Count ?? 0) > 0)
+        {
+            foreach (var k in AllKeyFields!.Where(k => !res.ContainsKey(k)))
+            {
+                res[k] = typeof(string);
+            }
+        }
+
+        if ((AllDataFields?.Count ?? 0) > 0)
+        {
+            foreach (var k in AllDataFields!.Where(k => !res.ContainsKey(k)))
+            {
+                res[k] = typeof(double);
+            }
+        }
+
+        return res;
+    }
+
+    private async Task<string> GetQueryText(string collectionName, PivotDefinition def, FilterExpressionTree.ExpressionGroup? extraFilter, CancellationToken token = default)
+    {
+        if (Pivot == null)
+            return "";
+
+        var text = await PivotService.GetQueryTextAsync(SelectedCollectionName!, Pivot, extraFilter, token);
+        return text;
+    }
+
+
+}

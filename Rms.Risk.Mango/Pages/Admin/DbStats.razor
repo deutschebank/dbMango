@@ -1,0 +1,319 @@
+﻿@page "/admin/db-stats"
+@page "/admin/db-stats/{DatabaseStr}"
+@page "/admin/db-stats/{DatabaseStr}/{DatabaseInstanceStr}"
+@using ChartJs.Blazor
+@using ChartJs.Blazor.BarChart
+@using ChartJs.Blazor.BarChart.Axes
+@using ChartJs.Blazor.Common.Axes
+@using ChartJs.Blazor.Common.Enums
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@using Rms.Risk.Mango.Services.Models
+@attribute [Authorize]
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .chart-display {
+        width: 90vw;
+        height: 90vh;
+    }
+</style>
+
+<h3 class="mt-3">Storage size</h3>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+    @if (Error != null)
+    {
+        <ExceptionControl Exception="@Error"/>
+    }
+
+    <div class="chart-display @ChartClass">
+        <div class="chart-canvas ml-3">
+            <Chart Config="@_chartConfig"/>
+        </div>
+    </div>
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+
+    private Exception?         Error  { get; set; }
+    private DatabaseStatsModel Result { get; set; } = new();
+
+    private string ChartClass => Result.Raw.Count == 0 || Error != null
+        ? "d-none"
+        : ""
+    ;
+
+    private static readonly string[] _colors = [
+        "rgba(255, 99,  132, 0.6)",
+        "rgba(255, 159,  64, 0.6)",
+        "rgba(255, 205,  86, 0.6)",
+        "rgba(75,  192, 192, 0.6)",
+        "rgba(54,  162, 235, 0.6)",
+        // "rgba(153, 102, 255, 0.4)",
+        // "rgba(201, 203, 207, 0.4)"
+    ];
+
+    private string _unit = "B";
+    private double _divider = 1.0;
+
+    private readonly BarConfig _chartConfig = new()
+    {
+        Data =
+        {
+            Datasets =
+            {
+                new BarDataset<double>
+                {
+                    Label           = "Index used",
+                    BackgroundColor = _colors[2],
+                    BorderColor     = _colors[2]
+                },
+                new BarDataset<double>
+                {
+                    Label           = "Index free",
+                    BackgroundColor = _colors[3],
+                    BorderColor     = _colors[3]
+                },
+                new BarDataset<double>
+                {
+                    Label           = "Storage used",
+                    BackgroundColor = _colors[0],
+                    BorderColor     = _colors[0]
+                },
+                new BarDataset<double>
+                {
+                    Label           = "Storage free",
+                    BackgroundColor = _colors[1],
+                    BorderColor     = _colors[1]
+                },
+                // new BarDataset<double>
+                // {
+                //     Label           = "Other free",
+                //     BackgroundColor = _colors[4],
+                //     BorderColor     = _colors[4]
+                // }
+            }
+        },
+        Options = new()
+        {
+            MaintainAspectRatio = true,
+            Responsive          = true,
+            Legend = new()
+            {
+                Display = true,
+                Position = Position.Bottom
+            },
+            Scales = new()
+            {
+                YAxes = new List<CartesianAxis>
+                {
+                    new BarLinearCartesianAxis
+                    {
+                        Stacked         = true,
+                        // OffsetGridLines = false,
+                        // Offset          = true,
+                        // Display         = AxisDisplay.False
+                    }
+                },
+                XAxes = new List<CartesianAxis>
+                {
+                    new BarCategoryAxis
+                    {
+                        Stacked         = true,
+                        // OffsetGridLines = false,
+                        // Offset          = false,
+                        // Display         = AxisDisplay.False,
+                        // BarThickness    = 45
+                    }
+                }
+            }
+        }
+    };
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+        StateHasChanged();
+        Task.Run(Run);
+    }
+
+    private async Task Run()
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+
+            var res = await UserSession.MongoDbAdmin.DbStats(cts.Token);
+            await Display(res);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void UpdateChart(
+        DatabaseStatsModel data
+    )
+    {
+        _chartConfig.Data.XLabels.Clear();
+
+        foreach (var key in data.Raw.Keys)
+        {
+            var parts = key.Split('/');
+            _chartConfig.Data.XLabels.Add(parts[0]); // replica set name
+        }
+
+        var dataMax = data.Raw.Values.Max(x => x.StorageSize+x.IndexSize);
+
+        // Decide unit
+        if (dataMax > 1024 * 1024 * 1024) // > 1 GB
+        {
+            _unit    = "GB";
+            _divider = 1024 * 1024 * 1024;
+        }
+        else
+        {
+            _unit    = "MB";
+            _divider = 1024 * 1024;
+        }
+
+        var indexUsed   = (BarDataset<double>)_chartConfig.Data.Datasets[0];
+        var indexFree   = (BarDataset<double>)_chartConfig.Data.Datasets[1];
+        var storageUsed = (BarDataset<double>)_chartConfig.Data.Datasets[2];
+        var storageFree = (BarDataset<double>)_chartConfig.Data.Datasets[3];
+        // var otherFree   = (BarDataset<double>)_chartConfig.Data.Datasets[4];
+
+        storageUsed.Clear();
+        storageFree.Clear();
+        indexUsed  .Clear();
+        indexFree  .Clear();
+        // otherFree  .Clear();
+
+        storageUsed.AddRange(data.Raw.Values.Select(x => (x.StorageSize - x.FreeStorageSize)    / _divider));
+        storageFree.AddRange(data.Raw.Values.Select(x => x.FreeStorageSize                      / _divider));
+        indexUsed  .AddRange(data.Raw.Values.Select(x => (x.IndexSize - x.IndexFreeStorageSize) / _divider));
+        indexFree  .AddRange(data.Raw.Values.Select(x => x.IndexFreeStorageSize                 / _divider));
+        // otherFree.AddRange(data.Raw.Values.Select(x => (x.FsUsedSize - x.StorageSize - x.IndexSize) / _divider));
+
+        _chartConfig.Data.Datasets.Add(storageUsed);
+        _chartConfig.Data.Datasets.Add(storageFree);
+        _chartConfig.Data.Datasets.Add(indexUsed  );
+        _chartConfig.Data.Datasets.Add(indexFree  );
+        // _chartConfig.Data.Datasets.Add(otherFree  );
+
+
+        _chartConfig.Options.Scales.YAxes.Clear();
+        _chartConfig.Options.Scales.YAxes.Add(new BarLinearCartesianAxis
+        {
+            Stacked = true,
+            ScaleLabel = new ()
+            {
+                Display     = true,
+                LabelString = $"Size {_unit}"
+            },
+            Ticks = new ()
+            {
+                Min      = 0.0,
+                Max      = dataMax / _divider,
+            }
+        });
+    }
+
+    private Task Display(DatabaseStatsModel model)
+    {
+        Error  = null;
+        Result = model;
+
+        UpdateChart(model);
+        
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+    private Task Display(Exception e)
+    {
+        Error = e;
+        Result.Raw.Clear();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/db-stats/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+}

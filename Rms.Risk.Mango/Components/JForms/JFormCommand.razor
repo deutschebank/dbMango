@@ -1,0 +1,186 @@
+﻿@using Microsoft.AspNetCore.Components.Rendering
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="@Class">
+    <div class="mb-2">Documentation: <a href="@DocUri" target="_blank">@DocUri</a></div>
+    <div class="flex-stack-horizontal">
+        <div class="flex-stack-horizontal">
+            @InnerContents
+        </div>
+    </div>
+</div>
+
+@code {
+
+    [Parameter] public TemplateRec                        Template        { get; set; } = new();
+    [Parameter] public string                             CommandTemplate { get; set; } = @"{}";
+    [Parameter] public EventCallback<string>              CommandChanged  { get; set; }
+    [Parameter] public EventCallback<string>              ValueChanged    { get; set; }
+    [Parameter] public string                             Class           { get; set; } = "";
+    [Parameter] public Func<TemplateRec.ParamRec,object?> GetArguments    { get; set; } = _ => null;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (Template.Parameters.Count <= 0 || !JsonUtils.IsValidJson(CommandTemplate))
+            return;
+
+        Template.UpdateText(CommandTemplate);
+        StateHasChanged();
+    }
+
+    public const string MongoDocUrl = "https://www.mongodb.com/docs/manual/reference/command/";
+
+    private string DocUri
+    {
+        get
+        {
+            if (Template.DocUri != null)
+                return Template.DocUri.ToString();
+            try
+            {
+                if ( !BsonDocument.TryParse(CommandTemplate, out var json) )
+                    return MongoDocUrl;
+
+                var cmd = json.Elements.FirstOrDefault().Name;
+                return string.IsNullOrWhiteSpace(cmd) 
+                    ? MongoDocUrl 
+                    : $"{MongoDocUrl}{cmd}/";
+            }
+            catch (Exception)
+            {
+                return MongoDocUrl;
+            }
+        }
+    }
+
+    private RenderFragment InnerContents => (builder) =>
+    {
+        List<List<TemplateRec.ParamRec>> groups = [];
+
+        List<TemplateRec.ParamRec> current = [];
+
+        foreach (var paramRec in Template.Parameters)
+        {
+            if (paramRec.Type.StartsWith("-"))
+            {
+                groups.Add(current);
+                current = [];
+                continue;
+            }
+
+            current.Add(paramRec);
+        }
+
+        if (current.Count > 0 )
+            groups.Add(current);
+
+        var groupIdx = 0;
+        foreach (var group in groups)
+        {
+            builder.OpenElement(groupIdx++, "div");
+            builder.AddAttribute(0, "class", "flex-stack-vertical mr-3");
+
+            var i = 0;
+            foreach (var parameter in group)
+            {
+                AddFragment(builder, i++, parameter);
+            }
+
+            builder.CloseElement();
+        }
+    };
+
+
+    private RenderTreeBuilder AddFragment(RenderTreeBuilder builder, int index, TemplateRec.ParamRec p)
+    {
+        switch (p.Type)
+        {
+            case "text":
+                builder.OpenComponent<JFormText>(index);
+                AddAttributes(builder, p);
+                builder.CloseComponent();
+                break;
+            case "json":
+                builder.OpenComponent<JFormObject>(index);
+                AddAttributes(builder, p);
+                builder.CloseComponent();
+                break;
+            case "bool":
+                builder.OpenComponent<JFormBool>(index);
+                AddAttributes(builder, p);
+                builder.CloseComponent();
+                break;
+            case "zeroone":
+                builder.OpenComponent<JFormZeroOne>(index);
+                AddAttributes(builder, p);
+                builder.CloseComponent();
+                break;
+            case "int":
+                builder.OpenComponent<JFormText>(index);
+                AddAttributes(builder, p);
+                builder.AddAttribute(5, "InputType", "number");
+                builder.CloseComponent();
+                break;
+            case "enum":
+                Type enumType = typeof(JFormEnum<>).MakeGenericType(Type.GetType(p.TypeArg)!);
+                builder.OpenComponent(index, enumType);
+                AddAttributes(builder, p);
+                builder.CloseComponent();
+                break;
+            case "select":
+            {
+                Type selectType = typeof(JFormSelect<>).MakeGenericType(Type.GetType(p.TypeArg)!);
+                builder.OpenComponent(index, selectType);
+                var idx = AddAttributes(builder, p);
+
+                var values = GetArguments(p);
+
+                builder.AddAttribute(idx, "Values", values);
+                builder.CloseComponent();
+            }
+                break;
+            default:
+                builder.AddMarkupContent(index, "<div>&nbsp;</div>");
+                break;
+        }
+
+        return builder;
+    }
+
+    private int AddAttributes(RenderTreeBuilder builder, TemplateRec.ParamRec p)
+    {
+        builder.AddAttribute(0, "Text", p.Text);
+        builder.AddAttribute(1, "TextChanged", 
+            EventCallback.Factory.Create<string>(this, value => 
+            {
+                p.Text = value;
+                CommandChanged.InvokeAsync(Template.UpdateCommand(CommandTemplate));
+            }));
+        builder.AddAttribute(2, "Name",         p.Name);
+        builder.AddAttribute(3, "Icon",         p.Icon);
+        builder.AddAttribute(4, "Class",        p.Class);
+        return 5;
+    }
+
+}

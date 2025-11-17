@@ -1,0 +1,86 @@
+﻿@using Microsoft.Extensions.Options
+@inject IUserSession UserSession
+@inject IOptions<DbMangoSettings> Settings
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<AuthorizeView Policy="@Policy" Resource="@Resource">
+    <Authorized Context="ctx">
+        @ChildContent
+    </Authorized>
+    <NotAuthorized Context="ctx">
+        <div class="flex-stack-vertical">
+            <div class="mb-3">
+                <div class="alert alert-danger" role="alert">
+                    <p>You are not authorised to access this page. In order to proceed you need "@Policy" for "@Resource".</p>
+                </div>
+            </div>
+            <div class="w-auto">
+                <table class="table table-hover table-striped table-responsive fit-content">
+                    <tbody>
+                        <tr>
+                            <td>User name:</td>
+                            <td>@UserSession.User.GetEmail()</td>
+                        </tr>
+                        <tr>
+                            <td>Database config:</td>
+                            <td>@UserSession.Database</td>
+                        </tr>
+                        <tr>
+                            <td>MongoDB database:</td>
+                            <td>@UserSession.DatabaseConfig.MongoDbDatabase</td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" class="border-bottom">&nbsp;</td>
+                        </tr>
+                        <tr>
+                            <td>Read access group:</td>
+                            <td>@UserSession.LdapGroups.ReadOnly</td>
+                        </tr>
+                        <tr>
+                            <td>Write access group:</td>
+                            <td>@UserSession.LdapGroups.ReadWrite</td>
+                        </tr>
+                        <tr>
+                            <td>Admin access group:</td>
+                            <td>@UserSession.LdapGroups.Admin</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Settings.Value.RequestAccessURL))
+            {
+                <div>
+                    <p>Group access can be requested via <a href="@Settings.Value.RequestAccessURL" target="_blank">@Settings.Value.RequestAccessLabel</a></p>
+                </div>
+            }
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public string Policy { get; set; } = "Admin";
+    [Parameter] public string Resource { get; set; } = "";
+
+    /// <summary>
+    /// The content that will be displayed if the user is authorized.
+    /// </summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

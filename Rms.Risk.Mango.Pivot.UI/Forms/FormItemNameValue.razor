@@ -1,0 +1,239 @@
+﻿@typeparam TVal where TVal : new()
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .column-name {
+        width: 25%;
+    }
+
+    .column-value {
+        width: 75%;
+    }
+</style>
+
+<div class="form-group @Class">
+    <div class="flex-stack-horizontal form-mw">
+        <label class="input-group-text w-100">@Name</label>
+        <div class="flex-stack-horizontal flex-align-end">
+            @if (!IsDisabled)
+            {
+                <button type="button" class="btn btn-secondary" @onclick="AddNewKeyValue" title="Add row">
+                    <span class="ui-icon-font icon-plus-sm"></span>
+                </button>
+            }
+        </div>
+
+    </div>
+    <div class="input-group mr-sm-2">
+        @if (Icon != null)
+        {
+            <div class="input-group-prepend">
+                <div class="input-group-text">
+                    <div class="">
+                        <span class="ui-icon-font ui-icon-sm @Icon"></span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <TableControl Class="table table-hover table-striped table-forge table-forge-numered table-forge-top-align" Items="@(Value.Cast<dynamic>().ToList())" PageSize="10" Filterable="false">
+            <TableColumnControl Name="Name" Field="Name" Class="column-name">
+                <Template Context="data">
+                    <input class="input-group-text w-100"
+                    value="@(((NameValuePair)data.Row).Name)"
+                    @onchange="@(e => SetNameInternal(e, (NameValuePair)data.Row))"
+                    style="text-align: left;"
+                    readonly="@IsDisabled"/>
+                </Template>
+            </TableColumnControl>
+
+            <TableColumnControl Name="Value" Field="Value" Class="column-value">
+                <Template Context="data">
+                    <div class="d-flex">
+                        <textarea class="w-100 form-control"
+                        onkeypress="return event.keyCode !== 13 || @Multiline.ToString().ToLower();"
+                        value="@GetValue((NameValuePair)data.Row)"
+                        @onchange="@(e => SetValueInternal(e, (NameValuePair)data.Row))"
+                        cols="60" rows="1"
+                        readonly="@IsDisabled">
+                        </textarea>
+                    </div>
+                </Template>
+            </TableColumnControl>
+            @if (Enabled)
+            {
+                <TableColumnControl Name="" Field="Name">
+                    <Template Context="data">
+                        <div class="flex-stack-horizontal">
+                            <button type="button" class="btn btn-secondary" disabled="@IsDisabled" @onclick="@(() => Delete(data.Row))" title="Delete row">
+                                <span class="ui-icon-font icon-trash-sm"></span>
+                            </button>
+                            @{
+                                var upDisabled = IsUpDisabled(data.Row);
+                                var downDisabled = IsDownDisabled(data.Row);
+                            }
+                            <button type="button" class="btn btn-secondary" disabled="@upDisabled" @onclick="@(() => Up(data.Row))" title="Move row up">
+                                <span class="ui-icon-font icon-arrow-up-sm"></span>
+                            </button>
+                            <button type="button" class="btn btn-secondary" disabled="@downDisabled" @onclick="@(() => Down(data.Row))" title="Move row down">
+                                <span class="ui-icon-font icon-arrow-down-sm"></span>
+                            </button>
+                        </div>
+                    </Template>
+                </TableColumnControl>
+            }
+        </TableControl>
+
+    </div>
+</div>
+
+
+
+@code {
+
+    public class NameValuePair
+    {
+        public string Name  { get; set; } = "";
+        public TVal Value { get; set; } = new();
+    }
+
+    [Parameter] public string                        Name        { get; set; } = "";
+    [Parameter] public List<NameValuePair>           Value       { get; set; } = [];
+    [Parameter] public string?                       Placeholder { get; set; } = "";
+    [Parameter] public string?                       Icon        { get; set; }
+    [Parameter] public bool                          Enabled     { get; set; } = true;
+    [Parameter] public bool                          Multiline   { get; set; }
+    [Parameter] public string                        Class       { get; set; } = "";
+    [Parameter] public Func<NameValuePair, string>   GetValue    { get; set; } = x => x.Value?.ToString() ?? "";
+    [Parameter] public Action<NameValuePair, string> SetValue    { get; set; } = DefaultSetValue;
+    [Parameter] public Action                        Changed     { get; set; } = () => { };
+
+    private static void DefaultSetValue(NameValuePair x, string val)
+    {
+        var newVal = Convert.ChangeType(val, typeof(TVal));
+        if (newVal is TVal tv)
+            x.Value = tv;
+
+    }
+
+    private bool IsDisabled => !Enabled;
+
+    private bool IsUpDisabled(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        return index <= 0;
+    }
+
+    private int GetIndex(NameValuePair data)
+    {
+        var index = Value.IndexOf(data);
+        if ( index >= 0 ) 
+            return index;
+
+        var dataRef = Value.FirstOrDefault(x => x.Name == data.Name);
+        if (dataRef == null)
+            return -1;
+        index = Value.IndexOf(dataRef);
+
+        return index;
+    }
+
+    private Task Up(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        if (index <= 0)
+            return Task.CompletedTask;
+
+        var dataRef = Value[index];
+        Value.RemoveAt(index);
+        Value.Insert(index - 1, dataRef);
+        
+        Changed();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsDownDisabled(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        return index >= Value.Count - 1;
+    }
+
+    private Task Down(NameValuePair data)
+    {
+        var index = GetIndex(data);
+        if (index >= Value.Count - 1)
+            return Task.CompletedTask;
+
+        var dataRef = Value[index];
+        Value.RemoveAt(index);
+        Value.Insert(index + 1, dataRef);
+
+        Changed();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task Delete(NameValuePair data)
+    {
+        Value.Remove(data);
+
+        Changed();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SetValueInternal(ChangeEventArgs e, NameValuePair data)
+    {
+        SetValue(data, e.Value?.ToString() ?? "");
+
+        var dataRef = GetIndex(data);
+        if ( dataRef < 0 )
+            return InvokeAsync(StateHasChanged);
+
+        SetValue(Value[dataRef],e.Value?.ToString() ?? "");
+
+        Changed();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SetNameInternal(ChangeEventArgs e, NameValuePair data)
+    {
+        data.Name = e.Value?.ToString() ?? "";
+
+        var dataRef = GetIndex(data);
+        if (dataRef < 0)
+            return InvokeAsync(StateHasChanged);
+
+
+        Value[dataRef].Name = e.Value?.ToString() ?? "";
+
+        Changed();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task AddNewKeyValue()
+    {
+        Value.Add(new ());
+
+        Changed();
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+}

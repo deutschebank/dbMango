@@ -1,0 +1,46 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿<CascadingAuthenticationState>
+    <CascadingBlazoredModal Position="ModalPosition.Middle" Size="ModalSize.Large" Class="mango-modal modal-content" AnimationType="@ModalAnimationType.None">
+        <Router AppAssembly="@typeof(App).Assembly" AdditionalAssemblies="@PluginSupport.GetPluginAssemblies(null)">
+            <Found Context="routeData">
+                <CascadingValue Name="RouteData" Value="routeData">
+                    <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                        <NotAuthorized>
+                            <div class="alert alert-primary m-2" role="alert">
+                                <h2>User Login required</h2>
+                                <p>Please log in to continue.</p>
+                                <button class="btn btn-outline-light"><LoginControl ForceLogin="true"/></button>
+                            </div>
+                        </NotAuthorized>
+                        <Authorizing>
+                            <div>Authentication in progress</div>
+                        </Authorizing>
+                    </AuthorizeRouteView>
+                </CascadingValue>
+            </Found>
+            <NotFound>
+                <PageTitle>Not found</PageTitle>
+                <LayoutView Layout="@typeof(MainLayout)">
+                    <p role="alert">Sorry, there's nothing at this address.</p>
+                </LayoutView>
+            </NotFound>
+        </Router>
+    </CascadingBlazoredModal>
+</CascadingAuthenticationState> 

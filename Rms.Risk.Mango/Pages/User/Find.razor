@@ -1,0 +1,529 @@
+﻿@page "/user/find"
+@page "/user/find/{DatabaseStr}/{CollectionStr}"
+@page "/user/find/{DatabaseStr}/{DatabaseInstanceStr}/{CollectionStr}"
+@attribute [Authorize]
+
+@inject NavigationManager     NavigationManager
+@inject IUserSession           UserSession
+@inject IJSRuntime            JsRuntime
+@inject IAuthorizationService Auth
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        height: 330px;
+        position: relative;
+    }
+
+    .res-field {
+        width: 100%;
+        height: calc(100vh - (188px + 300px));
+        overflow: auto;
+    }
+
+    pre {
+        width: 100%;
+        height: 100%;
+        font-size: 10pt;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+</style>
+
+<h3 class="mt-3">Find: @SelectedCollection</h3>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <FormItemSelect   Enabled="@IsReady" Class="mr-2" Name="Collection"     @bind-Value="SelectedCollection" Values="@Collections" Icon="icon-folder-outline-sm"/>
+            <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)"  @bind-Value="Timeout"   InputType="number" Icon="icon-clock-sm"/>
+            <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number" Icon="icon-download-selected-sm" />
+            <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Show as Json"   @bind-Value="ShowAsJson"                   Icon="icon-tos-sm" />
+            <div class="flex-stack-vertical">
+                <div class="flex-stack-horizontal">
+                    <div class="form-group">
+                        <FormButton Enabled="@IsReady" Name="Find" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
+                    </div>
+                    <div class="form-group">
+                        <FormButton Enabled="@IsReady" Name="Count" Icon="icon-funnel-clear-sm" OnClick="Count" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <FormButton Enabled="@IsReady" Name="Explain" Icon="icon-layers-sm" OnClick="Explain" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <FormButton Enabled="@IsReady" Name="Format" Icon="icon-pencil-sm" OnClick="Format" IsPrimary="false" />
+                    </div>
+                </div>
+                <a href="https://www.mongodb.com/docs/manual/reference/command/find/" target="_blank">See documentation...</a>
+            </div>
+        </div>
+
+    </EditForm>
+
+    <div class="js-field mt-3 mb-1">
+        <SplitPanel Orientation="horizontal" InitialSplit="0.5">
+            <First>
+                <div class="col">
+                    <div class="mb-2">Filter:</div>
+                    <FormCodeEditor @bind-Text="Text" MediaType="application/x-json" Class="" />
+                </div>
+            </First>
+            <Second>
+                <div class="col">
+                    <div class="mb-2">Projection: (use {} to see everything, _id MUST be present in the result)</div>
+                    <FormCodeEditor @bind-Text="Project" MediaType="application/x-json" Class="" />
+                </div>
+            </Second>
+        </SplitPanel>
+    </div>
+
+    @if (!IsReady)
+    {
+        <ProgressSpinner />
+    }
+    else if (ShowAsJson)
+    {
+        <FormJson Class="res-field row" Value="@Result"/>
+    }
+    else
+    {
+        <SimplePivotComponent PivotName="find"
+                              CollectionName="find"
+                              PivotData="@ResultPivot"
+                              HandleCellClick="@OnCellClick" />
+    }
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr   { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [Parameter] public string? CollectionStr { get; set; }
+
+    private string Text { get; set; } =
+@"{
+    ""_id"": { 
+      ""$ne"" : """" 
+    }
+}";
+
+    private string Project { get; set; } =
+        @"{
+    
+}";
+
+    private IReadOnlyCollection<string> Collections        { get; set; } = [];
+
+    private string SelectedCollection
+    {
+        get => UserSession.Collection;
+        set
+        {
+            if (UserSession.Collection == value)
+                return;
+            UserSession.Collection = value;
+            SyncUrl();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private string Timeout { get; set; } = "20";
+    private string FetchSize   { get; set; } = "100";
+    private bool   IsReady     { get; set; }
+    private bool   ShowAsJson  { get; set; }
+
+    private string              Result      { get; set; } = "{}";
+    private List<BsonDocument>  ResultBson  { get; set; } = [];
+    public  ArrayBasedPivotData ResultPivot { get; set; } = new([]);
+
+
+
+    private EditContext?   _editContext;
+    private EditContext    EditContext => _editContext!;
+
+    protected override void OnInitialized()
+    {
+        _editContext = new (this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        if (string.IsNullOrWhiteSpace(CollectionStr))
+            CollectionStr = SelectedCollection;
+        else
+            SelectedCollection = CollectionStr;
+        SyncUrl();
+
+        var text = await JsRuntime.LoadFromLocalStorage("Find");
+        if (!string.IsNullOrWhiteSpace(text))
+            Text = text;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var admin = UserSession.MongoDbAdmin;
+
+                Collections = await admin.ListCollections();
+                if (!Collections.Contains(SelectedCollection))
+                    SelectedCollection = Collections.FirstOrDefault() ?? "";
+
+                IsReady = true;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception e)
+            {
+                await Display(e);
+            }
+        });
+    }
+
+    enum ActionType
+    {
+        Find, Count, Explain
+    }
+
+    private async Task Run(ActionType actionType)
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            await JsRuntime.SaveToLocalStorage("Find", Text, cts.Token);
+
+            if ( int.TryParse(FetchSize, out var limit) == false )
+                limit = 0;
+
+            var res  = actionType switch
+            {
+                ActionType.Find => await RunFind(Text, Project, limit, cts.Token),
+                ActionType.Count   => await RunCount  (Text, cts.Token),
+                ActionType.Explain => await RunExplain(Text, cts.Token),
+                _                  => throw new ArgumentOutOfRangeException(nameof(actionType), actionType, null)
+            };
+
+            ResultPivot = res.Item1;
+            ResultBson = res.Item2;
+
+            await Display(ResultBson);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task Run() => Run(ActionType.Find);
+    private Task Count() => Run(ActionType.Count);
+    private Task Explain() => Run(ActionType.Explain);
+
+    private Task Display(Exception e)
+    {
+        ShowAsJson = true;
+        Result     = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task Display(IEnumerable<BsonDocument> res)
+    {
+        Result = res.ToJson(new() { Indent = true });
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunExplain(string text, CancellationToken token)
+    {
+        var service = UserSession.MongoDb;
+        var command = $@"{{
+    ""find"" : ""{SelectedCollection}"",
+    ""filter"" : {text}
+}}";
+        var res = await service.ExplainAsync(command, token);
+        ShowAsJson = true;
+        return (ArrayBasedPivotData.NoData, [res]);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunFind(string text, string project , int limit, CancellationToken token)
+    {
+        var service = UserSession.MongoDb;
+        var results = service.FindAsync(text, false, project, limit: limit <= 0 ? null : limit, token: token);
+
+        var fieldMap = new ConcurrentDictionary<string, FieldMapping>
+        {
+            ["find"] = new(false)
+        };
+
+        var (pd, list) = await MongoDbDataSource.FetchPivotData(
+            "find", 
+            "find", 
+            fieldMap,
+            results, 
+            null, 
+            true,
+            int.Parse(FetchSize),
+            true,
+            token);
+
+        if (list.Count == 0)
+            list.Add(BsonDocument.Parse(@$"{{""Result"": ""No data fetched from {SelectedCollection}""}}"));
+
+        return (pd, list);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunCount(string text, CancellationToken token)
+    {
+        var service = UserSession.MongoDb;
+        var result = await service.CountAsync(text, token);
+
+        var pd = new ArrayBasedPivotData(["Count"]);
+        pd.Add([result]);
+
+        return (pd, [BsonDocument.Parse($"{{ Count: {result} }}"), ]);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/find/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        url += $"/{SelectedCollection}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task Format()
+    {
+        Text = JsonUtils.FormatJson(Text);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<bool> OnCellClick(DynamicObject row, string columnName)
+    {
+        try
+        {
+            var id = TableControl.GetDynamicMember(row, "_id");
+            if (id == null)
+                return true;
+
+            var bson = ResultBson.FirstOrDefault(x => x["_id"].ToString() == id.ToString());
+            if (bson == null)
+                return true;
+
+            var oldId = bson["_id"];
+
+            var enableWrite = await Auth.AuthorizeAsync(
+                UserSession.User.GetUser(), 
+                UserSession.Database, 
+                [new WriteAccessRequirement()]);
+
+            var res = await ShowBsonDialog(Modal, id.ToString()!, bson, enableWrite.Succeeded);
+            if (res == null)
+                return true;
+
+            if (enableWrite.Succeeded)
+            {
+                if (res.Value.ShouldUpdate)
+                {
+                    bson = BsonDocument.Parse(res.Value.Json);
+                    await OnUpdate(oldId, bson);
+                }
+                else
+                    await OnDelete(oldId);
+            }
+        }
+        catch (Exception e)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", e);
+        }
+        return true;
+    }
+
+    private async Task OnDelete(BsonValue id)
+    {
+        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, $"Delete {id}", "Are you sure to delete document?");
+        if (r.Cancelled)
+            return;
+
+        var command = BsonDocument.Parse($@"{{
+     ""delete"": ""{SelectedCollection}"",
+     ""deletes"": [{{
+        ""q"": {{  }},
+        ""limit"": 1
+     }}]
+}}");
+
+        var idDoc = new BsonDocument
+            {
+                ["_id"] = id
+            };
+
+        command["deletes"][0]["q"] = idDoc;
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
+
+        var res      = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
+        var deleted = res["n"].ToInt32();
+        if (deleted != 1)
+        {
+            Result = 
+                res.ToJson(new() { Indent = true }) +
+                "\n------------------------------------------------------------------\n"+
+                command.ToJson(new() { Indent = true });
+            ShowAsJson = true;
+            await ModalDialogUtils.ShowInfoDialog(Modal, $"Delete {id}", "Failure");
+            await InvokeAsync(StateHasChanged);
+        }
+        else
+            await ModalDialogUtils.ShowInfoDialog(Modal, $"Delete {id}", "Success");
+    }
+
+    private async Task OnUpdate(BsonValue id, BsonDocument newBson)
+    {
+        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, $"Update {id}", "Are you sure to update document?");
+        if (r.Cancelled)
+            return;
+
+        var command = BsonDocument.Parse($@"{{
+    update: ""{SelectedCollection}"",
+    updates: [
+       {{
+         q: {{ }},
+         u: {{ }},
+         upsert: false,
+         multi: false,
+       }}
+    ],
+    ordered: false,
+    bypassDocumentValidation: false
+}}");
+
+        var idDoc = new BsonDocument
+        {
+            ["_id"] = id
+        };
+
+        command["updates"][0]["q"] = idDoc;
+        command["updates"][0]["u"] = newBson;
+
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+        var res = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
+
+        var modified = res["nModified"].ToInt32();
+        if (modified != 1)
+        {
+            Result = 
+                res.ToJson(new() { Indent = true }) +
+                "\n------------------------------------------------------------------\n"+
+                command.ToJson(new() { Indent = true });
+            ShowAsJson = true;
+            await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Failure");
+            await InvokeAsync(StateHasChanged);
+        }
+        else
+            await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Success");
+    }
+
+
+    public static async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(IModalService service, string header, BsonDocument bson, bool enableWrite)
+    {
+        var parameters = new ModalParameters
+        {
+            { "Text",        bson.ToJson(new() { Indent = true }) },
+            { "EnableWrite", enableWrite }
+        };
+
+        var options = new ModalOptions
+            {
+                HideCloseButton = true,
+                DisableBackgroundCancel = true
+            };
+
+        var form = service.Show<MessageBoxJsonComponent>(header, parameters, options);
+        var res = await form.Result;
+        if (res.Cancelled)
+            return null;
+
+        var v = (MessageBoxJsonComponent.ResultType?)res.Data;
+        if (v == null)
+            return null;
+
+        return (v.ShouldUpdate, v.Json);
+    }
+
+
+}

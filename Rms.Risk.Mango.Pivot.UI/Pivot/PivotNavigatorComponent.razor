@@ -1,0 +1,172 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+@using Rms.Risk.Mango.Pivot.Core.Models
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="@Class">
+    <style>
+        .form-mw {
+            min-width: 100px;
+        }
+    </style>
+
+    <PivotSelectorComponent ShowCollection="@ShowCollection"
+                            ShowPivot="@ShowPivot"
+                            Collections="@Collections"
+                            @bind-Collection="@Collection"
+                            @bind-Pivot="@Pivot" />
+
+    @if ( ExtraFilter != null )
+    {
+        @ExtraFilter
+    }
+
+    @if (ShowRows)
+    {
+        <div class="mr-3">
+            <FormItemSelect Name="Rows" Icon="icon-number-outline" @bind-Value="Rows" Values="@_rowValues" />
+        </div>
+    }
+
+    <PivotNavButtonsControl Navigation="@Navigation"
+                            IsRefreshEnabled="@IsRefreshEnabledLocal"
+                            IsExportEnabled="@IsExportEnabled"
+                            RefreshPivotTriggered="@RefreshPivotTriggered"
+                            CopyCsvTriggered="@CopyCsvTriggered"
+                            ExportCsvTriggered="@ExportCsvTriggered"
+                            @bind-UseCache="@UseCache" />
+</div>
+
+
+@code
+{
+    [CascadingParameter] public IModalService Modal          { get; set; } = null!;
+
+    [Parameter] public string Class          { get; set; } = "form-row";
+    [Parameter] public bool   ShowCollection { get; set; } = true;
+    [Parameter] public bool   ShowPivot      { get; set; } = true;
+    [Parameter] public bool   ShowRows       { get; set; } = true;
+
+    [Parameter] public RenderFragment? ExtraFilter { get; set; }
+
+    [Parameter]
+    public int Rows
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            RowsChanged.InvokeAsync(field);
+        }
+    } = 40;
+
+    [Parameter]
+    public List<GroupedCollection> Collections { get; set;} = [];
+
+    [Parameter]
+    public bool UseCache
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UseCacheChanged.InvokeAsync(field);
+        }
+    } = true;
+
+    [Parameter] public EventCallback<int                    > RowsChanged                { get; set; }
+    [Parameter] public EventCallback<bool                   > UseCacheChanged            { get; set; }
+
+    [Parameter] public EventCallback RefreshPivotTriggered   { get; set; }
+    [Parameter] public EventCallback CopyCsvTriggered        { get; set; }
+    [Parameter] public EventCallback ExportCsvTriggered      { get; set; }
+
+    [Parameter]
+    public string? Collection
+    {
+        get;
+        set
+        {
+            if (field == value || value == null)
+                return;
+
+            field = value;
+
+            CollectionChanged.InvokeAsync(field);
+            InvokeAsync(StateHasChanged);
+        }
+    } = null!;
+
+    [Parameter] public EventCallback<string?> CollectionChanged { get; set; }
+
+    [Parameter]
+    public string? Pivot
+    {
+        get;
+        set
+        {
+            if (field == value || value == null)
+                return;
+
+            field = value;
+
+            PivotChanged.InvokeAsync(field);
+        }
+    }
+
+    [Parameter] public EventCallback<string> PivotChanged { get; set; }
+
+    [Parameter] public bool    IsExportEnabled   { get; set; }
+    [Parameter] public bool    IsRefreshEnabled  { get; set; } = true;
+
+    [Parameter] public Navigation<NavigationUnit> Navigation   { get; set; } = null!;
+
+    private static readonly List<int> _rowValues             = Enumerable.Range(0, 8).Select(x => x * 5 + 25).ToList();
+    private GroupedCollection?        SelectedCollectionNode => Collections.FirstOrDefault(x => x.CollectionNameWithPrefix == Collection);
+    private GroupedPivot?             SelectedPivotNode      => SelectedCollectionNode?.Pivots.FirstOrDefault(x => x.Text == Pivot);
+
+    private bool IsRefreshEnabledLocal =>
+           ((ShowPivot      && SelectedPivotNode is { IsGroup: false}       ) || !ShowPivot)
+        && ((ShowCollection && SelectedCollectionNode is { IsGroup: false } ) || !ShowCollection)
+        && IsRefreshEnabled
+        ;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender)
+            return;
+
+        Collection ??= Collections.FirstOrDefault(x => x.CollectionNameWithPrefix == Collection && !x.IsGroup)?.CollectionNameWithPrefix
+                    ?? Collections.FirstOrDefault(x => !x.IsGroup)?.CollectionNameWithPrefix;
+
+        var pivotName = Pivot ?? "Summary";
+        Pivot = SelectedCollectionNode?.Pivots.FirstOrDefault(x => !x.IsGroup && x.Pivot.Name == pivotName)?.Text
+                ?? SelectedCollectionNode?.Pivots.FirstOrDefault(x => !x.IsGroup)?.Text;
+
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <NoWarn>CS1584,CS1658,CS1591</NoWarn>
+  </PropertyGroup>
+
+<!--
+  <PropertyGroup>
+    <AntlrJarDir>$(SolutionDirectory)tools/Antlr4</AntlrJarDir>
+    <AntlrJarFile>antlr4-4.13.1-complete.jar</AntlrJarFile>
+    <AntlrJarPath>$(AntlrJarDir)/$(AntlrJarFile)</AntlrJarPath>
+    <AntlrDownloadUrl>https://www.antlr.org/download/antlr-4.13.2-complete.jar</AntlrDownloadUrl>
+  </PropertyGroup>
+
+  <Target Name="EnsureAntlr4Jar" BeforeTargets="Antlr4Compile">
+    <Message Text="Ensuring ANTLR jar exists at $(AntlrJarPath)" Importance="High" />
+    <MakeDir Directories="$(AntlrJarDir)" Condition="!Exists('$(AntlrJarDir)')" />
+    <Exec Condition="!Exists('$(AntlrJarPath)') AND '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'"
+          Command="powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command &quot;Invoke-WebRequest -Uri $(AntlrDownloadUrl) -OutFile '$(AntlrJarPath)'&quot;" />
+    <Exec Condition="!Exists('$(AntlrJarPath)') AND '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' != 'true'"
+          Command="bash -c &quot;curl -L -o '$(AntlrJarPath)' $(AntlrDownloadUrl)&quot;" />
+    <Message Condition="Exists('$(AntlrJarPath)')" Text="ANTLR jar present: $(AntlrJarPath)" Importance="High" />
+  </Target>
+-->
+
+  <ItemGroup>
+    <Antlr4 Include="MongoAggregationForHumans.g4">
+      <Package>Rms.Risk.Mango.Language</Package>
+      <AntlrToolJar>$(SolutionDirectory)tools/Antlr4/antlr4-4.13.1-complete.jar</AntlrToolJar>
+      <JavaExec Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">$(JAVA_HOME)/bin/java.exe</JavaExec>
+      <JavaExec Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' != 'true'">$(JAVA_HOME)/bin/java</JavaExec>
+    </Antlr4>
+    <Antlr4 Include="JsonGrammar.g4">
+      <Package>Rms.Risk.Mango.Language</Package>
+      <AntlrToolJar>$(SolutionDirectory)tools/Antlr4/antlr4-4.13.1-complete.jar</AntlrToolJar>
+      <JavaExec Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">$(JAVA_HOME)/bin/java.exe</JavaExec>
+      <JavaExec Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' != 'true'">$(JAVA_HOME)/bin/java</JavaExec>
+    </Antlr4>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Antlr4.Runtime.Standard" />
+    <PackageReference Include="Antlr4BuildTasks" GeneratePathProperty="true" PrivateAssets="all" IncludeAssets="build" />
+  </ItemGroup>
+
+</Project>

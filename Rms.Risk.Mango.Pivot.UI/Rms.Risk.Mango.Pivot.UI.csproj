@@ -1,0 +1,73 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  	<IsPackable>true</IsPackable>
+
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <!-- For including symbols (PDBs) -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <!-- Use 'snupkg' for a separate symbols package (recommended for public sources like nuget.org) -->
+    <!-- Or use 'symbols.nupkg' for older symbol server compatibility / embedding in main package -->
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Ensure PDBs are generated -->
+    <DebugType>portable</DebugType>
+    <PublishSymbols>true</PublishSymbols>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    
+    <Description>This package includes UI for Pivot functionality. Additionally it includes many Blazor components for forms support.</Description>
+    <PackageTags>pivot forge ui blazor razor shared form components</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>mango.png</PackageIcon>
+
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeProjectReferencesWithPrivateAssetsAttributeInPackage</TargetsForTfmSpecificBuildOutput>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeReferenceAssemblies</TargetsForTfmSpecificContentInPackage>
+    <NoWarn>$(NoWarn);NU5131</NoWarn>
+    <BuildProjectReferences Condition="'$(NoBuild)' == 'true'">false</BuildProjectReferences>
+    <!-- Removed the .xml from DefaultAllowedOutputExtensionsInPackageBuildOutputFolder -->
+    <DefaultAllowedOutputExtensionsInPackageBuildOutputFolder>.dll; .exe; .winmd; .json; .pri</DefaultAllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BlazorDateRangePicker" />
+    <PackageReference Include="Blazored.Modal" />
+    <PackageReference Include="ChartJs.Blazor.Fork" />
+    <PackageReference Include="Markdown.ColorCode" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rms.Risk.Mango.Language\Rms.Risk.Mango.Language.csproj" PrivateAssets="All" />
+    <ProjectReference Include="..\Rms.Risk.Mango.Pivot.Core\Rms.Risk.Mango.Pivot.Core.csproj" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="mango.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Add ProjectReferences output which are flagged as PrivateAssets="all" into the package. -->
+  <Target Name="IncludeProjectReferencesWithPrivateAssetsAttributeInPackage" Condition="'@(ProjectReference)' != '' and @(ProjectReference-&gt;AnyHaveMetadataValue('PrivateAssets', 'all'))" DependsOnTargets="BuildOnlySettings;ResolveReferences">
+    <ItemGroup>
+      <_projectReferenceCopyLocalPaths Include="@(ReferenceCopyLocalPaths-&gt;WithMetadataValue('ReferenceSourceTarget', 'ProjectReference')-&gt;WithMetadataValue('PrivateAssets', 'all'))" />
+
+      <BuildOutputInPackage Include="@(_projectReferenceCopyLocalPaths)" TargetPath="%(_projectReferenceCopyLocalPaths.DestinationSubDirectory)" />
+      <TfmSpecificDebugSymbolsFile Include="@(_projectReferenceCopyLocalPaths-&gt;WithMetadataValue('Extension', '.pdb'))" TargetPath="%(_projectReferenceCopyLocalPaths.DestinationSubDirectory)" TargetFramework="$(TargetFramework)" Condition="'$(IncludeSymbols)' == 'true'" />
+
+      <!-- Remove symbol from the non symbol package. -->
+      <BuildOutputInPackage Remove="@(_projectReferenceCopyLocalPaths-&gt;WithMetadataValue('Extension', '.pdb'))" />
+      <BuildOutputInPackage Remove="@(_projectReferenceCopyLocalPaths-&gt;WithMetadataValue('Extension', '.xml'))" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Add a ref folder to the package which only exposes the library (and its documentation file) so that the
+       referenced class library doesn't get exposed. -->
+  <Target Name="IncludeReferenceAssemblies">
+    <ItemGroup>
+      <!-- Include the main assembly -->
+      <TfmSpecificPackageFile Include="$(TargetRefPath)" PackagePath="ref/$(TargetFramework)" />
+      <TfmSpecificPackageFile Include="$(DocumentationFile)" PackagePath="ref/$(TargetFramework)" Condition="'$(GenerateDocumentationFile)' == 'true'" />
+  
+      <!-- Include dependent assemblies in the ref folder -->
+      <TfmSpecificPackageFile Include="@(ReferenceCopyLocalPaths-&gt;WithMetadataValue('ReferenceSourceTarget', 'ProjectReference'))" PackagePath="ref/$(TargetFramework)" />
+    </ItemGroup>
+  </Target>
+</Project>

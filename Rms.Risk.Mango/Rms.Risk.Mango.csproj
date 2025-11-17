@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="Markdown.ColorCode" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rms.Risk.Mango.Interfaces\Rms.Risk.Mango.Interfaces.csproj" />
+    <ProjectReference Include="..\Rms.Risk.Mango.Language\Rms.Risk.Mango.Language.csproj" />
+    <ProjectReference Include="..\Rms.Risk.Mango.Pivot.Core\Rms.Risk.Mango.Pivot.Core.csproj" />
+    <ProjectReference Include="..\Rms.Risk.Mango.Pivot.UI\Rms.Risk.Mango.Pivot.UI.csproj" />
+    <ProjectReference Include="..\Rms.Service.Bootstrap\Rms.Service.Bootstrap.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="$(SolutionDir)Resources/Certificates/test-MasterKey-encrypted.p12" Condition="Exists('$(SolutionDir)Resources/Certificates/test-MasterKey-encrypted.p12')" CopyToOutputDirectory="Always" />  
+    
+    <Content Include="$(SolutionDir)Resources/Certificates/prod-MasterKey-encrypted.p12" Condition="Exists('$(SolutionDir)Resources/Certificates/prod-MasterKey-encrypted.p12')" CopyToOutputDirectory="Always" />  
+
+    <Content Include="$(SolutionDir)Resources/Configs/Rms.Risk.Mango.Settings.Development.json" Condition="Exists('$(SolutionDir)Resources/Configs/Rms.Risk.Mango.Settings.Development.json')" CopyToOutputDirectory="PreserveNewest" />  
+    <Content Include="$(SolutionDir)Resources/Configs/Rms.Risk.Mango.Settings.UAT.json" Condition="Exists('$(SolutionDir)Resources/Configs/Rms.Risk.Mango.Settings.UAT.json')" CopyToOutputDirectory="PreserveNewest" />  
+    <Content Include="$(SolutionDir)Resources/Configs/Rms.Risk.Mango.Settings.PROD.json" Condition="Exists('$(SolutionDir)Resources/Configs/Rms.Risk.Mango.Settings.PROD.json')" CopyToOutputDirectory="PreserveNewest" />  
+
+    <None Include="README.md" CopyToOutputDirectory="Never" />
+
+    <Content Include="$(SolutionDir)Resources\Docker\Data\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>data\%(FileName)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
+  <ProjectExtensions><VisualStudio><UserProperties rms_1risk_1Mango_1settings_1json__JsonSchema="" /></VisualStudio></ProjectExtensions>
+
+</Project>

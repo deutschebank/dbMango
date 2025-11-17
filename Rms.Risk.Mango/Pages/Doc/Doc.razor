@@ -1,0 +1,153 @@
+﻿@page "/doc"
+@page "/doc/{FileName}"
+
+@using Markdig
+@using Markdown.ColorCode
+
+@inject NavigationManager NavigationManager
+@inject IJSRuntime        JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .doc-body {
+        display: flex;
+        flex-direction: row;
+    }
+
+    .markdown-body {
+        box-sizing: border-box;
+        min-width: 200px;
+        max-width: 980px;
+        margin: 0 10px;
+        padding: 45px;
+        font-size: 12pt;
+    }
+
+    .index-body {
+        font-size: 11pt;
+        box-sizing: border-box;
+        overflow-x: clip;
+        min-width: 100px;
+        max-width: 240px;
+        margin: 0 10px;
+        padding: 5px;
+        border-right: solid 1px white;
+    }
+
+    @@media (max-width: 767px) {
+        .container {
+            flex-direction: column;
+        }
+
+        .markdown-body {
+            padding: 15px;
+        }
+    }
+
+    code {
+        color: greenyellow !important;
+    }
+
+    blockquote {
+        margin-top: 10px;
+        margin-bottom: 10px;
+        margin-left: 20px;
+        padding-left: 10px;
+        color: lightsteelblue;
+        border-left: solid 2px;
+        border-color: yellow;
+    }
+
+    pre {
+        color: greenyellow !important;
+        background-color: #1d2a3b;
+    }
+
+</style>
+
+<div class="doc-body">
+    <div class="index-body">
+        @((MarkupString)MarkdownIndex)
+    </div>
+    <div class="markdown-body">
+        @((MarkupString)MarkdownContent)
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string FileName { get; set; } = string.Empty;
+
+    private string MarkdownContent { get; set; } = "";
+    private string MarkdownIndex   { get; set; } = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(FileName))
+            FileName = "overview";
+
+        if (string.IsNullOrWhiteSpace(FileName))
+        {
+            throw new ArgumentException("FileName parameter must be provided.");
+        }
+
+        var filePath = Path.Combine("wwwroot", "docs", FileName+".md");
+        if (!File.Exists(filePath))
+        {
+            MarkdownContent = $"# Error\n\nFile `{FileName}.md` not found.";
+            return;
+        }
+
+        var pipeline = new MarkdownPipelineBuilder()
+            .UseAdvancedExtensions()
+            .UseLocalUrlHandler()
+            .UseColorCode()
+            .Build()
+            ;
+
+        var markdown = await File.ReadAllTextAsync(filePath);
+        MarkdownContent = Markdown.ToHtml(
+            markdown, 
+            pipeline
+        );
+
+        if (string.IsNullOrWhiteSpace(MarkdownIndex))
+        {
+            filePath = Path.Combine("wwwroot", "docs", "index.md");
+            markdown = await File.ReadAllTextAsync(filePath);
+            MarkdownIndex = Markdown.ToHtml(
+                markdown, 
+                pipeline
+            );
+
+        }
+
+        SyncUrl();
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"doc/{FileName}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+}

@@ -1,0 +1,692 @@
+﻿@page "/admin/shell"
+@page "/admin/shell/{DatabaseStr}"
+@page "/admin/shell/{DatabaseStr}/{DatabaseInstanceStr}"
+@page "/admin/shell/{DatabaseStr}/{DatabaseInstanceStr}/{Command}"
+@attribute [Authorize]
+
+@using System.Text.RegularExpressions
+@using Markdig
+@using Markdown.ColorCode
+@using Microsoft.Extensions.Options
+@using MongoDB.Bson.Serialization
+@using Rms.Risk.Mango.Components.JForms
+@using Rms.Service.Bootstrap.Security
+
+@inject NavigationManager         NavigationManager
+@inject IUserSession              UserSession
+@inject IJSRuntime                JsRuntime
+@inject IDocumentationService     DocService
+@inject IOptions<DbMangoSettings> Settings
+@inject ICommandListService       CommandListService
+@inject IPasswordManager          PasswordManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        height: calc(100vh - 150px);
+        position: relative;
+    }
+
+    .CodeMirror {
+        height: calc(100vh - 150px - 230px);
+    }
+
+    .doc{
+        height: 222px !important;
+        width: 100%;
+        font-family: monospace;
+        color: lightgray;
+        font-size: 12pt;
+        background-color: #1d2a3b;
+        overflow: auto;
+        font-size: 12pt;
+    }
+
+    .res-field {
+        font-size: 12pt;
+        width: 100%;
+        height: calc(100vh - 150px);
+        max-height: calc(100vh - 150px);
+        overflow: auto;
+    }
+
+    .second pre {
+        font-family: monospace;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+
+    code {
+        color: greenyellow !important;
+    }
+
+    blockquote {
+        margin-top: 10px;
+        margin-bottom: 10px;
+        margin-left: 20px;
+        padding-left: 10px;
+        color: lightsteelblue;
+        border-left: solid 2px;
+        border-color: yellow;
+    }
+
+    pre {
+        color: greenyellow !important;
+        background-color: #1d2a3b;
+    }
+
+</style>
+
+<h3 class="mt-3">Shell, Command: @CommandName</h3>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="Connect to" @bind-Value="Shard" Values="Shards" />
+            <FormItemText Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)" @bind-Value="Timeout" InputType="number" Icon="icon-clock-sm" />
+            <FormItemText Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number" Icon="icon-download-selected-sm" />
+            @if (!string.IsNullOrWhiteSpace(Settings.Value.MongoDbDocUrl))
+            {
+                <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Show documentation" @bind-Value="ShowDoc" Icon="icon-tos-sm" />
+            }
+            <div class="form-group">
+                <div class="flex-stack-horizontal">
+                    <FormButton Enabled="@IsReady"        Name="Run"    Icon="icon-running-man-sm"        OnClick="Run"         IsPrimary="true"  />
+                    <FormButton Enabled="@IsReady"        Name="Format" Icon="icon-pencil-sm"             OnClick="Format"      IsPrimary="false" />
+                    <FormButton Enabled="@CanCopyUrl"     Name=""       Icon="icon-link-sm"               OnClick="CopyUrl"     IsPrimary="false" />
+                    <FormButton Enabled="@CanCopyResults" Name=""       Icon="icon-duplicate-document-sm" OnClick="CopyResults" IsPrimary="false" />
+                    <FormButton Enabled="@IsReady"        Name=""       Icon="icon-lock-sm"               OnClick="OnEncrypt"   IsPrimary="false" />
+                </div>
+                <div class="mt-2">
+                    <a href="@JFormCommand.MongoDocUrl" target="_blank">Documentation</a>
+                    <span class="ml-2">Use <a @onclick="OnEncrypt" role="link" style="color: @Night.Link">encrypted</a> sensitive data in form of [*...]. You can use JSON array to run multiple commands.</span>
+                </div>
+            </div>
+
+        </div>
+
+    </EditForm>
+
+    <SplitPanel Orientation="horizontal" InitialSplit="0.5">
+        <First>
+            <div class="js-field mr-3">
+                <FormCodeEditor @ref="_codeEditor" @bind-Text="Text" MediaType="application/x-json" Class="" />
+                @if (!string.IsNullOrWhiteSpace(Settings.Value.MongoDbDocUrl))
+                {
+                    <pre class="doc mt-2">
+                        @Doc
+                    </pre>
+                }
+            </div>
+        </First>
+        <Second>
+            <div class=" ml-3">
+                @if (!string.IsNullOrWhiteSpace(Settings.Value.MongoDbDocUrl) && ShowDoc)
+                {
+                    <div class="res-field">
+                        @Description
+                    </div>
+                }
+                else
+                {
+                    <pre class="res-field">
+                        @Result
+                    </pre>
+                }
+                </div>
+        </Second>
+    </SplitPanel>
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [Parameter] public string? Command             { get; set; }
+
+    private string Text
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field       = value;
+            CommandName = GetCommandName(field);
+
+            if ( string.IsNullOrWhiteSpace(CommandName) || CommandName.Length < 4)
+            {
+                Doc = new();
+                return;
+            }
+
+            _ = Task.Run(async () => { await LoadDocumentation(); });
+        }
+    } =
+        @"{
+  ""ping"": 1
+}";
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private string       Timeout     { get; set; } = "20";
+    private string       FetchSize   { get; set; } = "5000";
+    private bool         ShowDoc     { get; set; } = true;
+    private MarkupString Result      { get; set; }
+    private string       ResultStr   { get; set; } = "";
+    private MarkupString Doc { get; set; }
+    private string       Shard       { get; set; } = "- cluster -";
+    private bool         IsReady     { get; set; }
+    private MarkupString Description { get; set; }
+    private EditContext? _editContext;
+    private EditContext  EditContext    => _editContext!;
+    private bool         CanCopyUrl     => JsonUtils.IsValidJson(Text);
+    private bool         CanCopyResults => !string.IsNullOrWhiteSpace(ResultStr) && !ShowDoc;
+
+    private readonly MarkdownPipeline _htmlPipeline = new MarkdownPipelineBuilder()
+           .UseAdvancedExtensions()
+           .UseColorCode()
+           .Build()
+        ;
+
+    // ReSharper disable once NotAccessedPositionalProperty.Global
+    public record ShardProperties(string ReplicaSet, string Host, int Port);
+
+    private readonly Dictionary<string, ShardProperties> _shardConnectionStrings = [];
+    private          FormCodeEditor                      _codeEditor = null!;
+
+    private IReadOnlyCollection<string> Shards => new []
+        {"- cluster -", "- admin -", "- config -"}
+        .Concat(_shardConnectionStrings.Keys.OrderBy(x => x))
+        .ToList();
+
+    protected override void OnInitialized()
+    {
+        _editContext = new (this);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        ShowDoc = !string.IsNullOrWhiteSpace(Settings.Value.MongoDbDocUrl);
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        if ( !string.IsNullOrWhiteSpace(Command) )
+        {
+            if ( JsonUtils.IsValidJson(Command) )
+            {
+                try
+                {
+                    Text = JsonUtils.FormatJson(Command);
+                }
+                catch(Exception)
+                {
+                    // ignore
+                }
+            }
+            else if ( Regex.IsMatch( Command.Trim(),@"^(\w|[0-9_])*$") )
+            {
+                Text = $"{{\n  \"{Command.Trim()}\" : 1\n}}";
+            }
+        }
+
+        SyncUrl();
+
+        Task.Run(LoadCommands);
+        Task.Run(LoadShards);
+
+        IsReady = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadCommands()
+    {
+        var cts      = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var commands = await CommandListService.GetCommands(UserSession.MongoDbAdminForAdminDatabase, cts.Token);
+        await InvokeAsync(() => UpdateCommands(commands));
+    }
+
+    private async Task UpdateCommands(IReadOnlyCollection<CommandDef> commands)
+    {
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.SetMongoDbCommands", [commands.Select(x => x.Name).ToArray()] );
+        StateHasChanged();
+    }
+
+    public static async Task<Dictionary<string, ShardProperties>> LoadShards(IUserSession userSession)
+    {
+        try
+        {
+            if (!userSession.DatabaseConfig.AllowShardAccess)
+                return [];
+
+            var listShards = BsonDocument.Parse(@"{ listShards : 1 }");
+
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var doc = await userSession.MongoDbAdminForAdminDatabase.RunCommand(listShards, cts.Token);
+
+            var re = new Regex("(?<RS>[^/]*)/?(?<HOST>[^:]+):(?<PORT>[0-9]+)");
+
+            var shards = new Dictionary<string, ShardProperties>();
+            foreach (var el in doc["shards"].AsBsonArray.Select( x => x.AsBsonDocument))
+            {
+                var s = el["host"].AsString;
+                var m = re.Match(s);
+                if ( !m.Success)
+                    continue;
+
+                shards[el["_id"].AsString] = new(
+                    m.Groups["RS"].Value,
+                    m.Groups["HOST"].Value, 
+                    int.Parse(m.Groups["PORT"].Value)
+                    );
+            }
+
+            return shards;
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    private async Task LoadShards()
+    {
+        var shards = await LoadShards(UserSession);
+        _shardConnectionStrings.Clear();
+        foreach (var shard in shards)
+        {
+            _shardConnectionStrings.Add(shard.Key, shard.Value);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static readonly Regex _commandRegex = new (@"\s*\{\s*""?(?<cmd>[a-zA-Z]+)""?\s*\:.*");
+
+    private string? CommandName
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string? GetCommandName(string text)
+    {
+        var s = text[..Math.Min(text.Length, 30)];
+
+        var m = _commandRegex.Match(s);
+        if (!m.Success)
+            return null;
+
+        var n = m.Groups["cmd"].Value;
+        return string.IsNullOrWhiteSpace(n) 
+            ? null 
+            : n;
+    }
+
+    private async Task Run()
+    {
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket)) 
+            return;
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+
+        if (Text[..Math.Min(100, Text.Length)].Trim().StartsWith("["))
+        {
+            await RunScript(ticket, cts.Token);
+        }
+        else
+        {
+            await RunSingle(ticket, cts.Token);
+        }
+    }
+
+    private async Task RunSingle(string ticket, CancellationToken token)
+    {
+
+        try
+        {
+            IsReady = false;
+            ShowDoc = false;
+
+            await InvokeAsync(StateHasChanged);
+
+            var clearText = DecryptPasswords(Text);
+
+            var doc  = BsonDocument.Parse(clearText);
+            UpdateComment(doc, ticket, UserSession.User.GetEmail());
+            var res  = await RunCommand(doc, Text, token);
+            await Display(res);
+
+
+            var json = doc.ToJson( new() { Indent = false });
+            SyncUrl(json);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            IsReady          = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RunScript(string ticket, CancellationToken token)
+    {
+        List<BsonDocument> res = [];
+        try  
+        {  
+            IsReady = false;  
+            ShowDoc = false;
+
+            await InvokeAsync(StateHasChanged);
+
+            var clearText = DecryptPasswords(Text);
+
+            // Parse the Text JSON into a BsonArray  
+            var docs = BsonSerializer.Deserialize<BsonArray>(clearText).Select(p => p.AsBsonDocument);
+            foreach ( var doc in docs)  
+            {  
+                UpdateComment(doc, ticket, UserSession.User.GetEmail());
+                res.Add(doc);
+                res.Add(new() { { "----------------------------------", "----------------------------------" } });
+                res.AddRange(await RunCommand(doc, Text, token));
+                res.Add(new() { { "==================================", "==================================" } });
+                await Display(res);  
+            }
+        }  
+        catch (Exception e)  
+        {  
+            await Display(e);  
+        }  
+        finally  
+        {  
+            IsReady = true;  
+            await InvokeAsync(StateHasChanged);  
+        }
+    }
+
+    private string DecryptPasswords(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        var regex = new Regex(@"\[(\*.+)\]");
+        var matches = regex.Matches(text);
+
+        foreach (Match match in matches)
+        {
+            if (match.Groups.Count <= 1) 
+                continue;
+
+            var encryptedValue = match.Groups[1].Value;
+            var decryptedValue = PasswordManager.DecryptPassword(encryptedValue);
+            text = text.Replace(match.Value, decryptedValue);
+        }
+
+        return text;
+    }
+
+    private async Task Format()
+    {
+        Text = JsonUtils.FormatJson(Text);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public static async Task<string?> CanExecuteCommand(IUserSession userSession, Func<Func<Task>, Task> invokeAsync, IModalService modal)
+    {
+        var check = new [] { false };
+
+        await invokeAsync(async () => check[0] = await userSession.HasValidTask());
+
+        if (check[0]) 
+            return userSession.TaskNumber;
+
+        var res = await ModalDialogUtils.ShowConfirmationDialogWithInput(
+            modal,
+            "Elevated execution",
+            "Please enter a valid task number number to continue. It needs to be in execution state and has an open time window.",
+            "Valid task number:",
+            userSession.TaskNumber
+        );
+
+        if (string.IsNullOrWhiteSpace(res))
+            return null;
+
+        userSession.TaskNumber = res;
+
+        await invokeAsync(async () => check[0] = await userSession.HasValidTask());
+
+        if (check[0]) 
+            return userSession.TaskNumber;
+
+        var msg = userSession.TaskCheckError
+               ?? "The given task number is not valid: " + res;
+        await ModalDialogUtils.ShowInfoDialog(modal, "Execution not allowed", msg);
+
+        return null;
+    }
+
+    public static void UpdateComment(BsonDocument parsed, string ticket, string email)
+    {
+        // comment field does not always work on database version 4.xx or lower
+
+        /*
+        var comment = $"ticket: {ticket}, email: {email}";
+        if (parsed == null)
+            throw new("Can't parse the command Json");
+        // replace existing
+        parsed["comment"] = comment;
+        */
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+    private Task Display(Exception e)
+    {
+        Result = (MarkupString)e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task Display(IEnumerable<BsonDocument> res)
+    {
+        var json = res.ToJson(new() { Indent = true });
+
+        ResultStr = json;
+
+        var md = $"```json\n{json}\n```";
+        Result = new(Markdown.ToHtml(md, _htmlPipeline));
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<List<BsonDocument>> RunCommand(BsonDocument doc, string originalCommand, CancellationToken token)
+    {
+        var service = Shard switch
+        {
+            "- admin -"   => UserSession.MongoDbAdminForAdminDatabase,
+            "- cluster -" => UserSession.MongoDbAdmin,
+            "- config -"  => UserSession.GetCustomAdmin(Database, "config"),
+            _             => UserSession.GetShardConnection(_shardConnectionStrings[Shard].Host, _shardConnectionStrings[Shard].Port)
+        };
+
+        var result = await service.RunCommand(doc, originalCommand, token);
+        return [result];
+    }
+
+    private void SyncUrl(string? json = null)
+    {
+        var url = GetUrl(json);
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private string GetUrl(string? json)
+    {
+        var url = NavigationManager.BaseUri + $"admin/shell/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+
+        if ( json != null )
+        {
+            url += $"/{Uri.EscapeDataString(json)}";
+        }
+        else if (CommandName != null)
+        {
+            url += $"/{CommandName}";
+        }
+
+        return url;
+    }
+
+    private async Task LoadDocumentation()
+    {
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var hint = $"```javascript\n{await DocService.TryGetHint(CommandName!, cts.Token) ?? ""}\n```";
+
+
+        Doc = new(Markdown.ToHtml(hint, _htmlPipeline) );
+
+        await InvokeAsync(StateHasChanged);
+
+        var md = await DocService.TryGetMarkdown(CommandName!, cts.Token);
+        if (string.IsNullOrWhiteSpace(md))
+        {
+            Description = new();
+            return;
+        }
+
+        var html = Markdown.ToHtml(md, _htmlPipeline);
+        Description = new(html);
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CopyUrl()
+    {
+        try
+        {
+            var url = GetUrl(Text);
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", url);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", "Url was copied to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+    }
+
+    private async Task CopyResults()
+    {
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", ResultStr);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", "Results was copied to clipboard.");
+        }
+        catch ( Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+    }
+
+    /// <summary>
+    /// Display a user information dialog box, allows the user to click ok or cancel
+    /// </summary>
+    public static async Task<ModalResult> ShowEncryptionDialog(
+        IModalService service,
+        string? initialPassword = null
+    )
+    {
+        var parameters = new ModalParameters { { "ShowCancel", true } };
+
+        if (initialPassword != null)
+            parameters.Add("ClearText", initialPassword);
+
+        var options = new ModalOptions
+        {
+            HideCloseButton = false,
+            DisableBackgroundCancel = false
+        };
+
+        var form = service.Show<MessageBoxEncryptComponent>("Encrypt", parameters, options);
+        return await form.Result;
+    }
+
+
+    private async Task OnEncrypt()
+    {
+        var res = await ShowEncryptionDialog(Modal);
+        if (!res.Cancelled)
+        {
+            var encrypted = (string?)res.Data;
+            if ( string.IsNullOrWhiteSpace(encrypted) )
+                return;
+
+            var toInsert  = $"[{encrypted}]";
+            await _codeEditor.InsertAtCursor(toInsert);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+}

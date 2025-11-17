@@ -1,0 +1,191 @@
+#blazor-error-ui {
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+.cursor-default { 
+    cursor: default; 
+}
+
+.table-app btn {
+    color: #FFFFFF;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.table-app td:hover {
+    border-left-color: #2f7ee8 !important;
+    border-left-width: 1px !important;
+    border-left-style: solid !important;
+}
+
+.table-app th {
+    height: 1px;
+}
+
+.table-app td {
+    padding: 1px;
+    vertical-align: middle;
+    width: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left-width: 1px !important;
+    border-left-style: solid !important;
+    border-left-color: transparent;
+}
+
+.table-app-top-align td {
+    vertical-align: top !important;
+}
+
+.table-app th:hover {
+    background-color: #213e69;
+}
+
+.table-app-striped tr:nth-child(even) {
+    background-color: #1f2d3f;
+}
+
+.table-app-numered tr td:first-child {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.table-nowrap{
+    white-space: nowrap;
+}
+
+.table-app-hover tbody tr:hover {
+    background-color: #213e69 !important;
+}
+
+.health-status-cell {
+    padding: 0 !important;
+    vertical-align: middle !important;
+}
+
+.validation-message {
+    position: relative;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+    border: 0.0625rem solid transparent;
+    border-radius: 0.125rem;
+    color: #ffffff;
+    background: #840808;
+    border-color: #8d0808;
+}
+
+/* Tree */
+.uic-tree .uic-tree {
+    margin-left: 1.25rem;
+}
+
+.uic-tree-row {
+    padding: 0;
+}
+
+.uic-tree--hidden {
+    display: none;
+}
+
+.uic-tree-icon {
+    float: left;
+}
+
+.uic-tree-title {
+    margin-left: 1.25rem;
+}
+
+.uic-tree-title .list-group-item {
+	border: 0
+}
+
+.uic-tree-title:hover {
+    background: #2e4057;
+}
+
+.uic-tree-title-text {
+    border: none;
+    margin-top: 1px;
+    margin-bottom: 1px;
+    padding-left: 5px;
+}
+
+.uic-tree .cursor-pointer {
+    cursor: pointer;
+}
+
+.list-group-item.uic-tree-title-text {
+    padding-top: 0.5px;
+    padding-bottom: 0.5px;
+}
+
+/* Date range picker */
+    .daterangepicker, .daterangepicker .calendar-table {
+    background-color: #27394f !important;
+    color: #FFFFFF !important;
+}
+
+.daterangepicker .off {
+    background-color: #121c29 !important;
+    color: #FFFFFF !important;
+}
+
+.daterangepicker .prev,
+.daterangepicker .next,
+.daterangepicker .in-range {
+    background-color: #1d5dc7 !important;
+    color: #FFFFFF !important;
+}
+
+.daterangepicker .yearselect,
+.daterangepicker .monthselect {
+    background-color: #1d2a3b;
+    color: #FFFFFF;
+    border: 0.0625rem solid #556880;
+}
+
+.dirty {
+    fill: #F00;
+    filter: drop-shadow(0px 0px 3px white);
+    align-self:center;
+}
+
+.sticky-top {
+    z-index: 90 !important;
+}
+
+.small-button {
+    margin: 1px;
+    padding: 3px;
+}
+
+/* code mirror */
+.app-history .CodeMirror {
+    font-size: 0.85rem;
+}
+
+/* context menu */
+.app-menu {
+    background-color: #27394f
+}
+.app-menu-item {
+    background-color: #27394f
+}
+.app-menu-item:hover {
+    background-color: #2e4057
+}

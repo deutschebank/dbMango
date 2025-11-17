@@ -1,0 +1,150 @@
+﻿@page "/admin/config"
+@attribute [Authorize]
+
+@using Microsoft.Extensions.Options
+@using Rms.Risk.Mango.Services.Context
+
+@* ReSharper disable once CSharpWarnings::CS8669 *@
+@inject IDatabaseConfigurationStorage? Storage
+@inject IUserService                   UserService
+@inject IConfiguration                 Config
+@inject IOptions<DbMangoSettings>      Settings
+@inject IUserSession                    UserSession
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<h3>Configuration</h3>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@Settings.Value.Initial">
+
+    @if (Settings.Value.EnableDatabaseOverrides && Storage != null )
+    {
+        <NameValueControl Value="@_data"  PossibleNames="@_possibleNames">
+            <FormButton Name="Save" Icon="icon-save-outline-sm" OnClick="Save" />
+        </NameValueControl>
+    }
+    else
+    {
+        <div class="alert-warning">
+            Database is not enabled as a source for configuration parameters overrides in app configuration.<br/>
+            Set <code>DbMangoSettings:EnableDatabaseOverrides</code> to <code>true</code>.
+        </div>
+    }
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    private List<NameValueControl.NameValuePair> _data = [];
+    private List<string> _possibleNames = [];
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Storage == null)
+            return;
+
+        var cts = new CancellationTokenSource(DatabaseConfigurationService.DefaultTimeout);
+        var overrides = await Storage.GetConfiguration(UserService.GetEmail(), cts.Token);
+        _data = overrides.Select(o => new NameValueControl.NameValuePair
+        {
+            Name = o.Key,
+            Value = o.Value
+        }).ToList();
+
+        _possibleNames = GetConfigSections(Config);
+        StateHasChanged(); // Refresh the UI after loading new configuration
+    }
+
+    private List<string> GetConfigSections(IConfiguration config, string parentKey = "")
+    {
+        var sections = new List<string>();
+        foreach (var section in config.GetChildren())
+        {
+            var fullKey = string.IsNullOrEmpty(parentKey) ? section.Key : $"{parentKey}:{section.Key}";
+            sections.Add(fullKey);
+            sections.AddRange(GetConfigSections(section, fullKey));
+        }
+        return sections;
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+    private async Task Save()
+    {
+        if ( Storage == null )
+            return;
+
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+
+        try
+        {
+            // it's safer to build it this way as there can be duplicate names in the user input
+            var dict = new Dictionary<string, string>();
+            foreach (var pair in _data)
+            {
+                dict[pair.Name] = pair.Value;
+            }
+            var cts  = new CancellationTokenSource(DatabaseConfigurationService.DefaultTimeout);
+            await Storage.UpdateConfiguration(dict, UserService.GetEmail(), cts.Token);
+
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Success", "The configuration has been successfully saved.");
+
+            // exception in Audit() call can lead to 2 dialogs shown in total: Success in config change + error recording audit
+            try
+            {
+                await Audit(ticket);
+            }
+            catch (Exception ex2)
+            {
+                await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex2);
+            }
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                await Audit(ticket, ex);
+            }
+            catch (Exception ex2)
+            {
+                await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex2);
+            }
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+    }
+
+    private async Task Audit(string ticket, Exception? exception = null)
+    {
+        var doc = new BsonDocument
+        {
+            ["dbMangoConfigUpdate"] = exception?.Message ?? "Configuration updated"
+        };
+
+        var auditRecord = new AuditRecord(UserSession.Database, DateTime.UtcNow, UserService.GetEmail(), ticket, exception == null, doc, exception?.Message);
+        await UserSession.Audit.Record(auditRecord);
+    }
+
+}

@@ -1,0 +1,62 @@
+﻿@inject IJSRuntime JsRuntime
+
+
+@if (!string.IsNullOrWhiteSpace(Message))
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+    <p class="message-area">@((MarkupString)Message)</p>
+}
+<div>
+    <style>
+        .text-area{
+            width: 1200px;
+            height: 700px;
+            overflow: auto;
+        }
+    </style>
+
+    <FormMarkdown Text="@(Exception.ToMarkdown())" Class="text-area"/>
+
+    <div class="form-row modal-footer w-100 p-0">
+        <FormButton Name=""   Icon="icon-duplicate-document" OnClick="@OnCopy" />
+        <FormButton Name="OK" IsPrimary="true" OnClick="@OnOK" />
+    </div>
+</div>
+
+@code
+{
+    [CascadingParameter] public BlazoredModalInstance BlazoredModal { get; set; } = null!;
+    [CascadingParameter] public IModalService         Modal         { get; set; } = null!;
+
+    [Parameter] public Exception Exception    { get; set; } = new();
+    [Parameter] public string Message         { get; set; } = "";
+
+    private async Task OnOK()
+    {
+        await  BlazoredModal.CloseAsync(ModalResult.Ok(true));
+    }
+
+    private async Task OnCopy()
+    {
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", Exception.ToString());
+        await ModalDialogUtils.ShowInfoDialog(Modal, "Success", "Copied to the clipboard.");
+    }
+}

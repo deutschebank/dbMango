@@ -1,0 +1,181 @@
+﻿@implements IDisposable
+
+@inject IJSRuntime   JsRuntime
+@inject IUserSession  Session
+@inject IMenuService MenuService
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<nav class="navbar navbar-expand-sm navbar-dark bg-brand sticky-top">
+    <a class="navbar-brand" href="#">
+        <img src="@FavIcon" width="24" height="24" class="d-inline-block align-middle" alt="">
+        <span class="d-inline-block align-middle border-right pr-2">@Header</span>
+        <span class="d-inline-block align-middle ml-1">@AppName</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+        <AuthorizeView>
+            <Authorized>
+                <ul class="nav nav-tabs flex-1">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown1" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Admin
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="navbarDropdown1">
+                            <NavLink class="dropdown-item" href="#">Change database</NavLink>
+                            <NavLink class="dropdown-item" href="admin/shell">Shell</NavLink>
+                            <NavLink class="dropdown-item" href="admin/list-commands">List commands</NavLink>
+                            <NavLink class="dropdown-item" href="admin/commands">Commands</NavLink>
+                            <NavLink class="dropdown-item" href="admin/sync-structure">Sync structure</NavLink>
+                            <NavLink class="dropdown-item" href="admin/migrate">Migrate data</NavLink>
+                            <NavLink class="dropdown-item" href="admin/download">Download</NavLink>
+                            <NavLink class="dropdown-item" href="admin/upload">Upload</NavLink>
+                            <NavLink class="dropdown-item" href="admin/db-stats">Storage size</NavLink>
+                            <NavLink class="dropdown-item" href="admin/roles">Roles management</NavLink>
+                            <NavLink class="dropdown-item" href="admin/users">Users management</NavLink>
+                            <NavLink class="dropdown-item" href="admin/config">Configuration overrides</NavLink>
+                            <NavLink class="dropdown-item" href="admin/onboarding">Onboarding</NavLink>
+                            @foreach( var item in MenuService.Get("Admin"))
+                            {
+                                <NavLink class="dropdown-item" href="@item.Url">@item.Title</NavLink>
+                            }
+                        </div>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown2" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            User
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="navbarDropdown2">
+                            <NavLink class="dropdown-item" href="#">Change database</NavLink>
+                            <NavLink class="dropdown-item" href="admin/commands">Commands</NavLink>
+                            <NavLink class="dropdown-item" href="user/browse">Browse</NavLink>
+                            <NavLink class="dropdown-item" href="user/find">Find</NavLink>
+                            <NavLink class="dropdown-item" href="user/aggregate">Aggregate</NavLink>
+                            <NavLink class="dropdown-item" href="user/afh">Aggregation for Humans</NavLink>
+                            <NavLink class="dropdown-item" href="user/pivot">Pivot</NavLink>
+                            <NavLink class="dropdown-item" href="user/insert">Insert</NavLink>
+                            <NavLink class="dropdown-item" href="user/update">Update</NavLink>
+                            <NavLink class="dropdown-item" href="user/delete">Delete</NavLink>
+                            <NavLink class="dropdown-item" href="user/logs">Logs</NavLink>
+                            <NavLink class="dropdown-item" href="user/connected-users">Connected users</NavLink>
+                            <NavLink class="dropdown-item" href="user/audit">Audit</NavLink>
+                            @foreach (var item in MenuService.Get("User"))
+                            {
+                                <NavLink class="dropdown-item" href="@item.Url">@item.Title</NavLink>
+                            }
+                        </div>
+                    </li>
+
+                    @foreach (var menuName in MenuService.GetMenus().Where(x => !new [] { "User", "Admin", "Help" }.Contains(x)))
+                    {
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown3" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                @menuName
+                            </a>
+                            <div class="dropdown-menu" aria-labelledby="navbarDropdown3">
+                                @foreach (var item in MenuService.Get(menuName))
+                                {
+                                    <NavLink class="dropdown-item" href="@item.Url">@item.Title</NavLink>
+                                }
+                            </div>
+                        </li>
+                    }
+
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown3" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Help
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="navbarDropdown3">
+                            <NavLink class="dropdown-item" href="doc" target="_blank">Documentation</NavLink>
+                            <NavLink class="dropdown-item" href="doc/editor" target="_blank">Text editor keys</NavLink>
+                            <NavLink class="dropdown-item" href="doc/afh" target="_blank">AFH Documentation</NavLink>
+                            <NavLink class="dropdown-item" href="doc/all-icons" target="_blank">Icons (techy!)</NavLink>
+                            <NavLink class="dropdown-item" href="swagger/index.html" target="_blank">API (Swagger)</NavLink>
+                            @foreach (var item in MenuService.Get("Help"))
+                            {
+                                <NavLink class="dropdown-item" href="@item.Url">@item.Title</NavLink>
+                            }
+                        </div>
+                    </li>
+                </ul>
+            </Authorized>
+            <NotAuthorized>
+                <ul class="nav nav-tabs flex-1">
+                </ul>
+            </NotAuthorized>
+        </AuthorizeView>
+
+        <div class="d-inline-flex">
+            <LoginControl/>
+        </div>
+    </div>
+</nav>
+
+@code {
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        //this is the first opportunity i have to set the title as JS has been initialised
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.SetDocumentTitle", Header + " " + AppName);
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.SetFavicon",       FavIcon);
+    }
+
+    private static string Env     => Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? Environments.Development;
+    private static string FavIcon => GetFavIcon();
+
+    public static string GetFavIcon() => (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? Environments.Development) switch
+    {
+        "Development" => @"images\favicon-dev.svg",
+        "UAT"         => @"images\favicon.svg",
+        "PROD"        => @"images\favicon-prod.svg",
+        _             => @"images\favicon.svg"
+    };
+
+    public static string GetMango() => (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? Environments.Development) switch
+    {
+        "Development" => @"images\mango-dev.svg",
+        "UAT"         => @"images\mango.svg",
+        "PROD"        => @"images\mango-prod.svg",
+        _             => @"images\mango.svg"
+    };
+
+
+    private string Header  => string.IsNullOrWhiteSpace(Session?.Database) ? Env : Session.Database;
+    private string AppName => "dbMango";
+
+    protected override void OnInitialized()
+    {
+        Session.DatabaseChanged += OnDatabaseChangeHandler;
+    }
+
+    public void Dispose()
+    {
+        Session.DatabaseChanged -= OnDatabaseChangeHandler;
+    }
+
+    private void OnDatabaseChangeHandler()
+    {
+        _ =  InvokeAsync(StateHasChanged);
+    }
+}

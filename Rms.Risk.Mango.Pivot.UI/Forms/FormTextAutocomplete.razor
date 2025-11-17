@@ -1,0 +1,232 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿<div class="@FormGroupClass">
+
+    <style>
+        .dd-menu-multi {
+            /* position: absolute; */
+            background-color: @Night.Background;
+            border: 1px solid @Night.Border;
+            /* z-index: 1000; */
+            list-style: none;
+            padding: 0;
+            margin-top: 2px;
+            width: 100%;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .dd-menu {
+            position: absolute;
+            background-color: @Night.Background;
+            border: 1px solid @Night.Border;
+            z-index: 1000;
+            list-style: none;
+            padding: 0;
+            margin-top: 2px;
+            width: 100%;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .dd-item {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .dd-item:hover {
+            background-color: @Night.BackgroundLight;
+        }
+
+        .expand-btn {
+            height: 26px !important;
+        }
+    </style>
+
+    @if (!string.IsNullOrWhiteSpace(Name))
+    {
+        <div class="flex-stack-horizontal form-mw">
+            <label for="@_id" class="input-group-text w-100">@Name</label>
+        </div>
+    }
+    <div class="input-group mr-sm-2">
+        @if (Icon != null)
+        {
+            <div class="input-group-prepend">
+                <div class="input-group-text">
+                    <div class="">
+                        <span class="ui-icon-font ui-icon-sm @Icon"></span>
+                    </div>
+                </div>
+            </div>
+        }
+        <div class="input-group mr-sm-2">
+            @if (Icon != null)
+            {
+                <div class="input-group-prepend">
+                    <div class="input-group-text">
+                        <div class="">
+                            <span class="ui-icon-font ui-icon-sm @Icon"></span>
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (IsMultiline)
+            {
+                @* ReSharper disable once CSharpWarnings::CS8974 *@
+                <textarea   class="form-control" 
+                            @bind="Value" @oninput="FilterValues" 
+                            placeholder="@Placeholder"
+                            disabled="@(!Enabled)" 
+                            onfocus="@OnFocus" 
+                            onkeydown="@OnKeyDown"
+                            rows="@_rows">
+                </textarea>
+                <div class="input-group-append">
+                    <button type="button" class="btn btn-outline-secondary expand-btn" @onclick="ToggleExpand">
+                        <span class="ui-icon-font ui-icon-sm @(IsExpanded ? "icon-double-chevron-up" : "icon-double-chevron-down")"></span>
+                    </button>
+                </div>
+            }
+            else
+            {
+                @* ReSharper disable once CSharpWarnings::CS8974 *@
+                <input  class="form-control"
+                        @bind="Value" 
+                        @oninput="FilterValues" 
+                        placeholder="@Placeholder" 
+                        disabled="@(!Enabled)" 
+                        onfocus="@OnFocus" 
+                        onkeydown="@OnKeyDown"
+                        />
+            }
+        </div>
+    </div>
+    @if (ShowDropdown)
+    {
+        <ul class="@DropDownMenuClass">
+            @foreach (var value in FilteredValues)
+            {
+                <li @onclick="() => SelectValue(value)" class="dd-item">@value</li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+
+    [Parameter] public string Name { get; set; } = "";  
+
+    [Parameter]  
+    public string Value  
+    {  
+        get;  
+        set  
+        {  
+            if (field == value)  
+                return;  
+            field = value;  
+            ValueChanged.InvokeAsync(value);  
+        }  
+    } = "";  
+
+    [Parameter] public EventCallback<string>       ValueChanged        { get; set; }  
+    [Parameter] public IReadOnlyCollection<string> Values              { get; set; } = [];  
+    [Parameter] public string?                     Placeholder         { get; set; } = "";  
+    [Parameter] public string?                     Icon                { get; set; }  
+    [Parameter] public string                      Class               { get; set; } = "";  
+    [Parameter] public bool                        Enabled             { get; set; } = true;  
+    [Parameter] public bool                        ShowDropdown        { get; set; }
+    [Parameter] public EventCallback<bool>         ShowDropdownChanged { get; set; }
+    [Parameter] public bool                        IsMultiline         { get; set; } = false;
+    [Parameter] public int                         Rows                { get; set; } = 1;
+
+    private bool IsExpanded { get; set; } = false;
+
+    private void ToggleExpand()
+    {
+        IsExpanded   = !IsExpanded;
+        _rows        = IsExpanded ? 10 : Rows; // Adjust the number of rows when expanded
+
+        ShowDropdown = false;  
+        ShowDropdownChanged.InvokeAsync(ShowDropdown);
+
+        StateHasChanged();
+    }
+
+    private readonly string          _id = $"h{Random.Shared.Next():X8}";
+    private          string          FormGroupClass    => string.IsNullOrWhiteSpace(Name) ? Class : $"form-group {Class}";
+    private          List<string>    FilteredValues    { get; set; } = [];
+    private          string          DropDownMenuClass => IsMultiline ? "dd-menu-multi" : "dd-menu";
+
+    private          int             _rows = 1;
+
+    private void FilterValues(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString() ?? "";
+        ApplyFiltering();
+    }
+
+    private void ApplyFiltering()
+    {
+        if (string.IsNullOrEmpty(Value))
+        {
+            // show everything if the input is empty
+            FilteredValues = Values.ToList();
+        }
+        else
+        {
+            FilteredValues = Values.Where(v => v.Contains(Value, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        ShowDropdown   = FilteredValues.Any();  
+        ShowDropdownChanged.InvokeAsync(ShowDropdown);
+        StateHasChanged();
+    }
+
+    private void SelectValue(string value)  
+    {  
+        Value        = value;  
+        ValueChanged.InvokeAsync(value);  
+        Value        = value;  
+        ShowDropdown = false;  
+        ShowDropdownChanged.InvokeAsync(ShowDropdown);
+    }  
+
+    private Task OnFocus()
+    {
+        ApplyFiltering();
+        return Task.CompletedTask;  
+    }
+
+    protected override void OnInitialized()
+    {
+        _rows = Rows;
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && ShowDropdown )
+        {
+            ShowDropdown = false;  
+            ShowDropdownChanged.InvokeAsync(ShowDropdown);
+            StateHasChanged();
+        }
+    }
+
+}

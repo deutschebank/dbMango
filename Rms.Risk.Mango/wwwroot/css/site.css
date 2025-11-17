@@ -1,0 +1,17 @@
+.mango-modal {
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 0.75rem !important;
+    margin-top: 4rem;
+    display: flex;
+    z-index: 102;
+    box-shadow: 0 2px 2px #000000;
+    box-shadow: 0 2px 2px rgba(0,0,0,.25);
+}
+.fit-content {
+    width: fit-content !important;
+}
+.min-content {
+    width: min-content !important;
+}

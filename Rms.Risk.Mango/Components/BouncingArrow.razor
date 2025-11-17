@@ -1,0 +1,52 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿<style>
+    .bounce {
+        animation: bounce 2s infinite;
+    }
+
+    @@keyframes bounce {
+        0%, 20%, 50%, 80%, 100% {
+            transform: translateX(0);
+        }
+        40% {
+            transform: translateX(-30px);
+        }
+        60% {
+            transform: translateX(-15px);
+        }
+    }
+</style>
+
+
+
+<div class="bounce @Class">
+    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="24" height="24" viewBox="0 0 256 256" xml:space="preserve">
+        <g style="stroke: none; stroke-width: 0; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: none; fill-rule: nonzero; opacity: 1;" transform="translate(1.4065934065934016 1.4065934065934016) scale(2.81 2.81)" >
+            <path d="M 89.566 43.779 L 64.315 12.722 c -0.368 -0.452 -0.92 -0.714 -1.502 -0.714 H 43.293 c -0.747 0 -1.427 0.43 -1.748 1.104 c -0.321 0.674 -0.225 1.473 0.246 2.053 L 66.049 45 L 41.791 74.836 c -0.471 0.579 -0.567 1.378 -0.246 2.053 c 0.321 0.674 1.001 1.104 1.748 1.104 h 19.521 c 0.582 0 1.134 -0.263 1.502 -0.714 l 25.251 -31.057 C 90.145 45.51 90.145 44.49 89.566 43.779 z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(206,62,62); fill-rule: nonzero; opacity: 1;" transform=" matrix(1 0 0 1 0 0) " stroke-linecap="round" />
+            <path d="M 48.208 43.779 l -25.25 -31.057 c -0.368 -0.452 -0.919 -0.714 -1.502 -0.714 H 1.936 c -0.747 0 -1.427 0.43 -1.748 1.104 c -0.321 0.674 -0.225 1.473 0.246 2.053 L 24.692 45 L 0.434 74.836 c -0.471 0.579 -0.567 1.378 -0.246 2.053 c 0.321 0.674 1.001 1.104 1.748 1.104 h 19.521 c 0.583 0 1.134 -0.263 1.502 -0.714 l 25.25 -31.057 C 48.786 45.51 48.786 44.49 48.208 43.779 z" style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 10; fill: rgb(206,62,62); fill-rule: nonzero; opacity: 1;" transform=" matrix(1 0 0 1 0 0) " stroke-linecap="round" />
+        </g>
+    </svg>
+</div>
+
+@code
+{
+    [Parameter]
+    public string Class { get; set; } = "";
+}
