@@ -1,0 +1,146 @@
+﻿/*
+.workflow-params-converter-container .CodeMirror {
+    min-height: 400px;
+    max-height: calc(100vh - 280px) !important;
+    height: 100%;
+    font-size: 0.85rem;
+}
+*/
+
+.wf-converter-container {
+    position: relative;
+}
+
+.wf-converter-textarea-container {
+    align-items: stretch;
+    align-content: stretch;
+    flex-flow: row wrap;
+}
+
+.wf-converter-codebox {
+    flex-grow: 1;
+    padding: 5px 5px;
+    overflow: hidden;
+}
+
+.wf-converter-codebox-0 {
+    flex-basis: 0;
+    display: none;
+}
+
+.wf-converter-codebox-50 {
+    flex-basis: 50%;
+}
+
+.wf-converter-codebox-100 {
+    flex-basis: 100%;
+}
+
+.wf-converter-codetextarea {
+    width: 100%;
+    min-height: 50em;
+}
+
+.wf-converter-convertbutton {
+    flex-grow: 2;
+    padding: 0 5px;
+    display: flex;
+}
+
+.wf-converter-veiewbutton-div {
+    flex-grow: 2;
+    width: 100%;
+    display: flex;
+}
+
+.wf-converter-veiewbutton {
+    width: 90px;
+}
+.wf-converter-overlay {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: #3d516b;
+    top: 0;
+    opacity: 0.7;
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+}
+
+.wf-converter-syntax-error {
+    vertical-align: baseline;
+    color: red;
+}
+
+.wf-converter-message {
+    vertical-align: baseline;
+    color: lightgrey;
+}
+
+
+.cm-s-lucario span.cm-comment        { color: #999999; }
+.cm-s-lucario span.cm-variable1      { color: #caddca; }
+.cm-s-lucario span.cm-variable2      { color: #7add7a; }
+.cm-s-lucario span.cm-variable3      { color: #1aff1a; }
+.cm-s-lucario span.cm-argument       { color: #3399ff; }
+.cm-s-lucario span.cm-type           { color: #9D9D9D; }
+
+.CodeMirror-hints {
+  position: absolute;
+  z-index: 10;
+  overflow: hidden;
+  list-style: none;
+
+  margin: 0;
+
+  background-color: #202f3d;
+  background-clip: padding-box;
+  border: 0.0625rem solid #00acff;
+  border-radius: 0.1875rem;
+  box-shadow: 0 0.1875rem 1.125rem rgba(0 0 0 0.75);
+  outline: 0;
+
+  background: #2e4057;
+  font-family: monospace;
+  font-size: 8pt;
+
+  max-height: 20em;
+  overflow-y: auto;
+
+  width: auto;
+  max-width: 80%;
+}
+
+.CodeMirror-hint {
+  margin-left: 4px;
+  border-radius: 2px;
+  color: white;
+  cursor: pointer;
+}
+
+li.CodeMirror-hint-active {
+  margin-left: 4px;
+  background: #1966b5;
+  color: white;
+}
+
+.cm-hint-outer {
+}
+
+.cm-hint-name {
+  margin-left: 4px;
+  color: white;
+}
+
+.cm-hint-type {
+  margin-left: 4px;
+  color: #45cbfd;
+  overflow-wrap: break-word;
+}
+
+.cm-hint-desc {
+  margin-left: 4px;
+  color: yellow;
+  overflow-wrap: break-word;
+}

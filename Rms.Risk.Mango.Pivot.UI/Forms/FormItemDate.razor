@@ -1,0 +1,110 @@
+﻿@using BlazorDateRangePicker
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<div class="form-group @Class">
+    <div class="flex-stack-horizontal form-mw">
+        <label for="@_id" class="input-group-text w-100">@Name</label>
+    </div>
+    <div class="input-group mr-sm-2">
+        @if (Icon != null)
+        {
+            <div class="input-group-prepend">
+                <div class="input-group-text">
+                    <div class="">
+                        <span class="ui-icon-font ui-icon-sm @Icon"></span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <DateRangePicker id="@_id" Opens="SideType.Left" SingleDatePicker="@(!SelectDateRange)" @bind-StartDate="StartDateOffset" @bind-EndDate="EndDateOffset" DaysEnabledFunction="@DaysEnabledFunction">
+            <PickerTemplate Context="pickerContext">
+                <div id="@pickerContext.ParentId" @onclick="pickerContext.Toggle" class="form-control float-right datepicker-control">
+                    <span class="ui-icon-font icon-calendar"></span>&nbsp;
+                    <span>@pickerContext.FormattedRange @(string.IsNullOrEmpty(pickerContext.FormattedRange) ? Placeholder : "")</span>
+                    <span class="ui-icon-font icon-caret-down float-right"></span>
+                </div>
+            </PickerTemplate>
+        </DateRangePicker>
+    </div>
+</div>
+
+
+
+@code {
+    private string _id    = $"h{Random.Shared.Next():X8}";
+
+    [Parameter] public string Name { get; set; } = "";
+
+    [Parameter]
+    public DateOnly? StartDate
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            StartDateChanged.InvokeAsync(value);
+        }
+    }
+
+    [Parameter]
+    public DateOnly? EndDate
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            EndDateChanged.InvokeAsync(value);
+        }
+    }
+
+    [Parameter] public EventCallback<DateOnly?>   StartDateChanged    { get; set; }
+    [Parameter] public EventCallback<DateOnly?>   EndDateChanged      { get; set; }
+    [Parameter] public string?                    Placeholder         { get; set; } = "";
+    [Parameter] public string?                    Icon                { get; set; }
+    [Parameter] public bool                       Enabled             { get; set; } = true;
+    [Parameter] public bool                       SelectDateRange     { get; set; }
+    [Parameter] public string                     Class               { get; set; } = "";
+    [Parameter] public Func<DateTimeOffset, bool> DaysEnabledFunction { get; set; } = _ => true;
+
+    private DateTimeOffset? StartDateOffset
+    {
+        get => StartDate == null ? null : new DateTimeOffset(StartDate.Value, TimeOnly.MinValue, TimeSpan.Zero);
+        set
+        {
+            DateOnly? v = value != null ? DateOnly.FromDateTime(value.Value.Date) : null;
+            StartDate = v;
+        }
+    }
+
+    private DateTimeOffset? EndDateOffset
+    {
+        get => EndDate == null ? null : new DateTimeOffset(EndDate.Value, TimeOnly.MinValue, TimeSpan.Zero);
+        set
+        {
+            DateOnly? v = value != null ? DateOnly.FromDateTime(value.Value.Date) : null;
+            EndDate = v;
+        }
+    }
+}

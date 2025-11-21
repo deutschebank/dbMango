@@ -1,0 +1,238 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+@using System.Threading
+@using Rms.Risk.Mango.Pivot.Core.Models
+
+@inject IJSRuntime    _jsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .code-editor {
+    min-height: 150px;
+    font-family: monospace;
+    }
+</style>
+
+<form class="ml-2 mr-2 @Class">
+    <div class="@_rowClass">
+        <div class="form-group w-100 mr-3">
+            <label for="PivotType">Pivot type</label>
+            <div class="input-group mr-sm-2">
+                <div class="dropdown">
+                    <button id="PivotType" class="btn btn-secondary dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        @PivotTypeName
+                    </button>
+                    <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                        <a class="dropdown-item" @onclick="() => SelectPivotType(PivotTypeEnum.SimpleAggregation)" @onclick:preventDefault>Simple aggregation</a>
+                        <a class="dropdown-item" @onclick="() => SelectPivotType(PivotTypeEnum.CustomQuery)" @onclick:preventDefault>Custom query</a>
+                        <a class="dropdown-item" @onclick="() => SelectPivotType(PivotTypeEnum.AggregationForHumans)" @onclick:preventDefault>Aggregation for Humans</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if ( PivotDef != null )
+    {
+        <div class="@_rowClass @SimpleClass">
+            <div class="form-group w-100 mr-3">
+                <label for="SimpleBeforeGrouping">Before grouping</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control code-editor" @bind="PivotDef.BeforeGrouping" id="SimpleBeforeGrouping" rows="10"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="@_rowClass @SimpleClass">
+            <div class="form-group w-100 mr-3">
+                <label for="SimpleAdditionalGrouping">Additional grouping</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control code-editor" @bind="PivotDef.WithinGrouping" id="SimpleAdditionalGrouping" rows="10"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="@_rowClass @SimpleClass">
+            <div class="form-group w-100 mr-3">
+                <label for="SimpleAfterGrouping">After grouping</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control code-editor" @bind="PivotDef.AfterGrouping" id="SimpleAfterGrouping" rows="10"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="@_rowClass @CustomClass">
+            <div class="form-group w-100 mr-3">
+                <label for="CustomQuery">Custom query</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control code-editor" @bind="PivotDef.CustomQuery" id="CustomQuery" rows="30"></textarea>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (PivotService != null)
+    {
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3 mt-3">
+                <button class="btn btn-secondary" type="button" @onclick="RevealTheQuery" title="Reveal the query">
+                    <span class="p-1">Show query</span>
+                </button>
+            </div>
+        </div>
+    }
+
+</form>
+
+@* <div class="d-none" @ref="_simpleBeforeGrouping"></div> *@
+@* <div class="d-none" @ref="_simpleAdditionalGrouping"></div> *@
+@* <div class="d-none" @ref="_simpleAfterGrouping"></div> *@
+@* <div class="d-none" @ref="_customQuery"></div> *@
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+    [Parameter]          public string        Class { get; set; } = "";
+    [Parameter]
+    public PivotDefinition? Pivot
+    {
+        get => _pivot;
+        set
+        {
+            if (_pivot == value)
+                return;
+
+            _pivot = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [Parameter] public IPivotTableDataSource? PivotService               { get; set; }
+    [Parameter] public string? Collection                                { get; set; }
+    [Parameter] public FilterExpressionTree.ExpressionGroup? ExtraFilter { get; set; }
+
+    [Parameter] public Func<string /*collectionName*/, PivotDefinition /*def*/, FilterExpressionTree.ExpressionGroup? /*extraFilter*/, CancellationToken /*token = default*/, Task<string>> GetQueryText { get; set; } = (_, _, _, _) => Task.FromResult("");
+
+    private string SimpleClass => PivotDef?.PivotType == PivotTypeEnum.SimpleAggregation ? "" : "d-none";
+    private string CustomClass => PivotDef?.PivotType is PivotTypeEnum.CustomQuery or PivotTypeEnum.AggregationForHumans ? "" : "d-none";
+    private string _rowClass = "";
+
+    private string PivotTypeName => PivotDef?.PivotType switch
+    {
+        PivotTypeEnum.CustomQuery          => "Custom query",
+        PivotTypeEnum.SimpleAggregation    => "Simple aggregation",
+        PivotTypeEnum.AggregationForHumans => "Aggregation for Humans",
+        _                                  => "unsupported"
+    };
+
+    private PivotDefinition?    _pivot;
+    private PivotDefinition? PivotDef => _pivot;
+
+    // private DotNetObjectReference<PivotQueryComponent> _objRef;
+    // private ElementReference _simpleBeforeGrouping;
+    // private ElementReference _simpleAdditionalGrouping;
+    // private ElementReference _simpleAfterGrouping;
+    // private ElementReference _customQuery;
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // _objRef = DotNetObjectReference.Create(this);
+            //
+            // await _jsRuntime.InvokeVoidAsync("DashboardUtils.LoadCodeEditor", "SimpleBeforeGrouping",     "application/json", _simpleBeforeGrouping,     _objRef, "UpdateBeforeGroupingField", false);
+            // await _jsRuntime.InvokeVoidAsync("DashboardUtils.LoadCodeEditor", "SimpleAdditionalGrouping", "application/json", _simpleAdditionalGrouping, _objRef, "UpdateAdditionalGroupingField", false);
+            // await _jsRuntime.InvokeVoidAsync("DashboardUtils.LoadCodeEditor", "SimpleAfterGrouping",      "application/json", _simpleAfterGrouping,      _objRef, "UpdateAfterGroupingField", false);
+            // await _jsRuntime.InvokeVoidAsync("DashboardUtils.LoadCodeEditor", "CustomQuery",              "application/json", _customQuery,              _objRef, "UpdateCustomQueryField", false);
+
+            return InvokeAsync(StateHasChanged);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task SelectPivotType(PivotTypeEnum t)
+    {
+        PivotDef!.PivotType = t;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable(nameof(UpdateBeforeGroupingField))]
+    public Task UpdateBeforeGroupingField(string text)
+    {
+        if (PivotDef == null || PivotDef.BeforeGrouping == text)
+            return Task.CompletedTask;
+        PivotDef.BeforeGrouping = text;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable(nameof(UpdateAdditionalGroupingField))]
+    public Task UpdateAdditionalGroupingField(string text)
+    {
+        if (PivotDef == null || PivotDef.WithinGrouping == text)
+            return Task.CompletedTask;
+        PivotDef.WithinGrouping = text;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable(nameof(UpdateCustomQueryField))]
+    public Task UpdateCustomQueryField(string text)
+    {
+        if (PivotDef == null || PivotDef.CustomQuery == text)
+            return Task.CompletedTask;
+        PivotDef.CustomQuery = text;
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+    private async Task RevealTheQuery()
+    {
+        if (PivotService == null || string.IsNullOrWhiteSpace(Collection) || Pivot == null)
+            return;
+
+        try
+        {
+            var text = GetQueryText == null
+                    ? await PivotService.GetQueryTextAsync(Collection, Pivot, ExtraFilter)
+                    : await GetQueryText(Collection, Pivot, ExtraFilter, CancellationToken.None)
+                ;
+
+            await ShowQueryDialog(Modal, "Query", text);
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Exception", ex);
+        }
+    }
+
+    private async Task ShowQueryDialog(IModalService service, string header, string text)
+    {
+        var parameters = new ModalParameters();
+        if (!string.IsNullOrWhiteSpace(text))
+            parameters.Add(Pivot!.PivotType != PivotTypeEnum.AggregationForHumans ? "TextJson" : "Text", text);
+        parameters.Add("ShowJson", Collection?.StartsWith("BFG:") != true);
+
+        var options = new ModalOptions
+            {
+                HideCloseButton = true,
+                DisableBackgroundCancel = true
+            };
+
+        var form = service.Show<MessageBoxQueryComponent>(header, parameters, options);
+        await form.Result;
+    }
+
+}

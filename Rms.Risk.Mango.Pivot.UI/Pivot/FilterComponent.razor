@@ -1,0 +1,221 @@
+﻿@using System.ComponentModel
+@using System.Diagnostics.CodeAnalysis
+@using Rms.Risk.Mango.Pivot.Core.Models
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<style>
+    .combo-sm {
+    height: calc(1.1666666667em + 0.625rem);
+    }
+    .op-sel {
+        width: 85px;
+    }
+</style>
+<div class="@Class">
+    <TreeControl Nodes="@RootNodes" Handler="@_handler">
+        <TitleTemplate Context="item">
+            <div class="@RowClass">
+                @if (item is FilterExpressionTree.ExpressionGroup group)
+                {
+                    <div class="d-flex flex-row flex-wrap">
+
+                        <FormItemSelect T="FilterExpressionTree.ExpressionGroup.ConditionType" 
+                                        Class="" 
+                                        Value="@group.Condition" 
+                                        ValueChanged="@(x => ChangeOperation(group, x))"
+                                        Values="@(Enum.GetValues<FilterExpressionTree.ExpressionGroup.ConditionType>())"
+                                        GetText="@GetDescriptionAttr" 
+                                        />
+
+                        <div class="mr-1">
+                            <div>
+                                <button type="button" class="btn btn-secondary" @onclick="() => AddGroup(group)" title="Add condition group">
+                                    <span class="ui-icon-font icon-caret-down-sm"></span>
+                                </button>
+                                <button type="button" class="btn btn-secondary" @onclick="() => AddCondition(group)" title="Add field criteria">
+                                    <span class="ui-icon-font icon-plus-sm"></span>
+                                </button>
+                                <button type="button" class="btn btn-secondary" @onclick="() => DelCondition(item)" title="Delete">
+                                    <span class="ui-icon-font icon-trash-sm"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (item is FilterExpressionTree.FieldExpression expression)
+                {
+                    <div class="d-flex flex-row flex-wrap">
+
+                        <FormItemSelect T="string"
+                                        Class="w-100"
+                                        Value="@expression.Field"
+                                        ValueChanged="@(x => ChangeField(expression, x))"
+                                        Values="@AllFieldsColl" 
+                                        />
+
+                        <div class="d-flex flex-row flex-wrap w-100">
+                            <FormItemSelect T="FilterExpressionTree.FieldConditionType"
+                                            Class="op-sel"
+                                            Value="@expression.Condition"
+                                            ValueChanged="@(x => ChangeOperation(expression, x))"
+                                            Values="@(Enum.GetValues<FilterExpressionTree.FieldConditionType>())"
+                                            GetText="@GetDescriptionAttr"
+                                            />
+
+                            <input type="text" class="mr-1 form-control flex-2" value="@expression.Argument" @oninput="(e => ChangeArgument(expression, e.Value?.ToString()))" />
+                            <div class="mr-1">
+                                <div>
+                                    <button type="button" class="btn btn-secondary" @onclick="() => DelCondition(item)" title="Delete">
+                                        <span class="ui-icon-font icon-trash-sm"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                }
+            </div>
+        </TitleTemplate>
+    </TreeControl>
+</div>
+
+@code {
+
+    [Parameter] public string                   Class      { get; set; } = "";
+    [Parameter] public string                   RowClass   { get; set; } = "";
+    [Parameter] public Dictionary<string, Type> AllFields  { get; set; } = null!;
+
+    [Parameter] public FilterExpressionTree.ExpressionGroup                Filter        { get; set; } = new ();
+    [Parameter] public EventCallback<FilterExpressionTree.ExpressionGroup> FilterChanged { get; set; }
+
+    private     FilterExpressionTree.IFilterExpression[] RootNodes => [Filter];
+
+    private IReadOnlyCollection<string> AllFieldsColl => AllFields.Select(x => x.Key).OrderBy(x => x).ToList();
+
+    private TreeControl<FilterExpressionTree.IFilterExpression>.TreeItemHandler _handler = null!;
+
+    protected override void OnInitialized()
+    {
+        _handler = new()
+            {
+                ChildSelector   = x => x.Children,
+                GetSelectedNode = () => null,
+                SetSelectedNode = _ => {  },
+                IsExpanded      = _ => true,
+                SetIsExpanded   = (_, _) => {},
+                IsSelectable    = _ => false
+            };
+    }
+
+    private static bool HasChildren(FilterExpressionTree.IFilterExpression arg) => arg is FilterExpressionTree.ExpressionGroup && arg.Children.Count > 0;
+
+
+    private void AddGroup(FilterExpressionTree.ExpressionGroup parent)
+    {
+        if (parent?.Children == null)
+            return;
+        parent.Children.Add( new FilterExpressionTree.ExpressionGroup() );
+        InvokeAsync(UpdateFilter);
+    }
+
+    private void AddCondition(FilterExpressionTree.ExpressionGroup parent)
+    {
+        if (parent?.Children == null)
+            return;
+        parent.Children.Add(new FilterExpressionTree.FieldExpression());
+        InvokeAsync(UpdateFilter);
+    }
+
+    private void DelCondition(FilterExpressionTree.IFilterExpression context)
+    {
+        static bool Del(FilterExpressionTree.IFilterExpression parent, FilterExpressionTree.IFilterExpression toDel)
+        {
+            if (parent?.Children == null)
+                return false;
+
+            foreach (var child in parent.Children)
+            {
+                if (child.Equals(toDel))
+                {
+                    parent.Children.Remove(child);
+                    return true;
+                }
+
+                if (Del(child, toDel))
+                    return true;
+            }
+
+            return false;
+        }
+
+        Del(Filter, context);
+        InvokeAsync(UpdateFilter);
+    }
+
+    public static string GetDescriptionAttr<T>([NotNull] T source)
+    {
+        var fi = source!.GetType().GetField(source.ToString()!);
+
+        var attributes = (DescriptionAttribute[]?)fi?.GetCustomAttributes(
+            typeof(DescriptionAttribute), false);
+
+        if (attributes is {Length: > 0 })
+            return attributes[0].Description;
+        return source.ToString() ?? "";
+    }
+
+    private async Task UpdateFilter()
+    {
+        try
+        {
+            await FilterChanged.InvokeAsync(Filter);
+        }
+        catch ( Exception )
+        {
+            // ignore
+        }
+    }
+
+
+    private async Task ChangeOperation(FilterExpressionTree.ExpressionGroup group, FilterExpressionTree.ExpressionGroup.ConditionType conditionType)
+    {
+        group.Condition = conditionType;
+        await InvokeAsync(UpdateFilter);
+    }
+
+    private async Task ChangeField(FilterExpressionTree.FieldExpression expression, string value)
+    {
+        expression.Field = value;
+        await InvokeAsync(UpdateFilter);
+    }
+
+    private async Task ChangeOperation(FilterExpressionTree.FieldExpression expression, FilterExpressionTree.FieldConditionType conditionType)
+    {
+        expression.Condition = conditionType;
+        await InvokeAsync(UpdateFilter);
+    }
+
+    private async Task ChangeArgument(FilterExpressionTree.FieldExpression expression, string? value)
+    {
+        expression.Argument = value ?? "";
+        await InvokeAsync(UpdateFilter);
+    }
+
+}

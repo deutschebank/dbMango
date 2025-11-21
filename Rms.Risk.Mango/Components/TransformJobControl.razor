@@ -1,0 +1,285 @@
+﻿@using Rms.Risk.Mango.Services.Context
+
+@inject IUserSession                   UserSession
+@inject IDatabaseConfigurationService DatabaseConfig
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .dbName {
+    color: yellow;
+    font-weight: bold;
+    }
+
+    .colName {
+    color: lightgreen;
+    }
+
+    .CodeMirror {
+    width: 600px;
+    max-width: 600px;
+    }
+</style>
+
+<EditForm EditContext="EditContext">
+    <div class="flex-stack-vertical">
+        <div class="flex-stack-horizontal">
+            <div class="flex-stack-vertical ml-3">
+                <div class="form-row">
+                    <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="From database:" @bind-Value="SourceDatabase" Values="@SourceDatabases" />
+                </div>
+                @if( UserSession.IsInstanceSelectionAllowed(SourceDatabase) )
+                {
+                    <div class="form-row">
+                        <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="From database:" @bind-Value="SourceDatabaseInstance" Values="@SourceDatabaseInstances" />
+                    </div>
+                }
+                <div class="form-row">
+                    <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="From collection:" @bind-Value="SourceCollection" Values="@SourceCollections" />
+                </div>
+                <div class="form-row">
+                    <FormItemText Enabled="@IsReady" Class="mr-2" Name="To collection:" @bind-Value="DestCollection" Placeholder="Blank = src collection"/>
+                </div>
+                <div class="form-row">
+                    <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Clear destination" @bind-Value="WipeDestination" />
+                </div>
+                <div class="form-row">
+                    <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Update / Insert" @bind-Value="Upsert" />
+                </div>
+                <div class="form-row">
+                    <FormItemText Enabled="@IsReady" Class="mr-2" Name="BatchSize" @bind-Value="BatchSize" InputType="number" />
+                </div>
+            </div>
+            <div class="flex-stack-vertical ml-3">
+                <FormCodeEditor Name="Find:"      @bind-Text="Find"      MediaType="application/json"/>
+                <FormCodeEditor Name="Transform:" @bind-Text="Transform" MediaType="application/json" />
+            </div>
+        </div>
+        <div class="text-wrap mt-3 mb-3 w-100">@JobDescription</div>
+    </div>
+    <div class="form-row modal-footer w-100 p-0">
+        <button class="btn btn-secondary" @onclick="@(()=>ModalInstance.CancelAsync())">Cancel</button>
+        <button class="btn btn-primary" @onclick="OnOK" disabled="@(!IsReadyToRun)">Run job</button>
+    </div>
+
+</EditForm>
+
+@code {
+    [CascadingParameter] public BlazoredModalInstance ModalInstance { get; set; } = null!;
+    [CascadingParameter] public IModalService         Modal         { get; set; } = null!;
+
+    private string SourceDatabase
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(SourceDatabaseChanged);
+        }
+    } = "";
+
+    private string SourceDatabaseInstance
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(SourceDatabaseChanged);
+        }
+    } = "";
+
+    private string SourceCollection
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(StateHasChanged);
+        }
+    } = "";
+
+    private string DestCollection
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(StateHasChanged);
+        }
+    } = "";
+
+    private string Find      { get; set; } = "{ _id : { $ne : \"\" } }";
+    private string Transform { get; set; } = "";
+
+    private string      DestDatabase    => UserSession.Database;
+    private bool        WipeDestination { get; set; }
+    private string      BatchSize       { get; set; } = "1000";
+    private bool        Upsert          { get; set; }
+    private bool        IsReady         { get; set; }
+
+    private bool        IsReadyToRun    => IsReady 
+        && !string.IsNullOrWhiteSpace(SourceCollection)
+        && !string.IsNullOrWhiteSpace(EffectiveDestCollection) 
+        && (SourceDatabase != DestDatabase || SourceCollection != EffectiveDestCollection)
+        ;
+
+    private string      Error           { get; set; } = "";
+    private EditContext EditContext     => _editContext!;
+
+    private string EffectiveDestCollection => string.IsNullOrWhiteSpace(DestCollection) ? SourceCollection : DestCollection;
+
+    private Task SourceDatabaseChanged()
+    {
+        _ = Task.Run(LoadCollections);
+        return Task.CompletedTask;
+    }
+
+    private List<string> SourceDatabases => DatabaseConfig.Databases.Keys
+       .OrderBy(x => x)
+       .ToList()
+        ;
+
+    //TODO: load on change
+    private List<string> SourceDatabaseInstances => [];
+
+    private MarkupString JobDescription => new(
+        $"Copy collection <span class=\"colName\">{SourceCollection}</span> from <span class=\"dbName\">{SourceDatabase}</span> to  <span class=\"colName\">{EffectiveDestCollection}</span> of <span class=\"dbName\">{DestDatabase}</span>."
+            + (!string.IsNullOrWhiteSpace(Transform) ? "<br> Applying documents transformation." : "<br> Without any documents transformation.")
+            + (WipeDestination ? "<br> Destination collections will be cleared first." : "")
+            + (Upsert ? "<br>  Existing documents will be updated." : "")
+        );
+
+
+    private EditContext? _editContext;
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(this);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (SourceDatabases.Count == 0)
+            return;
+
+        SourceDatabase = SourceDatabases.First();
+
+        StateHasChanged();
+    }
+
+    private async Task LoadCollections()
+    {
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            if (string.IsNullOrWhiteSpace(SourceDatabase))
+                return;
+
+            var admin = UserSession.GetCustomAdmin(SourceDatabase, SourceDatabaseInstance);
+
+            SourceCollections = await admin.ListCollections();
+            SourceCollection  = SourceCollections.FirstOrDefault() ?? "";
+        }
+        catch (Exception ex)
+        {
+            await Display(ex);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private IReadOnlyCollection<string> SourceCollections { get; set; } = [];
+
+    private Task Display(Exception e)
+    {
+        Error = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+    private async Task OnOK()
+    {
+        try
+        {
+            var job = new MigrationJob()
+            {
+                SourceDatabase         = SourceDatabase,
+                DestinationDatabase    = DestDatabase,
+                Email                  = UserSession.User.GetEmail(),
+                Upsert                 = Upsert,
+                ClearDestinationBefore = WipeDestination,
+                BatchSize              = int.Parse(BatchSize),
+                Status                 =
+                [
+                    new MigrationJob.CollectionJob
+                    {
+                        SourceCollection      = SourceCollection,
+                        DestinationCollection = EffectiveDestCollection,
+                        Filter                = BsonDocument.Parse(Find),
+                        Projection            = string.IsNullOrWhiteSpace(Transform) ? null : BsonDocument.Parse(Transform)
+                    }
+                ]
+            };
+
+            await ModalInstance.CloseAsync(ModalResult.Ok(job));
+        }
+        catch (Exception e)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", e);
+        }
+    }
+
+    public static Task<ModalResult> ShowDialog(IModalService service)
+    {
+        var parameters = new ModalParameters
+        {
+        };
+
+        var options = new ModalOptions
+            {
+                HideCloseButton = false,
+                DisableBackgroundCancel = true
+            };
+
+        var form = service.Show<TransformJobControl>("New transformation", parameters, options);
+        return form.Result;
+    }
+
+}

@@ -1,0 +1,153 @@
+﻿@typeparam TNode
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<!-- A very basic hierarchical tree control. Allows the user to expand/contract nodes and select a single node. 
+    The control provides callbacks for the user to specify to control how each of these features map to the underlying data model
+    The title template is supplied by the user which specifies how to draw each node
+-->
+<div class="uic-tree">
+
+    @foreach (var node in Nodes.Where(x => x != null ))
+    {
+        var nodeExpanded = Handler.IsExpanded(node);
+        var nodeSelected = ReferenceEquals(Handler.GetSelectedNode(), node) || (node?.Equals(Handler.GetSelectedNode()) ?? false);
+        var children          = Handler.ChildSelector(node);
+        var hasChildren = children?.Any() ?? false;
+
+        <div class="uic-tree-row">
+        @if (hasChildren)
+        {
+            <span class="uic-tree-icon" @onclick="@(() => OnToggleNode(node, !nodeExpanded))">
+                <i class="@(nodeExpanded ? Style.CollapseNodeIconClass : Style.ExpandNodeIconClass)"></i>
+            </span>
+        }
+
+        <div class="uic-tree-title">
+            <span class="@Style.NodeTitleClass @(nodeSelected ? Style.NodeTitleSelectedClass : "")" @onclick="@(() => OnSelectNode(node))">
+                @if (TitleTemplate == null)
+                {
+                    @node?.ToString()
+                }
+                else
+                {
+                    @TitleTemplate(node)
+                }
+            </span>
+    </div>
+
+        @if (hasChildren && nodeExpanded)
+        {
+            <TreeControl 
+                Nodes="@children"
+                Handler="@Handler"
+                TitleTemplate="@TitleTemplate"
+                AutoExpandTransientNodes="@AutoExpandTransientNodes" 
+                Style="@Style"
+                />
+        }
+
+    </div>
+    }
+
+</div>
+
+@code {
+
+    public class TreeItemHandler
+    {
+        public Func<TNode?>                            GetSelectedNode { get; init; } = () => default;
+        public Action<TNode>                           SetSelectedNode { get; init; } = _ => {};
+        public Func<TNode, IReadOnlyCollection<TNode>> ChildSelector   { get; init; } = _ => Array.Empty<TNode>();
+        public Func<TNode, bool>                       IsExpanded      { get; init; } = _ => true;
+        public Func<TNode, bool>                       IsSelectable    { get; init; } = _ => true;
+        public Action<TNode, bool>                     SetIsExpanded   { get; init; } = (_, _) => {/*do nothing*/};
+
+    }
+
+    [Parameter] public IReadOnlyCollection<TNode> Nodes                    { get; set; } = [];
+    [Parameter] public TreeItemHandler            Handler                  { get; set; } = new();
+    [Parameter] public RenderFragment<TNode>?     TitleTemplate            { get; set; }
+    [Parameter] public bool                       AutoExpandTransientNodes { get; set; } = true;
+    [Parameter] public TreeStyle                  Style                    { get; set; } = TreeStyle.Bootstrap;
+
+    public class TreeStyle
+    {
+        public static readonly TreeStyle Bootstrap = new()
+        {
+            ExpandNodeIconClass    = "ui-icon-font icon-caret-right cursor-pointer",
+            CollapseNodeIconClass  = "ui-icon-font icon-caret-down cursor-pointer",
+            NodeTitleClass         = "list-group-item uic-tree-title_text cursor-pointer",
+            NodeTitleSelectedClass = "active"
+        };
+
+        public string? ExpandNodeIconClass    { get; set; }
+        public string? CollapseNodeIconClass  { get; set; }
+        public string? NodeTitleClass         { get; set; }
+        public string? NodeTitleSelectedClass { get; set; }
+
+    }
+
+
+    private void OnToggleNode(TNode node, bool expand)
+    {
+        var expanded = Handler.IsExpanded(node);
+
+        if (expanded && !expand)
+        {
+            Handler.SetIsExpanded(node, false);
+        }
+        else if (!expanded && expand)
+        {
+            Handler.SetIsExpanded(node, true);
+            ExpandTransientChildren( node );
+        }
+    }
+
+    ///Auto expand child nodes when there is only 1 child
+    private void ExpandTransientChildren( TNode node )
+    {
+        if ( !AutoExpandTransientNodes )
+            return;
+
+        while (Handler.ChildSelector(node)?.Count > 0)
+        {
+            var children = Handler.ChildSelector( node ) ?? Array.Empty<TNode>();
+
+            if ( children.Count != 1 )
+                return;
+
+            var first = children.FirstOrDefault();
+            if (first == null || Handler.IsExpanded( first ) )
+                return;
+
+            Handler.SetIsExpanded(first, true);
+            node = first;
+        }
+    }
+
+    private void OnSelectNode(TNode node)
+    {
+        if (!Handler.IsSelectable(node))
+            return;
+
+        Handler.SetSelectedNode(node);
+    }
+}

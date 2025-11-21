@@ -1,0 +1,112 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿<link rel="stylesheet" href="codemirror/5.59.1/lib/codemirror.css" />
+<link rel="stylesheet" href="codemirror/5.59.1/addon/scroll/simplescrollbars.css" />
+<link rel="stylesheet" href="codemirror/5.59.1/addon/display/fullscreen.css" />
+<link rel="stylesheet" href="codemirror/5.59.1/addon/fold/foldgutter.css" />
+<link rel="stylesheet" href="codemirror/5.59.1/addon/hint/show-hint.css">
+<link rel="stylesheet" href="codemirror/5.59.1/theme/lucario.css" />
+<link rel="stylesheet" href="css/wf-converter.css" />
+
+<style>
+    .CodeMirror {
+        height: 100%;
+        min-height: 35px;
+    }
+</style>
+
+<div class="@Class @(_initialized ? "" : "d-none")">
+    <textarea id="TECCodeMirrorArea" class="wf-converter-codetextarea h-100 w-100" @bind-value="Text" @bind-value:event="oninput" rows="@Rows"></textarea>
+</div>
+<div class="d-none" @ref="_scriptEditorReference"></div>
+
+@code {
+    [Parameter] public string Class { get; set; } = "";
+
+    [Parameter]
+    public string Text
+    {
+        get => _text;
+        set
+        {
+            if (_text == value)
+                return;
+            _text = value;
+
+            Task.Run( async () => await JsRuntime!.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, _text) );
+        }
+    }
+
+    [Parameter] public EventCallback<string> TextChanged { get; set; }
+    [Parameter] public int    Rows                       { get; set; } = 50;
+    [Parameter] public string MimeType                   { get; set; } = "text/plain";
+
+    [Parameter]
+    public bool Readonly
+    {
+        get;
+        set
+        {
+            field = value;
+            SetReadonlyMode();
+        }
+    } = false;
+
+    [Inject] public IJSRuntime? JsRuntime { get; set; }
+
+    private bool                                        _initialized = false;
+    private DotNetObjectReference<TextEditorComponent>? _objRef      = null;
+    private ElementReference                            _scriptEditorReference;
+    private string                                      _text        = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+
+            await JsRuntime!.InvokeVoidAsync("DashboardUtils.LoadCodeEditor", "TECCodeMirrorArea", MimeType, _scriptEditorReference, _objRef, "UpdateTextField", Readonly);
+            _initialized = true;
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void SetReadonlyMode()
+    {
+        if (_objRef == null)
+        {
+            return;
+        }
+
+        JsRuntime!.InvokeVoidAsync("DashboardUtils.CodeEditor_SetParam", _scriptEditorReference, "readOnly", Readonly);
+    }
+
+    [JSInvokable("UpdateTextField")]
+    public async Task UpdateTextField(string codeValue)
+    {
+        if (_text == codeValue)
+            return;
+
+        _text = codeValue;
+        await TextChanged.InvokeAsync(codeValue);
+        await InvokeAsync(StateHasChanged);
+    }
+
+}

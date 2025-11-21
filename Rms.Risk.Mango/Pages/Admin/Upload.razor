@@ -1,0 +1,469 @@
+﻿@page "/admin/upload"
+@page "/admin/upload/{DatabaseStr}"
+@page "/admin/upload/{DatabaseStr}/{DatabaseInstanceStr}"
+
+@implements IDisposable
+@attribute [Authorize]
+
+@inject NavigationManager NavigationManager
+@inject IUserSession       UserSession
+@inject IJSRuntime        JsRuntime
+@inject IMigrationEngine  MigrationEngine
+@inject ITempFileStorage  Storage
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<h3 class="mt-3">Download</h3>
+
+<style>
+    .meta {
+        color: gray;
+        font-style: italic;
+    }
+</style>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    <div class="row mt-3">
+        <SplitPanel Orientation="horizontal" InitialSplit="0.3">
+            <First>
+                <div class="ml-1 mr-1">
+                    <div class="form-row">
+                        <FormFileUploadButton Name="Select..." OnFileUploaded="@OnFileUploaded" Icon="icon-upload-sm" Class="mr-2"/>
+                        <FormButton Name="Select all"  OnClick="OnSelectAll"  Icon="icon-view-sm"     Class=""/>
+                        <FormButton Name="Select none" OnClick="OnSelectNone" Icon="icon-hide-sm"     Class=""/>
+                    </div>
+                    <div class="mt-3">
+                        <TreeComponent TItem="IndexTreeItem" RootNodes="@_currentNodes" ReadOnly="true">
+                            <LabelTemplate Context="item">
+                                @if ( item.Data == null )
+                                {
+                                    <span>@item.Label</Span>
+                                }
+                                else
+                                {
+                                    <FormItemCheckBox LabelOn="" LabelOff="" Value="@item.Data.IsSelected" ValueChanged="@(x => SetSourceItem(item, x))"/>
+                                    if (item.Label.EndsWith("-Meta"))
+                                    {
+                                        <span class="meta">@item.Label</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@item.Label</span>
+                                    }
+                                }
+                            </LabelTemplate>
+                        </TreeComponent>
+                    </div>
+                </div>
+            </First>
+            <Second>
+                <div class="ml-1 mr-1">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <FormButton Name="Upload"  OnClick="OnDoUpload" Icon="icon-running-man-sm" Class="mr-2"/>
+                            <label>&nbsp;</label>
+                        </div>
+
+                        <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="Running jobs:" @bind-Value="SelectedJob" Values="@RunningJobs" />
+                        <FormItemText Enabled="@IsReady" Class="mr-2" Name="BatchSize" @bind-Value="BatchSize" InputType="number" />
+                        <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Update / Insert" @bind-Value="Upsert" />
+                        <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Clear destination" @bind-Value="WipeDestination" />
+
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <FormButton Enabled="@IsReadyToCancel" Name="Cancel job" Icon="icon-trash-sm" OnClick="CancelJob" IsPrimary="false" Class="btn-outline-danger" />
+                        </div>
+
+                    </div>
+                    <TableControl Items="@SelectedJob.Status" PagerSize="35" Class="table table-hover table-striped table-forge table-forge-striped">
+                        <TableColumnControl Name="Collection" Field="DestinationCollection" />
+                        <TableColumnControl Name="Count"      Field="Count"         Format="N0" />
+                        <TableColumnControl Name="Copied"     Field="Copied"        Format="N0" />
+                        <TableColumnControl Name="Progress"   Field="Progress"      Format="P2" />
+                        <TableColumnControl Name="DPS"        Field="DocsPerSecond" Format="N0" />
+                        <TableColumnControl Name="Elapsed"    Field="Elapsed"       Format="hh\:mm\:ss" />
+                        <TableColumnControl Name="Remaining"  Field="Remaining"     Format="hh\:mm\:ss" />
+                        <TableColumnControl Name="Complete"   Field="Complete" />
+                        <TableColumnControl Name="Error" Field="Error" />
+                    </TableControl>
+
+                    @if (!string.IsNullOrWhiteSpace(Error))
+                    {
+                        <pre class="wf-converter-syntax-error">@Error</pre>
+                    }
+                </div>
+            </Second>
+        </SplitPanel>
+    </div>
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    public class IndexTreeItem
+    {
+        public bool IsSelected { get; set; }
+    }
+
+    private bool               IsReady         { get; set; }
+    private bool               IsReadyToCancel => IsReady && !SelectedJob.Complete;
+    private string             Error           { get; set; } = "";
+    private List<MigrationJob> RunningJobs     { get; set; } = [];
+    private string             BatchSize       { get; set; } = "1000";
+    private bool               Upsert          { get; set; }
+    private bool               WipeDestination { get; set; }
+
+    private CancellationTokenSource _cts = new();
+
+    private string _uploadedFileName = "";
+
+    private readonly List<TreeNode<IndexTreeItem>> _currentNodes =
+    [
+        new ()
+        {
+            Label    = "Uploaded",
+            Children = []
+        }
+    ];
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private MigrationJob SelectedJob
+    {
+        get;
+        set
+        {
+            if (field.JobId == value.JobId)
+                return;
+            field = value;
+            StateHasChanged();
+        }
+    } = new() { Complete = true };
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+
+        try
+        {
+            RunningJobs = MigrationEngine.List().Where(x => x.Type == MigrationJob.JobType.Upload).ToList();
+            if (RunningJobs.Count > 0)
+                SelectedJob = RunningJobs[0];
+
+            _ = Task.Run(() => RefreshLoop(_cts.Token), _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, $"Error loading structure for {Database}", ex);
+            return;
+        }
+
+        IsReady = true;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+
+    private async Task RefreshLoop(CancellationToken token)
+    {
+        // percents are always increasing, so it safe to compare sum()
+        var prevState   = -1.0;
+        var prevJobId   = SelectedJob.JobId;
+        var oldComplete = false;
+
+        while (!token.IsCancellationRequested)
+        {
+            if (prevJobId != SelectedJob.JobId)
+            {
+                prevJobId   = SelectedJob.JobId;
+                prevState   = -1.0;
+                oldComplete = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                var newState = SelectedJob.Status.Sum(x => x.Count + x.Copied + (x.Cleared ?? 0));
+
+                if (SelectedJob.Complete != oldComplete || Math.Abs(newState - prevState) > 0.01)
+                {
+                    prevState   = newState;
+                    oldComplete = SelectedJob.Complete;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+        }
+    }
+
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/upload/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private static void Set(TreeNode<IndexTreeItem> item, bool value, Func<TreeNode<IndexTreeItem>, bool>? filter = null )
+    {
+        filter ??= _ => true;
+
+        if (item.Data != null && filter(item))
+        {
+            item.Data.IsSelected = value;
+        }
+        foreach (var child in item.Children)
+        {
+            Set(child, value, filter);
+        }
+    }
+
+    private Task OnSelectAll()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, true);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectNone()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, false);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SetSourceItem(TreeNode<IndexTreeItem> item, bool b)
+    {
+        Set(item, b);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnFileUploaded(InputFileChangeEventArgs args)  
+    {  
+        var fileName = Storage.GetTempFileName("Uploaded");
+
+        // Save the uploaded file to the temporary storage  
+        {
+            // brackets to close the file
+            await using var fileStream = File.OpenWrite(fileName);
+            await args.File.OpenReadStream(1 * 1024 * 1024 * 1024L).CopyToAsync(fileStream);
+        }
+
+        await PrepareCollectionNames(fileName);
+    }
+
+    private async Task PrepareCollectionNames(string fileName)
+    {
+        // Treat the file as a zip archive and read its contents  
+        var dir = GetZipDirectory(fileName);
+
+        // Add collections to the root node
+        var collectionNodes = dir
+           .OrderBy(x => x)
+           .Select(coll => new TreeNode<IndexTreeItem>
+            {
+                Label = coll,
+                Data = new () { IsSelected = true },
+            }).ToList();
+
+        var root = new TreeNode<IndexTreeItem>
+        {
+            Label      = "Uploaded",
+            Children   = collectionNodes,
+            IsExpanded = true
+        };
+
+        _currentNodes.Clear();
+        _currentNodes.Add(root);
+        _uploadedFileName = fileName;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static HashSet<string> GetZipDirectory(string fileName)
+    {
+        using var zipArchive = new System.IO.Compression.ZipArchive(File.OpenRead(fileName), System.IO.Compression.ZipArchiveMode.Read);
+
+        var dir = new HashSet<string>();
+
+        foreach (var entry in zipArchive.Entries)
+        {
+            var folder        = Path.GetDirectoryName(entry.FullName) ?? string.Empty;
+            dir.Add(folder);
+        }
+
+        return dir;
+    }
+
+    private async Task OnDoUpload()
+    {
+        if ( string.IsNullOrWhiteSpace(_uploadedFileName) || !File.Exists(_uploadedFileName) )
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Upload data", "Please, select a file to upload.");
+            return;
+        }
+
+        var newJob = new MigrationJob
+        {
+            Type                        = MigrationJob.JobType.Upload,
+            SourceDatabase              = UserSession.Database,
+            SourceDatabaseInstance      = UserSession.DatabaseInstance,
+            DestinationDatabase         = UserSession.Database,
+            DestinationDatabaseInstance = UserSession.DatabaseInstance!,
+            Email                       = UserSession.User.GetEmail(),
+            Upsert                      = Upsert,
+            ClearDestinationBefore      = WipeDestination,
+            UploadedFileName            = _uploadedFileName,
+            BatchSize                   = int.Parse(BatchSize),
+            Status                      = _currentNodes[0].Children
+               .Where(x => (x.Data?.IsSelected  ?? false) )
+               .Select(x => new MigrationJob.CollectionJob
+                {
+                    SourceCollection      = x.Label,
+                    DestinationCollection = x.Label,
+                })
+               .ToList()
+
+        };
+
+        if (newJob.Status.Count == 0)
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Upload data", "Please, select at least one collection.");
+            return;
+        }
+
+        var info = GetInfo(newJob);
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Upload data",
+            $"Are you sure to start uploading of {newJob.Status.Count} collection(s) to {newJob.SourceDatabase}?",
+            info
+        );
+
+        if (res.Cancelled)
+            return;
+
+        await RegisterNewJob(newJob);
+    }
+
+    private async Task CancelJob()
+    {
+        if (SelectedJob.Complete)
+            return;
+
+        var info = GetInfo(SelectedJob);
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Migration",
+            $"Are you sure to cancel migration of {SelectedJob.Status.Count} collection(s) from {SelectedJob.SourceDatabase} to {SelectedJob.DestinationDatabase}?",
+            info
+        );
+        if (res.Cancelled)
+            return;
+
+        await MigrationEngine.Cancel(SelectedJob, UserSession.User.GetUser());
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Dictionary<string, string> GetInfo(MigrationJob job)
+    {
+        var info = new Dictionary<string, string>
+        {
+            ["from"]            = job.SourceDatabase,
+            ["batchSize"]       = job.BatchSize.ToString(),
+        };
+        return info;
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+    private async Task RegisterNewJob(MigrationJob newJob)
+    {
+        try
+        {
+            var ticket = await CanExecuteCommand();
+            if (string.IsNullOrWhiteSpace(ticket))
+                return;
+
+            newJob.Ticket = ticket;
+
+            await MigrationEngine.Add(newJob, UserSession.User.GetUser());
+            SelectedJob = newJob;
+            RunningJobs = MigrationEngine.List();
+        }
+        catch (Exception e)
+        {
+            Error = e.ToString();
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+}

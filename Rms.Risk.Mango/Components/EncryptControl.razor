@@ -1,0 +1,226 @@
+﻿@using System.IO
+@using Rms.Service.Bootstrap.Security
+
+@inject IPasswordManager PasswordManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="flex-stack-vertical">
+    <div class="flex-stack-horizontal">
+        <div >
+
+            <div class="form-row">
+                <div class="form-group w-100">
+                    <div class="d-flex align-items-baseline mb-2">
+                        <label class="mr-2">Clear text</label>
+                        <button type="button" class="btn btn-secondary" @onclick="GeneratePassword">
+                            <span class="ui-icon-font icon-lock-sm"></span>
+                            <span class="p-1">Generate</span>
+                        </button>
+                    </div>
+                    <textarea cols="90" rows="3" class="form-control input-group mr-3 w-100 text-monospace" placeholder="Clear text..." @bind-value="ClearText" @bind-value:event="oninput">
+                    </textarea>
+                </div>
+            </div>
+
+
+            <div class="form-row">
+                <FormButton OnClick="@DoEncryption" Name="Encrypt" Enabled="@(!IsEncryptDisabled)" Icon="icon-lock-sm" />
+            </div>
+
+        </div>
+    </div>
+
+    @if (ShowFile)
+    {
+        <div class="form-row">
+            <div class="form-group w-100" style="position: relative; top: 20px;">
+                <label>Binary file:</label>
+                <InputFile id="upload" OnChange="@(OnFileUploaded)" />
+            </div>
+        </div>
+    }
+
+    <div>
+        @if (!string.IsNullOrWhiteSpace(EncryptedText))
+        {
+            <p class="mt-2">As password:</p>
+            <textarea cols="90" rows="3" readonly class="form-control input-group mr-3 w-100 text-monospace">
+                @EncryptedText
+                </textarea>
+        }
+        @if (ShowFile && !string.IsNullOrWhiteSpace(EncryptedFile))
+        {
+            <p class="mt-2">As file:</p>
+            <textarea cols="90" rows="10" readonly class="form-control input-group mr-3 w-100 text-monospace">
+                @EncryptedFile
+            </textarea>
+        }
+    </div>
+
+</div>
+
+@code {
+
+    [Parameter] public string ClearText
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            ClearTextChanged.InvokeAsync(field);
+            InvokeAsync(StateHasChanged);
+        }
+    } = "";
+    [Parameter] public EventCallback<string> ClearTextChanged { get; set; }
+
+    [Parameter] public string                EncryptedText { get; set; } = "";
+    [Parameter] public EventCallback<string> EncryptedTextChanged { get; set; }
+
+    [Parameter] public string                EncryptedFile        { get; set; } = "";
+    [Parameter] public EventCallback<string> EncryptedFileChanged { get; set; }
+
+    [Parameter] public bool ShowFile { get; set; } = false;
+
+    private bool IsEncryptDisabled => string.IsNullOrWhiteSpace(ClearText);
+
+    private void GeneratePassword() => ClearText = GenerateGoodPassword();
+
+    private async Task DoEncryption()
+    {
+        try
+        {
+            EncryptedText = PasswordManager.EncryptPassword(ClearText);
+            await EncryptedTextChanged.InvokeAsync(EncryptedText);
+        }
+        catch (Exception e)
+        {
+            EncryptedText = e.Message;
+        }
+        try
+        {
+            EncryptedFile = PasswordManager.EncryptFileContents(ClearText);
+            await EncryptedFileChanged.InvokeAsync(EncryptedFile);
+        }
+        catch (Exception e)
+        {
+            EncryptedFile = e.Message;
+        }
+
+        ClearText = "";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnFileUploaded(InputFileChangeEventArgs arg)
+    {
+        await using var mem          = new MemoryStream();
+        const long      oneHundredMb = 100 * 1024 * 1024;
+        await arg.File.OpenReadStream(maxAllowedSize: oneHundredMb).CopyToAsync(mem);
+
+        var byteArray = mem.ToArray();
+
+        try
+        {
+            EncryptedText = "";
+        }
+        catch (Exception e)
+        {
+            EncryptedText = e.Message;
+        }
+        try
+        {
+            EncryptedFile = PasswordManager.EncryptBinaryFileContents(byteArray);
+        }
+        catch (Exception e)
+        {
+            EncryptedFile = e.Message;
+        }
+
+        ClearText = "";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string GenerateGoodPassword()
+    {
+        const int    generatedPasswordLength = 24;
+        const string specialChars            = "!$%^&*()_+#~/?-=";
+        const string letters                 = "qwertyuioplkjhgfdsazxcvbnm";
+        const string digits                  = "0123456789";
+        var alphabet = specialChars
+                     + letters
+                     + letters.ToUpper()
+                     + digits
+            ;
+
+        var password = "";
+        var count    = 1000;
+        while (!IsGoodPassword(password) && count > 0)
+        {
+            password =  "";
+            count    -= 1;
+
+            for (var i = 0; i < generatedPasswordLength; i++)
+            {
+                var pos = Random.Shared.Next(alphabet.Length);
+                password += alphabet[pos];
+            }
+        }
+
+        return password;
+
+        bool IsGoodPassword(string s)
+        {
+            var hasLower   = false;
+            var hasUpper   = false;
+            var hasDigit   = false;
+            var hasSpecial = false;
+
+            var upper = letters.ToUpper();
+
+            foreach (var c in s)
+            {
+                if (letters.IndexOf(c) >= 0)
+                {
+                    hasLower = true;
+                    continue;
+                }
+                if (upper.IndexOf(c) >= 0)
+                {
+                    hasUpper = true;
+                    continue;
+                }
+                if (digits.IndexOf(c) >= 0)
+                {
+                    hasDigit = true;
+                    continue;
+                }
+                if (specialChars.IndexOf(c) >= 0)
+                {
+                    hasSpecial = true;
+                }
+            }
+
+            return hasLower && hasUpper && hasDigit && hasSpecial;
+        }
+    }
+
+}

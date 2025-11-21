@@ -1,0 +1,142 @@
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+﻿<CascadingValue Value="this">
+
+    <div class="@TabControlClass">
+        @if (ShowHeaders)
+        {
+            <div class="tab-content fit-content">
+                <ul class="@TabPanelClass" role="tablist">
+                    @foreach (var tabPage in _pages)
+                    {
+                        if (tabPage.IsSelectable)
+                        {
+                            <li class="nav-item">
+                                <a
+                                class="nav-link @GetButtonClass(tabPage)"
+                                style="cursor: pointer"
+                                data-toggle="tab"
+                                role="tab"
+                                aria-controls="nav-home"
+                                aria-selected="@IsSelected(tabPage)" @onclick=@(() => ActivatePage(tabPage))>
+                                    @tabPage.Text
+                                </a>
+                            </li>
+                        }
+                        else
+                        {
+                            <li class="nav-item">
+                                <div class="@TabGroupClass">
+                                    @tabPage.Text
+                                </div>
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+        }
+        
+        @ChildContent
+    </div>
+</CascadingValue>
+
+@code {
+    // Next line is needed so we are able to add <TabPage> components inside
+    [Parameter] public RenderFragment? ChildContent   { get; set; }
+    [Parameter] public string          Class          { get; set; } = "";
+    [Parameter] public string          TabGroupClass  { get; set; } = "";
+    [Parameter] public bool            ShowHeaders    { get; set; } = true;
+    [Parameter] public bool            Vertical       { get; set; }
+    [Parameter] public bool            PersistAllTabs { get; set; }
+
+    [Parameter] public string ActivePage
+    {
+        get => _activePage?.Text ?? "";
+        set
+        {
+            if (value == null)
+                return;
+
+            if (_activePage?.Text == value)
+                return;
+
+            var page = _pages.FirstOrDefault(x => x.Text == value);
+            if ( page?.IsSelectable != true)
+                return;
+
+            _activePage = page;
+            ActivePageChanged.InvokeAsync(_activePage?.Text);
+        }
+    }
+
+    [Parameter] public EventCallback<string> ActivePageChanged { get; set; }
+
+    private List<TabPage> _pages = [];
+    private TabPage?      _activePage;
+
+    private string TabControlClass => $"{Class}";
+    private string TabPanelClass   => Vertical
+        ? "nav nav-tabs flex-column"
+        : "nav nav-tabs";
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        _pages = [];
+    }
+
+    private int IndexOf(TabPage tabPage)
+    {
+        for( var i = 0; i < _pages.Count; i+=1 )
+        {
+            if (_pages[i].Text == tabPage.Text)
+                return i;
+        }
+        return -1;
+    }
+
+    internal void AddPage(TabPage tabPage)
+    {
+        if (string.IsNullOrWhiteSpace(tabPage?.Text))
+            throw new ApplicationException("TabPage must have Text field filled in");
+
+        var oldPage = IndexOf(tabPage);
+        if ( oldPage < 0 )
+        {
+            _pages.Add(tabPage);
+            StateHasChanged();
+        }
+        else if (_pages[oldPage] != tabPage)
+        {
+            _pages[oldPage] = tabPage;
+            StateHasChanged();
+        }
+
+        if (_pages.Count == 1)
+            ActivePage = tabPage.Text;
+    }
+
+    bool IsSelected(TabPage page) => ActivePage == page.Text;
+
+    string GetButtonClass(TabPage page) => page.Text == ActivePage ? "active show" : "";
+
+    void ActivatePage(TabPage page)
+    {
+        ActivePage = page.Text;
+    }
+}

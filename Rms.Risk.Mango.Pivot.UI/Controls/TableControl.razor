@@ -1,0 +1,763 @@
+﻿@using System.Dynamic
+@using System.Runtime.CompilerServices
+@using System.Text
+@using Microsoft.CSharp.RuntimeBinder
+
+@inject IJSRuntime JsRuntime
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .tc-row-number {
+        color: @Night.secondary;
+    }
+
+    .align-left {
+        text-align: left;
+    }
+
+    .align-right {
+        text-align: right;
+    }
+
+    .totals-row {
+        font-weight: bold;
+        background-color: #305060;
+    }
+</style>
+
+<div class="mb-0 @Class">
+    <table class="@TableClass">
+        <thead>
+            <tr>
+                <th style="width: 25px !important;" class="p-0">
+                    <div class="w-100 h-100 d-flex flex-column">
+                        <button class="btn px-0 w-100 text-left" @onclick="TriggerFilterRow">
+                            <span class="m-auto ui-icon-font ui-icon-sm icon-search-sm"></span>
+                        </button>
+                        @if (Filterable)
+                        {
+                            <span class="m-auto">#</span>
+                        }
+                    </div>
+                </th>
+                <CascadingValue Value="this">
+                    @ChildContent
+                </CascadingValue>
+            </tr>
+        </thead>
+
+        <tbody>
+            @if (DisplayedItems.Any())
+            {
+                var ix = 1 + (_currentPage - 1) * PageSize;
+                @foreach (var item in DisplayedItems)
+                {
+                    <tr class="@(RowClass(item))">
+                        <td class="tc-row-number">
+                            @ix
+                        </td>
+                        @foreach (var column in Columns)
+                        {
+                            @if (column.Template == null && !string.IsNullOrEmpty(column.Field))
+                            {
+                                var val = GetLambdaForValue(column.Field)(item);
+
+                                <td class="@column.Class @(CellClass(item, column))"
+                                    style="@(CellStyle(item, column))"
+                                    @onclick="@(() => OnSelectionChanged(item, column.Field))"
+                                    >
+                                    @ConvertToString(val, column.Format)
+                                </td>
+                            }
+                            else if (column.Template != null)
+                            {
+                                <td class="@column.Class @(CellClass(item, column))"
+                                    style="@(CellStyle(item, column))"
+                                    @onclick="@(() => OnSelectionChanged(item, column.Field))">
+                                    @column.Template((item, column))
+                                </td>
+                            }
+                            else
+                            {
+                                <td class="@column.Class @(CellClass(item, column))">
+                                    ???
+                                </td>
+                            }
+                        }
+                    </tr>
+                    ix++;
+                }
+                @if (Totals != null)
+                {
+                    <tr>
+                        <td class="totals-row">
+                            Total
+                        </td>
+                        @foreach (var column in Columns)
+                        {
+                            if (column.ShowTotals)
+                            {
+                                var val = Totals.TryGet(column?.Name ?? "")?.Total;
+
+                                <td class="@(GetCellClass("", val, column!)) totals-row">
+                                    @ConvertToString(val, column!.Format)
+                                </td>
+                            }
+                            else
+                            {
+                                <td class="totals-row">
+                                    &nbsp;
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            }
+        </tbody>
+        <tfoot>
+            <tr>@TableFooter</tr>
+        </tfoot>
+    </table>
+
+    <nav aria-label="Page navigation">
+        <ul class="pagination ag-wadk ag-paging-panel mt-1" style="align-items: center; justify-content: flex-start;">
+            @if (PageSize <= Items?.Count)
+            {
+                <li class="page-item">
+                    <a class="page-link cursor-pointer" @onclick=@(() => NavigateToPage(Direction.Back))>&laquo;</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link cursor-pointer" @onclick=@(() => NavigateToPage(Direction.Previous))>Previous</a>
+                </li>
+                @for (var i = _startPage; i <= _endPage; i++)
+                {
+                    var currentPage = i;
+                    <li class="page-item @(currentPage==_currentPage?"active":"")">
+                        <a class="page-link cursor-pointer" @onclick=@(() => NavigateToPage(currentPage))>
+                            @currentPage
+                        </a>
+                    </li>
+                }
+                <li class="page-item">
+                    <a class="page-link cursor-pointer" @onclick=@(() => NavigateToPage(Direction.Next))>Next</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link cursor-pointer" @onclick=@(() => NavigateToPage(Direction.Forward))>&raquo;</a>
+                </li>
+            }
+            <li class="page-item ml-2" style="color: @Night.secondary">
+                @(DisplayedItems?.Count() ?? 0) of total @Items?.Count
+            </li>
+            <li class="page-item ml-2 flex-pull-right">
+                <a class="page-link cursor-pointer" @onclick="@OnCopyAllToClipboard">
+                    <span class="ui-icon-font icon-duplicate-document-sm"></span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+</div>
+
+
+
+
+@code {
+    public enum Direction
+    {
+        Back,
+        Previous,
+        Next,
+        Forward
+    }
+
+    [Parameter] public RenderFragment? ChildContent             { get; set; }
+    [Parameter] public RenderFragment? TableFooter              { get; set; }
+
+    [Parameter]
+    public IReadOnlyCollection<dynamic> Items
+    {
+        get;
+        set
+        {
+            //detect if the new list is actually different, this is a little basic, but handles deletes/adds
+            //to the list. Ideally a hash of the list is best, but because 'StateHasChanged' is being called so many times
+            //by some controls (ContextControl!) this logic 
+            if (value == null || (value.Count == _itemCount && Equals(field, value)))
+                return;
+
+            field      = value;
+            _itemCount = field.Count;
+
+            ActiveFilters.Clear();
+            ActiveFiltersExactMatch.Clear();
+            //reapply the filtering to the new items
+            Task.Run(ApplyColumnFilterAndSort);
+        }
+    } = [];
+
+    [Parameter] public int                                      PageSize         { get; set; } = 10;
+    [Parameter] public int                                      PagerSize        { get; set; } = 5;
+    [Parameter] public string?                                  Class            { get; set; }
+    [Parameter] public string?                                  TableClass       { get; set; }
+    [Parameter] public bool                                     Filterable       { get; set; } 
+    [Parameter] public bool                                     Selectable       { get; set; } 
+    [Parameter] public dynamic?                                 SelectedItem     { get; set; }
+    [Parameter] public string?                                  SelectedColumn   { get; set; }
+    [Parameter] public EventCallback<(dynamic row, string col)> SelectionChanged { get; set; }
+    [Parameter] public Func<dynamic, string>                    RowClass         { get; set; } = _ => "";
+    [Parameter] public bool                                     AbsoluteSort     { get; set; } = true;
+    [Parameter] public IMinMaxCache?                            Totals           { get; set; }
+
+    private string UniqueID { get;set;} = Guid.NewGuid().ToString();
+
+    private int _itemCount;
+
+    /// <summary>
+    /// Allow the user to specify a custom class per cell, this will completely override the default styling 
+    /// </summary>
+    [Parameter] public Func<dynamic, TableColumnControl, string> CellClass { get; set; } = DefaultGetCellClass;
+    /// <summary>
+    /// Allow the user to specify a custom style per cell, this will be applied on top of normal styling
+    /// </summary>
+    [Parameter] public Func<dynamic, TableColumnControl, string> CellStyle { get; set; } = (_,_) => "";
+
+    /// <summary>
+    /// Allows the user to apply _Extra_ styling on top of the existing default styling
+    /// </summary>
+    [Parameter] public Func<dynamic, TableColumnControl, string>? GetCellClassCallback { get; set; }
+
+    [Parameter]
+    public List<dynamic> FilteredItems { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<List<dynamic>> FilteredItemsChanged { get; set; }
+
+    [Parameter]
+    public string? CurrentSortColumn
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            CurrentSortColumnChanged.InvokeAsync(field);
+        }
+    } = null;
+
+    [Parameter]
+    public EventCallback<string> CurrentSortColumnChanged { get; set; }
+
+    public enum SortModeType
+    {
+        NoSort,
+        Ascending,
+        Descending,
+        AscendingAbsolute,
+        DescendingAbsolute
+    }
+
+    [Parameter]
+    public SortModeType SortMode
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            SortModeChanged.InvokeAsync(field);
+        }
+    } = SortModeType.NoSort;
+
+    [Parameter]
+    public EventCallback<SortModeType> SortModeChanged { get; set; }
+
+    //Column the table is currently sorted by.
+
+    protected IEnumerable<dynamic> DisplayedItems => FilteredItems?.Skip((_currentPage - 1) * PageSize).Take(PageSize) ?? [];
+
+    private int  _totalPages;
+    private int  _currentPage = 1;
+    private int  _startPage;
+    private int  _endPage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            if (Items == null)
+                return;
+
+            await ApplyColumnFilterAndSort();
+        }
+    }
+
+    private async Task UpdatePage(int page)
+    {
+        _currentPage = page;
+        _totalPages = (int)Math.Ceiling((FilteredItems?.Count ?? 0) / (decimal)PageSize);
+
+        var sideWidth = (int)Math.Floor((PagerSize - 1) / 2d);
+        _startPage    = _currentPage - sideWidth >= 1 ? _currentPage - sideWidth : 1;
+        _endPage      = _currentPage + sideWidth <= _totalPages ? _currentPage + sideWidth : _totalPages;
+
+        await InvokeAsync(StateHasChanged);
+    }
+    #region sorting
+
+    //Direction the table is currently sorted by
+
+    /// <summary>
+    /// Returns a function that given a row item, will return the value for a specified field
+    /// </summary>
+    /// <param name="field"></param>
+    /// <returns></returns>
+    public static Func<dynamic?, dynamic?> GetLambdaForValue(string? field)
+    {
+        return i =>
+        {
+            if (string.IsNullOrEmpty(field))
+            {
+                return "";
+            }
+            switch (i)
+            {
+                case IDictionary<string, object> dict:
+                    {
+                        dict.TryGetValue(field, out var value);
+                        return value;
+                    }
+                case IDictionary<string, string> dict1:
+                    {
+                        dict1.TryGetValue(field, out var value);
+                        return value;
+                    }
+                case DynamicObject dyn:
+                    {
+                        return GetDynamicMember(dyn, field);
+                    }
+                default:
+                    return i?.GetType().GetProperty(field)?.GetValue(i, null);
+            }
+        };
+    }
+
+    /// <summary>
+    /// Returns a function that given a row item, will return the absolute value for a specified field
+    /// </summary>
+    /// <param name="field"></param>
+    /// <returns></returns>
+    public static Func<dynamic?, dynamic?> GetLambdaForAbsValue(string? field)
+    {
+        var getValue = GetLambdaForValue(field);
+        return x =>
+        {
+            var val = getValue(x);
+            return val switch
+            {
+                double d => Math.Abs(d),
+                int i    => Math.Abs(i),
+                long l   => Math.Abs(l),
+                float f  => Math.Abs(f),
+                _        => val
+            };
+        };
+    }
+
+    public static bool IsNumeric(object value) => value is double ||
+        value is int ||
+        value is long ||
+        value is uint ||
+        value is ulong;
+
+    /// <summary>
+    /// This is a rather weird way around the ability to create an Icomparer of dynamic
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public abstract class GridComparerDynamic<T> : IComparer<T>
+    {
+        public abstract int Compare(T? row1, T? row2);
+    }
+
+
+    public class GridComparer(Func<dynamic?, dynamic?> methodLambda) : GridComparerDynamic<dynamic>
+    {
+        public override int Compare(object? row1, object? row2)
+        {
+            var row1Value = methodLambda(row1);
+            var row2Value = methodLambda(row2);
+
+            if (row1Value == null && row2Value == null) return 0;
+            //put any nulls at the end of the list
+            if (row1Value == null) return -1;
+            if (row2Value == null) return 1;
+
+            //its possible for the type to be different here
+            if (row1Value.GetType() != row2Value.GetType())
+            {
+                //if both types are at least numberic, then compare them as doubles
+                if (IsNumeric(row1Value) && IsNumeric(row2Value))
+                    return ((double)row1Value).CompareTo((double)row2Value);
+                //fall back to comparing as strings
+                return row1Value.ToString().CompareTo(row2Value.ToString());
+            }
+            if (row1Value is IComparable)
+                return row1Value.CompareTo(row2Value);
+            return 0;
+        }
+    }
+
+    #endregion
+    #region Filtering
+
+    protected readonly Dictionary<string, List<string>> ActiveFilters = new();
+    protected readonly Dictionary<string, bool> ActiveFiltersExactMatch = new();
+
+
+    public async Task SetColumnFilter(string columnName, List<string> filterValue, bool exactMatch = false)
+    {
+        if (ActiveFilters.ContainsKey(columnName) &&
+            ActiveFilters[columnName] == filterValue &&
+            ActiveFiltersExactMatch.ContainsKey(columnName) &&
+            ActiveFiltersExactMatch[columnName] == exactMatch)
+            return;
+
+        ActiveFilters[columnName] = filterValue;
+        ActiveFiltersExactMatch[columnName] = exactMatch;
+        if (filterValue.Count == 0)
+        {
+            ActiveFilters.Remove(columnName);
+            ActiveFiltersExactMatch.Remove(columnName);
+        }
+
+        _currentPage = 1;
+
+        await ApplyColumnFilterAndSort();
+    }
+
+    public async Task SetColumnSort(string columnName)
+    {
+        //Sorting against a column that is not currently sorted against.
+        if (columnName != CurrentSortColumn)
+        {
+            //Force order on the new column
+            CurrentSortColumn = columnName;
+            SortMode = AbsoluteSort
+                ? SortModeType.DescendingAbsolute
+                : SortModeType.Descending;
+        }
+        else //Sorting against same column but in different direction
+        {
+            if (AbsoluteSort)
+                SortMode = SortMode switch
+                {
+                    SortModeType.AscendingAbsolute  => SortModeType.DescendingAbsolute,
+                    SortModeType.DescendingAbsolute => SortModeType.AscendingAbsolute,
+                    _ => SortModeType.DescendingAbsolute
+                };
+            else
+                SortMode = SortMode switch
+                {
+                    SortModeType.Ascending  => SortModeType.Descending,
+                    SortModeType.Descending => SortModeType.Ascending,
+                    _ => SortModeType.Descending
+                };
+        }
+
+        await ApplyColumnFilterAndSort();
+    }
+
+    private async Task ApplyColumnFilterAndSort()
+    {
+        IEnumerable<dynamic> fa = Items; // no copying needed
+
+        //create data filtering linq
+        foreach (var (column, value) in ActiveFilters)
+        {
+            var exactMatch = ActiveFiltersExactMatch[column];
+            fa = fa.Where(x =>
+            {
+                var tableColumnDef = Columns.FirstOrDefault(c => c.Field == column);
+
+                var colOriginalValue = GetLambdaForValue(column)(x);
+
+                var colValue = ConvertToString(colOriginalValue, tableColumnDef?.Format);
+
+                if (colValue != null)
+                {
+                    var res = exactMatch
+                        ? value.Any(v => colValue.Equals(v))
+                        : value.Any(v => colValue.Contains(v, StringComparison.OrdinalIgnoreCase));
+                    return res;
+                }
+                return false;
+            });
+        }
+
+        //add data sorting on top
+        fa = SortMode switch
+        {
+            SortModeType.NoSort             => fa,
+            SortModeType.Ascending          => fa.OrderBy          (x => x, new GridComparer(GetLambdaForValue(CurrentSortColumn))),
+            SortModeType.Descending         => fa.OrderByDescending(x => x, new GridComparer(GetLambdaForValue(CurrentSortColumn))),
+            SortModeType.AscendingAbsolute  => fa.OrderBy          (x => x, new GridComparer(GetLambdaForAbsValue(CurrentSortColumn))),
+            SortModeType.DescendingAbsolute => fa.OrderByDescending(x => x, new GridComparer(GetLambdaForAbsValue(CurrentSortColumn))),
+            _ => throw new ArgumentOutOfRangeException()
+        };
+
+        FilteredItems = [..fa];
+
+        try
+        {
+            await InvokeAsync(() => FilteredItemsChanged.InvokeAsync(FilteredItems));
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+
+        await UpdatePage(_currentPage);
+    }
+    #endregion
+
+    #region pagination
+
+    public async Task NavigateToPage(Direction direction)
+    {
+        var page = _currentPage;
+        switch (direction)
+        {
+            case Direction.Next:
+                {
+                    if (page < _totalPages)
+                    {
+                        page += 1;
+                    }
+                    break;
+                }
+            case Direction.Previous:
+                {
+                    if (page > 1)
+                    {
+                        page -= 1;
+                    }
+                    break;
+                }
+            case Direction.Back:
+                {
+                    page = 1;
+                    break;
+                }
+            case Direction.Forward:
+                {
+                    page = _totalPages;
+                    break;
+                }
+        }
+        await UpdatePage(page);
+    }
+
+    public async Task NavigateToPage(int page)
+    {
+        if (page < 1)
+        {
+            page = 1;
+        }
+        else if (page > _totalPages)
+        {
+            page = _totalPages;
+        }
+
+        await UpdatePage(page);
+    }
+    #endregion
+
+    List<TableColumnControl> Columns { get; set; } = [];
+
+    public void AddColumn(TableColumnControl column)
+    {
+        Columns.Add(column);
+    }
+
+    public void RemoveColumn(TableColumnControl column)
+    {
+        Columns.Remove(column);
+    }
+
+    public static string ConvertToString(object? value, string? format)
+    {
+        if (value == null)
+            return "";
+
+        if (value is string s)
+            return s;
+
+        if (format == null)
+            return value.ToString() ?? "";
+
+
+        return value switch
+        {
+            double d    => d    .ToString( format ),
+            float f     => f    .ToString( format ),
+            long l      => l    .ToString( format ),
+            int i       => i    .ToString( format ),
+            TimeSpan ts => ts   .ToString( format == "N0" ? "g" : format),
+            decimal dc  => dc   .ToString( format ),
+            DateTime dt => DateTimeFormatting(dt, format),
+            _           => value.ToString() ?? ""
+        };
+    }
+
+    private static string DateTimeFormatting(DateTime dt, string format)
+    {
+        if ( format == "N2" )
+        {
+            return dt == DateTime.MinValue ? "" : dt.ToString("yyyy-MM-dd HH:mm:ss");
+        }
+        return format == "N1" && dt == DateTime.MinValue ? "" :
+            dt.ToString((format == "N0" || format == "N1") ? "yyyy-MM-dd" : format);
+    }
+
+    public static string DefaultGetCellClass(dynamic item, TableColumnControl column)
+    {
+        if (column?.Field == null)
+            return "";
+
+        var val = GetLambdaForValue(column.Field)(item);
+        return GetCellClass(item, val, column);
+    }
+
+    public static string GetCellClass(dynamic row, object? value, TableColumnControl column)
+    {
+        var c = column.Class;
+
+        var s = "";
+        var isZero     = false;
+        var isNegative = false;
+        var isPositive = false;
+        var customStyle = "";
+        switch (value)
+        {
+            case double.NaN:
+                break;
+            case null:
+                break;
+            case double n:
+                isZero     = n == 0.0;
+                isNegative = n < 0.0;
+                isPositive = n > 0.0;
+                break;
+            case int n:
+                isZero     = n == 0.0;
+                isNegative = n < 0.0;
+                isPositive = n > 0.0;
+                break;
+            case long n:
+                isZero     = n == 0L;
+                isNegative = n < 0L;
+                isPositive = n > 0L;
+                break;
+            case float n:
+                isZero     = n == 0.0;
+                isNegative = n < 0.0;
+                isPositive = n > 0.0;
+                break;
+            case decimal d:
+                isZero     = d == 0.0M;
+                isNegative = d < 0.0M;
+                isPositive = d > 0.0M;
+                break;
+            default: //string value
+                s = value.ToString();
+                break;
+        }
+
+        if (column.TableControl?.GetCellClassCallback != null)
+        {
+            customStyle = column.TableControl.GetCellClassCallback(row, column);
+        }
+
+        return (s?.Equals("") ?? false) switch
+        {
+            true when isZero     => $"align-right {c} {column.ZeroValueClass} {customStyle}",
+            true when isNegative => $"align-right {c} {column.NegativeValueClass} {customStyle}",
+            true when isPositive => $"align-right {c} {column.PositiveValueClass} {customStyle}",
+
+            _ => $"align-left {c}{customStyle}"
+        };
+    }
+
+    private async Task OnSelectionChanged(dynamic selection, string? field)
+    {
+        SelectedItem = selection;
+        SelectedColumn = field;
+
+        if (Selectable)
+        {
+            await SelectionChanged.InvokeAsync((selection, field ?? ""));
+        }
+    }
+
+    public static object? GetDynamicMember(object obj, string memberName)
+    {
+        var binder = Binder.GetMember(CSharpBinderFlags.None, memberName, obj.GetType(),
+                                      [CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)]);
+        var callsite = CallSite<Func<CallSite, object, object>>.Create(binder);
+        try
+        {
+            return callsite.Target(callsite, obj);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private void TriggerFilterRow()
+    {
+        Filterable = !Filterable;
+    }
+
+    private async Task OnCopyAllToClipboard()
+    {
+        string Shield(string s) => s.Contains(",") || s.Contains("\n") ? $"\"{s}\"" : s;
+
+        var str = new StringBuilder();
+        str.Append(string.Join(",", Columns.Select(col => Shield(col.Name ?? ""))));
+        str.AppendLine();
+
+        foreach (var row in FilteredItems)
+        {
+            str.Append(string.Join(",", Columns.Select(col =>
+            {
+                var colOriginalValue = GetLambdaForValue(col.Field)(row);
+                var colValue = ConvertToString(colOriginalValue, col.Format);
+                return Shield(colValue);
+            })));
+            str.AppendLine();
+        }
+
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", str.ToString());
+    }
+}

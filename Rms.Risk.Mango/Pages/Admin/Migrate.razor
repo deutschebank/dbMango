@@ -1,0 +1,355 @@
+﻿@page "/admin/migrate"
+@page "/admin/migrate/{DatabaseStr}"
+@page "/admin/migrate/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+
+@implements IDisposable
+
+@inject NavigationManager NavigationManager
+@inject IUserSession UserSession
+@inject IJSRuntime JsRuntime
+@inject IMigrationEngine MigrationEngine
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .dbName {
+        color: yellow;
+        font-weight: bold;
+    }
+
+    .colName {
+        color: lightgreen;
+    }
+
+    .table td {
+        margin-left: 5px;
+        margin-right: 5px;
+    }
+</style>
+
+<h3>Migrate data to @Database</h3>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="Running jobs:" @bind-Value="SelectedJob" Values="@RunningJobs" />
+
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <FormButton Enabled="@IsReady" Name="Migrate" Icon="icon-running-man-sm" OnClick="NewMigration" IsPrimary="true" />
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <FormButton Enabled="@IsReady" Name="Transform" Icon="icon-running-man-sm" OnClick="NewTransformation" IsPrimary="false" />
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <FormButton Enabled="@IsReadyToCancel" Name="Cancel job" Icon="icon-trash-sm" OnClick="CancelJob" IsPrimary="false" Class="btn-outline-danger" />
+            </div>
+        </div>
+
+    </EditForm>
+
+    <div class="flex-stack-vertical">
+        <TableControl Items="@SelectedJob.Status" Class="table table-hover table-striped table-forge table-forge-striped">
+            <TableColumnControl Name="Collection" Field="DestinationCollection" />
+            <TableColumnControl Name="Count"      Field="Count"         Format="N0" />
+            <TableColumnControl Name="Cleared"    Field="Cleared"       Format="N0" />
+            <TableColumnControl Name="Copied"     Field="Copied"        Format="N0" />
+            <TableColumnControl Name="Progress"   Field="Progress"      Format="P2" />
+            <TableColumnControl Name="Read DPS"   Field="ReadDPS"       Format="N0" />
+            <TableColumnControl Name="Write DPS"  Field="WriteDPS"      Format="N0" />
+            <TableColumnControl Name="DPS"        Field="DocsPerSecond" Format="N0" />
+            <TableColumnControl Name="Elapsed"    Field="Elapsed"       Format="hh\:mm\:ss" />
+            <TableColumnControl Name="Remaining"  Field="Remaining"     Format="hh\:mm\:ss" />
+            <TableColumnControl Name="Complete"   Field="Complete" />
+            <TableColumnControl Name="Error"      Field="Error" />
+        </TableControl>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <pre class="wf-converter-syntax-error">@Error</pre>
+        }
+
+        <div class="mt-4">
+            <h4>Explanation of Columns</h4>
+            <ul>
+                <li>
+                    <strong>ReadDPS (Read Documents Per Second):</strong>
+                    <p>This column shows the rate at which documents are being read from the source database. It is a <em>single-threaded metric</em>, reflecting the performance of a single thread responsible for reading documents.</p>
+                </li>
+                <li>
+                    <strong>WriteDPS (Write Documents Per Second):</strong>
+                    <p>This column shows the rate at which documents are being written to the destination database. Like ReadDPS, it is a <em>single-threaded metric</em>, representing the performance of a single thread responsible for writing documents.</p>
+                </li>
+                <li>
+                    <strong>DPS (Documents Per Second):</strong>
+                    <p>This column represents the <em>effective multithreaded overall documents per second</em> rate. It aggregates the performance of all threads involved in the migration process, providing a holistic view of the system's throughput.</p>
+                </li>
+            </ul>
+            <p>
+                <strong>Key Difference:</strong> ReadDPS and WriteDPS focus on individual thread performance for reading and writing, respectively, while DPS reflects the total throughput of the migration process, leveraging multithreading to achieve higher performance.
+            </p>
+        </div>
+    </div>
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private bool               IsReady         { get; set; }
+    private string             Error           { get; set; } = "";
+    private List<MigrationJob> RunningJobs     { get; set; } = [];
+    private EditContext        EditContext     => _editContext!;
+    private bool               IsReadyToCancel => IsReady && !SelectedJob.Complete;
+
+    private          EditContext?            _editContext;
+    private readonly CancellationTokenSource _refreshLoopCts = new();
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private MigrationJob SelectedJob
+    {
+        get;
+        set
+        {
+            if (field.JobId == value.JobId)
+                return;
+            field = value;
+            StateHasChanged();
+        }
+    } = new() { Complete = true };
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(this);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        RunningJobs = MigrationEngine.List().Where(x => x.Type == MigrationJob.JobType.Copy).ToList();
+        if (RunningJobs.Count > 0)
+            SelectedJob = RunningJobs[0];
+
+        IsReady = true;
+
+        _ = Task.Run(() => RefreshLoop(_refreshLoopCts.Token), _refreshLoopCts.Token);
+
+        SyncUrl();
+        StateHasChanged();
+    }
+
+    private async Task RefreshLoop(CancellationToken token)
+    {
+        // percents are always increasing, so it safe to compare sum()
+        var prevState = -1.0;
+        var prevJobId = SelectedJob.JobId;
+        var oldComplete = false;
+
+        while (!token.IsCancellationRequested)
+        {
+            if (prevJobId != SelectedJob.JobId)
+            {
+                prevJobId = SelectedJob.JobId;
+                prevState = -1.0;
+                oldComplete = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                var newState = SelectedJob.Status.Sum(x => x.Count + x.Copied + (x.Cleared ?? 0));
+
+                if (SelectedJob.Complete != oldComplete || Math.Abs(newState - prevState) > 0.01)
+                {
+                    prevState = newState;
+                    oldComplete = SelectedJob.Complete;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+        }
+    }
+
+    private Task Display(Exception e)
+    {
+        Error = e.ToString();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/migrate/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task CancelJob()
+    {
+        if (SelectedJob.Complete)
+            return;
+
+        var info = GetInfo(SelectedJob);
+
+        var res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Migration",
+            $"Are you sure to cancel migration of {SelectedJob.Status.Count} collection(s) from {SelectedJob.SourceDatabase} to {SelectedJob.DestinationDatabase}?",
+            info
+        );
+        if (res.Cancelled)
+            return;
+
+        await MigrationEngine.Cancel(SelectedJob, UserSession.User.GetUser());
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task NewMigration()
+    {
+        var res = await MigrationJobControl.ShowDialog(Modal);
+        if (res.Cancelled)
+            return;
+
+        if (res.Data is not MigrationJob newJob)
+            return;
+
+        var info = GetInfo(newJob);
+
+        res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Migration",
+            $"Are you sure to start migration of {newJob.Status.Count} collection(s) from {newJob.SourceDatabase} to {newJob.DestinationDatabase}?",
+            info
+            );
+        if (res.Cancelled)
+            return;
+
+        await RegisterNewJob(newJob);
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+    private async Task RegisterNewJob(MigrationJob newJob)
+    {
+        try
+        {
+            var ticket = await CanExecuteCommand();
+            if (string.IsNullOrWhiteSpace(ticket))
+                return;
+
+            newJob.Ticket = ticket;
+
+            await MigrationEngine.Add(newJob, UserSession.User.GetUser());
+            SelectedJob = newJob;
+            RunningJobs = MigrationEngine.List();
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task NewTransformation()
+    {
+        var res = await TransformJobControl.ShowDialog(Modal);
+        if (res.Cancelled)
+            return;
+
+        if (res.Data is not MigrationJob newJob)
+            return;
+
+        var info = GetInfo(newJob);
+
+        res = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Transformation",
+            $"Are you sure to start transformation of {newJob.Status[0].SourceCollection} from {newJob.SourceDatabase} to {newJob.Status[0].DestinationCollection} of {newJob.DestinationDatabase}?",
+            info
+        );
+        if (res.Cancelled)
+            return;
+
+        await RegisterNewJob(newJob);
+    }
+
+    private Dictionary<string, string> GetInfo(MigrationJob job)
+    {
+        var info = new Dictionary<string, string>
+            {
+                ["from"] = job.SourceDatabase,
+                ["to"] = job.DestinationDatabase,
+                ["upsert"] = job.Upsert.ToString(),
+                ["clearDestBefore"] = job.ClearDestinationBefore.ToString(),
+                ["batchSize"] = job.BatchSize.ToString(),
+            };
+        return info;
+    }
+
+    public void Dispose()
+    {
+        _refreshLoopCts.Cancel();
+        _refreshLoopCts.Dispose();
+    }
+
+}

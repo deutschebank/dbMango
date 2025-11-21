@@ -1,0 +1,657 @@
+﻿@page "/admin/users"
+@page "/admin/users/{DatabaseStr}"
+@page "/admin/users/{DatabaseStr}/{DatabaseInstanceStr}"
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@using Rms.Risk.Mango.Services.Context
+@attribute [Authorize]
+
+@inject NavigationManager      NavigationManager
+@inject IUserSession            UserSession
+@inject IJSRuntime             JsRuntime
+@inject IMongoDbServiceFactory MongoDbServiceFactory;
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .panel{
+        height: calc(100vh - 90px);
+    }
+
+    .panel .form-control {
+        height: 100%;
+    }
+
+    .panel .list-body {
+        height: calc(100vh - 150px - 14px);
+        max-height: calc(100vh - 150px - 14px);
+        overflow-y: auto;
+    }
+
+    .builtin {
+        color: darkgrey;
+    }
+    
+</style>
+
+<h3 class="mt-3">Users Management</h3>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    @if (Error != null)
+    {
+        <ExceptionControl Exception="@Error"/>
+    }
+
+    <SplitPanel Orientation="horizontal" InitialSplit="0.2">
+        <First>
+            <div class="panel">
+                <div class="mr-3">
+                    <div class="form-row mb-3 ml-0">
+                        <FormButton Enabled="@IsReady" Name="Refresh" Icon="icon-reload-sm" OnClick="LoadUsers" IsPrimary="false" />
+                        <FormButton Enabled="@IsReady" Name="Add" Icon="icon-plus-sm" OnClick="AddUser" IsPrimary="false" />
+                    </div>
+
+
+                    <FormItemList Enabled="@IsReady" Class="mr-2" Name="Users" @bind-Value="SelectedUser" Values="@UserList" IsSelectable="@IsSelectable">
+                        <OptionTemplate>
+                            <div class="d-flex">
+                                <div class="flex-grow-1 m-1 @GetUserClass(context)">@context.UserName</div>
+                                @if (context.IsBuiltin)
+                                {
+                                    <div class="m-1 builtin">BuiltIn</div>
+                                }
+                                else if ( !string.IsNullOrWhiteSpace( context.Db ))
+                                {
+                                    <div class="m-1 builtin">@context.Db</div>
+                                }
+                            </div>
+                        </OptionTemplate>
+                    </FormItemList>
+                </div>
+            </div>
+        </First>
+        <Second>
+            <div class="panel">
+                <div class="ml-3">
+                    <div class="form-row fit-content mb-3">
+                        <FormButton Name="Save"   OnClick="UpdateUser" Icon="icon-document-upload-sm" Enabled="@CanUpdate"/>
+                        <FormButton Name="Delete" OnClick="DeleteUser" Icon="icon-trash-sm"           Enabled="@CanDelete" />
+                        <FormButton Name=""       OnClick="CopyUser"   Icon="icon-duplicate-document" />
+                        <FormButton Name=""       OnClick="PasteUser"  Icon="icon-paste" />
+                    </div>
+
+                    <UserEditControl
+                        IsEnabled="@(IsReady && !EditableSelectedUser.IsBuiltin )"
+                        Value="@EditableSelectedUser"
+                        AllRoles="@AllRoles"
+                        AllDatabases="@AllDatabases"
+                        IsNew="@IsNew" />
+                </div>
+            </div>
+        </Second>
+    </SplitPanel>
+
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+
+    private Exception?     Error   { get; set; }
+    private bool           IsReady { get; set; }
+
+    private UserInfoModel       SelectedUser
+    {
+        get;
+        set
+        {
+            if ( field == value )
+                return;
+            field = value;
+
+            // Populate AllRoles with non-built-in roles from the same database and built-in roles paired with it.
+            AllRoles = RolesList.Where(x => !x.IsBuiltin && x.Db == field.Db)
+                   .Select(x => new RoleInDbModel
+                   {
+                       Role = x.RoleName,
+                       Db = x.Db
+                   }
+                    )
+                   .Concat(
+                        RolesList
+                           .Where(x => x.IsBuiltin)
+                           .Select(x => new RoleInDbModel
+                           {
+                               Role = x.RoleName,
+                               Db = ""
+                           })
+                    )
+                   .DistinctBy(x => $"{x.Db}, {x.Role}")
+                   .OrderBy(x => $"{x.Db}, {x.Role}")
+                   .ToList()
+                ;
+
+
+            EditableSelectedUser = field.Clone();
+        }
+    } = new();
+
+    private UserInfoModel       EditableSelectedUser { get; set; } = new();
+    private List<RoleInfoModel> RolesList            { get; set; } = [];
+    private List<RoleInDbModel> AllRoles             { get; set; } = [];
+    private List<string>        AllDatabases         { get; set; } = [];
+    private List<UserInfoModel> UserList             { get; set; } = [];
+    private bool                IsNew                => UserList.All(x => x.UserName != EditableSelectedUser.UserName);
+    private bool                CanUpdate            => !EditableSelectedUser.IsBuiltin;
+    private bool                CanDelete            => !EditableSelectedUser.IsBuiltin && !IsNew;
+
+    private bool IsSelectable(UserInfoModel arg) => true;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+        StateHasChanged();
+        Task.Run(LoadUsers);
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+    private async Task Run(Func<string, CancellationToken,Task> body)
+    {
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            await body(ticket, cts.Token);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task LoadUsers()
+    => Run(async (_, token) =>
+    {
+        try
+        {
+            AllDatabases = (await UserSession.MongoDbAdminForAdminDatabase.ListDatabases(token))
+               .Select(x => x.Name)
+               .ToList();
+        }
+        catch (Exception)
+        {
+            AllDatabases = [UserSession.DatabaseInstance];
+        }
+
+        var usersInfoTasks     = AllDatabases.Select( async instanceName =>
+            {
+                var db = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, instanceName);
+                var users = await db.GetUsersInfo(token: token);
+                foreach( var u in users.Users )
+                {
+                    u.Db = instanceName;
+                }
+                return users; // Add this line to return the users from the async function
+            })
+            .ToList();
+        var adminRolesTask     = UserSession.MongoDbAdminForAdminDatabase.GetRolesInfo(showBuiltInRoles: true, token: token);
+        var customRolesTasks   = AllDatabases.Select(x => LoadRolesForDatabaseInstance(x, token)).ToList();
+
+        await Task.WhenAll(customRolesTasks.Cast<Task>().Concat(usersInfoTasks).Concat([adminRolesTask]));
+
+        var adminRoles = await adminRolesTask;
+        var all   = new RolesInfoModel();
+        all.Roles.AddRange(adminRoles.Roles.Where(x => x.IsBuiltin));
+
+        foreach (var customTask in customRolesTasks)
+        {
+            var custom = await customTask;
+            all.Roles.AddRange(custom.Roles);
+        }
+
+        RolesList = all.Roles
+               .OrderBy(x => $"{x.Db}, {x.RoleName}")
+               .ToList()
+            ;
+
+        UsersModel usersInfo = new();
+
+        foreach (var customTask in usersInfoTasks)
+        {
+            var custom = await customTask;
+            usersInfo.Users.AddRange(custom.Users);
+        }
+
+        // Skip the admin user, as it is not editable
+        var adminUser = usersInfo.Users.FirstOrDefault(x => x.UserName == "admin");
+        if ( adminUser != null )
+            adminUser.IsBuiltin = true;
+
+        await Display(usersInfo);
+    });
+
+    private Task<RolesInfoModel> LoadRolesForDatabaseInstance(string instanceName, CancellationToken token)
+    {
+        try
+        {
+            var db = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, instanceName);
+            return db.GetRolesInfo(showBuiltInRoles: false, token: token);
+        }
+        catch (Exception)
+        {
+            return Task.FromResult(new RolesInfoModel());
+        }
+    }
+
+
+    private Task Display(UsersModel model)
+    {
+        Error  = null;
+
+        var oldUserName = SelectedUser.UserName;
+
+        UserList = model.Users
+            .OrderBy(x => x.UserName)
+            .ToList()
+            ;
+
+        SelectedUser = !string.IsNullOrWhiteSpace(oldUserName) 
+            ? model.Users.FirstOrDefault(x => x.UserName == oldUserName) ?? model.Users.FirstOrDefault() ?? new() 
+            : model.Users.FirstOrDefault() ?? new UserInfoModel()
+            ;
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+    private Task Display(Exception e)
+    {
+        Error = e;
+        UserList.Clear();
+        AddUser();
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/users/{Database}"; 
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private static string GetUserClass(UserInfoModel r) => r.IsBuiltin ? "builtin" : "";
+
+    private static int _count;
+
+    private Task AddUser()
+    {
+        SelectedUser = new ()
+        {
+            UserName = $"newUser{++_count}",
+            Db = UserSession.DatabaseInstance,
+            IsBuiltin = false
+        };
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DeleteUser()
+    {
+        if ( IsNew || string.IsNullOrWhiteSpace(SelectedUser.UserName) || SelectedUser.IsBuiltin )
+        {
+            await ModalDialogUtils.ShowInfoDialog( Modal, "Oops!", "Cannot delete the selected user.");
+            return;
+        }
+
+        var rc = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Confirm Deletion",
+            $"Are you sure you want to delete the user '{SelectedUser.UserName}' from '{SelectedUser.Db}'?"
+            );
+
+        if (!rc.Confirmed)
+            return;
+
+        // Logic for deleting the selected user goes here
+        await Run(async (_, token) =>
+        {
+            // Attention: use the admin service corresponding to the database you are going to delete user in!
+            var service = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, SelectedUser.Db);
+            await service.DropUser(SelectedUser.UserName, token);
+            await LoadUsers();
+        });
+    }
+
+    private async Task UpdateUser()
+    {
+        var user = EditableSelectedUser;
+        var origUser = UserList.FirstOrDefault(x => x.UserName == user.UserName && x.Db == user.Db);
+
+        if (user.IsBuiltin || string.IsNullOrWhiteSpace(user.UserName))
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Oops!", $"Can't modify built-in user '{user.UserName}'.");
+            return;
+        }
+
+        var diff = CompareRoles(origUser ?? new UserInfoModel(), user);
+
+        var diffDict = diff
+            .ToDictionary(x => $"{x.Db} {x.Role}{(x.IsBuiltin ? " [Builtin]" : "")}", x => x.IsAdded ? "Added" : "Removed");
+
+        if (!string.IsNullOrWhiteSpace(user.Password))
+        {
+            diffDict["Password"] = "Updated";
+        }
+
+        if (diffDict.Count == 0)
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "No Changes", "No changes detected in the user roles and new password is not supplied.");
+            return;
+        }
+
+        var rc = await ModalDialogUtils.ShowConfirmationDialog(
+            Modal,
+            "Warning",
+            $"Are you sure you want to {(origUser == null ? "add" : "update")} the user '{user.UserName}' within database '{user.Db}'?",
+            diffDict
+            );
+
+        if (!rc.Confirmed)
+            return;
+
+        try
+        {
+            var cts = new CancellationTokenSource(DatabaseConfigurationService.DefaultTimeout);
+
+            if ( string.IsNullOrWhiteSpace(user.Db) )
+                user.Db = UserSession.DatabaseInstance;
+
+            if (origUser == null)
+                await CreateUser(user, cts.Token); 
+            else if (!string.IsNullOrWhiteSpace(user.Password))
+                await UpdatePassword(user, cts.Token); 
+
+            await GrantAndRevokeRoles(user, diff, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            await Display(ex);
+        }
+    }
+
+    private async Task CreateUser(UserInfoModel user, CancellationToken token)
+    {
+        var command = new BsonDocument
+        {
+            { "createUser", user.UserName },
+            { "pwd", user.Password        },
+            { "roles", new BsonArray() },
+            { "writeConcern",new BsonDocument
+                {
+                    { "w", "majority" }
+                }
+            }
+        };
+
+        var redactedCommand = command.ToJson().Replace(user.Password ?? "******", "******");
+
+        var service = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, user.Db);
+        await service.RunCommand(command, redactedCommand, token);
+    }
+
+    private async Task UpdatePassword(UserInfoModel user, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(user.Password))
+            throw new("Password is not specified");
+
+        var command = new BsonDocument
+        {
+            { "updateUser", user.UserName }, // Changed from createUser to updateUser
+            { "pwd", user.Password        },
+            { "writeConcern",new BsonDocument
+                {
+                    { "w", "majority" }
+                }
+            }
+        };
+
+        var redactedCommand = command.ToJson().Replace(user.Password, "******");
+
+        var service = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, user.Db);
+        await service.RunCommand(command, redactedCommand, token);
+    }
+
+    private async Task GrantAndRevokeRoles(UserInfoModel user, List<RoleDiff> diff, CancellationToken token)
+    {
+        var toAdd = diff
+           .Where(x => x.IsAdded)
+           .GroupBy(x => x.Db)
+           .Select(x => new { Db = x.Key, Roles = x.Select(y => new { y.Role, y.IsBuiltin }).ToList() })
+           .ToList();
+
+        var toRemove  = diff
+           .Where(x => !x.IsAdded)
+           .GroupBy(x => x.Db)
+           .Select(x => new { Db = x.Key, Roles = x.Select(y => new { y.Role, y.IsBuiltin }).ToList() }) // Update this to include IsBuiltin
+           .ToList();
+
+        foreach (var action in toAdd)
+        {
+            var command = new BsonDocument
+            {
+                { "grantRolesToUser", user.UserName },
+                { "roles", new BsonArray(action.Roles
+                                            .Select(role =>
+                                                        role.IsBuiltin
+                                                            ? BsonValue.Create(role.Role)
+                                                            : new BsonDocument { { "role", role.Role }, { "db", action.Db } }
+                                                )
+                    )
+                },
+                { "writeConcern",new BsonDocument
+                    { 
+                        { "w", "majority" }
+                    }
+                }
+            };
+            // Attention: use the admin service corresponding to the database you are going to create user in!
+            var service = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, user.Db );
+            await service.RunCommand(command, token);
+        }
+
+        foreach (var action in toRemove)
+        {
+            var command = new BsonDocument
+            {
+                { "revokeRolesFromUser", user.UserName },
+                { "roles", new BsonArray(action.Roles
+                                            .Select(role =>
+                                                        role.IsBuiltin
+                                                            ? BsonValue.Create(role.Role)
+                                                            : new BsonDocument { { "role", role.Role }, { "db", action.Db } }
+                                                )
+                    )
+                },
+                { "writeConcern",new BsonDocument
+                    { 
+                        { "w", "majority" }
+                    }
+                }
+            };
+            // Attention: use the admin service corresponding to the database you are going to create user in!
+            var service = MongoDbServiceFactory.CreateAdmin(UserSession.Database, UserSession, user.Db);
+            await service.RunCommand(command, token);
+        }
+
+        await LoadUsers();
+    }
+
+    private async Task CopyUser()
+    {
+        try
+        {
+            var json = JsonUtils.ToJson(SelectedUser, new() { WriteIndented = true });
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", json);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", "User copied to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+
+    }
+
+    private class RoleDiff
+    {
+        public string Role      { get; set; } = string.Empty;
+        public string Db        { get; set; } = string.Empty;
+        public bool   IsBuiltin { get; set; }
+        public bool   IsAdded   { get; set; }
+    } 
+
+    private List<RoleDiff> CompareRoles(UserInfoModel user, UserInfoModel clone)
+    {
+        var builtinRoles = new HashSet<string>(RolesList.Where(x => x.IsBuiltin).Select(x => x.RoleName));
+
+        // Identify roles present in the original user but missing in the clone
+        var diffs = user.Roles
+            .Where(role => !clone.Roles.Any(r => r.Role == role.Role && r.Db == role.Db))
+            .Select(role => new RoleDiff 
+                { 
+                    Role      = role.Role, 
+                    Db        = role.Db, 
+                    IsBuiltin = builtinRoles.Contains(role.Role), 
+                    IsAdded   = false 
+                }
+            )
+            .ToList();
+
+        // Identify roles present in the clone but missing in the original user
+        diffs.AddRange(clone.Roles
+            .Where(role => !user.Roles.Any(r => r.Role == role.Role && r.Db == role.Db))
+            .Select(role => new RoleDiff 
+                {
+                    Role      = role.Role, 
+                    Db        = role.Db, 
+                    IsBuiltin = builtinRoles.Contains(role.Role), 
+                    IsAdded   = true 
+                }
+            )
+        );
+
+        return diffs;
+    }
+
+    private async Task PasteUser()
+    {
+        try
+        {
+            var json = await JsRuntime.InvokeAsync<string>("DashboardUtils.PasteFromClipboard");
+
+            var clone = JsonUtils.FromJson<UserInfoModel>(json);
+            if (clone == null)
+                return;
+
+            // Search for the existing user by name,db
+            var existingUser = UserList.FirstOrDefault(x => x.UserName == clone.UserName &&
+                                                           x.Db == clone.Db);
+            if ( existingUser != null )
+            {
+                if ( existingUser.IsBuiltin )
+                {
+                    // If the user is built-in, show a warning and do not overwrite
+                    await ModalDialogUtils.ShowInfoDialog(Modal, "Oops!", $"User '{clone.UserName}' is a built-in user and cannot be changed.");
+                    return;
+                }
+
+                // If the user already exists, show a warning and do not overwrite
+                var rc = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Warning", $"User '{clone.UserName}' already exists. Please choose a different name.");
+                if (!rc.Confirmed)
+                    return;
+            }
+
+            SelectedUser = clone;
+
+            await InvokeAsync(StateHasChanged);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", $"User info for {SelectedUser.UserName} was successfully parsed. You still need to save it!");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }    
+    }
+
+}

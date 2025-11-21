@@ -1,0 +1,139 @@
+﻿@using System.Drawing
+@using Rms.Risk.Mango.Pivot.Core
+
+@if (_pivotRows is { Length: > 0 })
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+
+    <TableControl Class="table table-hover table-striped table-forge fit-content"
+                  Items="@_pivotRows"
+                  PageSize="@Rows"
+                  CellStyle="PivotTableComponent.GetCellStyle"
+                  GetCellClassCallback="GetCellClassCallback"
+                  Totals="@VisibleTotals"
+                  @bind-SortMode="SortMode"
+                  @bind-CurrentSortColumn="SortColumn">
+        @foreach (var field in _pivotRows[0].GetDynamicMemberNames())
+        {
+            <TableColumnControl Name="@field" Field="@field" Format="@_pivotRows[0].GetFormat(field)" ShowTotals="@_pivotRows[0].ShouldShowTotals(field)" Class="@ColumnClass">
+                <Template>
+                        @TableControl.ConvertToString(TableControl.GetLambdaForValue(field)(context.Row), _pivotRows[0].GetFormat(field))
+                </Template>
+            </TableColumnControl>
+        }
+    </TableControl>
+}
+
+@code{
+
+    [Parameter]
+    public IPivotedData? PivotData
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            _totals.Clear();
+
+            if (field == null)
+            {
+                _pivotRows = [];
+                InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            _shadowHeaders = field.GetColumnPositions();
+
+            _descriptorsCache.Clear();
+
+            _pivotRows = Enumerable
+                        .Range(0, field.Count)
+                        .Select(x => new PivotRow(field, x, _shadowHeaders, GetColumnDescriptorInternal, GetFieldDescriptorInternal))
+                        .ToArray()
+                ;
+
+            _totals.Update(field);
+
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [Parameter] public int  Rows       { get; set; } = 35;
+    [Parameter] public bool ShowTotals { get; set; }
+
+
+    private PivotRow[]              _pivotRows = [];
+    private MinMaxCache             _totals = new();
+    private Dictionary<string, int> _shadowHeaders = [];
+
+    private readonly Dictionary<string, PivotColumnDescriptor> _descriptorsCache      = new();
+
+    private TableControl.SortModeType SortMode      { get; set; }
+    private string?                   SortColumn    { get; set; }
+    private IMinMaxCache?             VisibleTotals => ShowTotals ? _totals : null;
+
+    private readonly PivotColumnDescriptor _defaultPivotColumnDescriptor = new()
+    {
+        Format              = "N0",
+        NameRegexString     = ".*",
+        Background          = Color.FromName(Night.Background),
+        AlternateBackground = Color.FromName(Night.BackgroundLight)
+    };
+
+    private PivotColumnDescriptor GetColumnDescriptorInternal(string columnName)
+    {
+        if (_descriptorsCache.TryGetValue(columnName, out var desc))
+            return desc;
+
+        desc = _defaultPivotColumnDescriptor;
+
+        _descriptorsCache[columnName] = desc;
+        return desc;
+    }
+
+    private string ColumnClass
+    {
+        get
+        {
+    //This is a little awkward, usually the table control will auto wrap long headers when they contain spaces, but we have some pivots currently that have
+    //a combination of long columns with and without spaces. Wrapping looks weird here, so we want to turn off wrapping if we can
+    //detect any column which has a long name without spaces
+
+            if ( _pivotRows != null &&
+                (_pivotRows[0].GetDynamicMemberNames().Count() <= 16
+                    || _pivotRows[0].GetDynamicMemberNames().Any( n => n.Length >= 10 && !n.Contains( " " ) )
+                    )
+                )
+            {
+                return "table-nowrap";
+            }
+
+            return string.Empty;
+        }
+    }
+
+
+    private PivotFieldDescriptor? GetFieldDescriptorInternal( string columnName )                  => null;
+    private string                GetCellClassCallback( dynamic      row, TableColumnControl col ) => "";
+}

@@ -1,0 +1,249 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+
+@if (!string.IsNullOrWhiteSpace(Message))
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+    <p>@Message</p>
+    @if (RequestMagicWord)
+    {
+        <p>Since you are saving to non-user group, you need to provide the magic word.</p>
+    }
+
+    <form>
+        <div class="form-row">
+            <div class="mr-3 w-100">
+                <div class="form-group">
+                    <label for="name">Name</label>
+                    <!--- group selector -->
+                    <div class="input-group mr-sm-2">
+                        <input id="name" type="text" class="form-control" @bind="Name.Parameter"/>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="mr-3 w-100">
+                <div class="form-group">
+                    <label for="group">Group</label>
+                    <!--- group selector -->
+                    <div class="input-group mr-sm-2">
+                        <div class="dropdown">
+                            <button class="btn btn-secondary dropdown-toggle" id="group" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                @if (Group.Parameter != null)
+                                {
+                                    <span>@Group.Parameter</span>
+                                }
+                                else
+                                {
+                                    <span>Select group...</span>
+                                }
+                            </button>
+                            <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+
+                                @foreach (var item in Groups)
+                                {
+                                    <a class="dropdown-item" @onclick="() => SelectGroup(item)" @onclick:preventDefault>@item</a>
+                                }
+                            </div>
+                        </div>
+
+                        <input id="newGroup" type="text" class="form-control @NewGroupClass" @bind="NewGroupName.Parameter"/>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (RequestMagicWord)
+        {
+            <div class="form-row">
+                <div class="mr-3 w-100">
+                    <div class="form-group">
+                        <label for="magic">Magic</label>
+                        <!--- group selector -->
+                        <div class="input-group mr-sm-2">
+                            <input id="magic" type="text" class="form-control" @bind="Magic.Parameter"/>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        }
+
+    </form>
+}
+<div>
+    <div class="form-row modal-footer w-100 p-0">
+        <button class="btn btn-secondary" @onclick="@(() => BlazoredModal.CancelAsync())">Cancel</button>
+        <button class="btn btn-primary" @onclick="@OnOK">Save</button>
+    </div>
+</div>
+
+@code
+{
+    [CascadingParameter] BlazoredModalInstance  BlazoredModal { get; set; } = null!;
+
+    private string Message => $"Do you want to save Pivot \"{Name.Parameter}\" to group \"{(Group.Parameter == NewGroupSignature ? NewGroupName.Parameter : Group.Parameter)}\"?";
+
+    public class StringParameter
+    {
+        public string Parameter { get; set; } = "";
+    }
+
+    [Parameter]
+    public StringParameter Name
+    {
+        get => _name;
+        set
+        {
+            if (_name == value)
+                return;
+            _name = value;
+            NameChanged.InvokeAsync(_name.Parameter);
+        }
+    }
+
+    [Parameter] public EventCallback<string> NameChanged { get; set; }
+
+    [Parameter]
+    public StringParameter Group
+    {
+        get => _group;
+        set
+        {
+            if (_group == value)
+                return;
+            _group = value;
+            GroupChanged.InvokeAsync(_group.Parameter);
+        }
+    }
+
+    [Parameter] public EventCallback<string> GroupChanged { get; set; }
+
+    [Parameter]
+    public StringParameter Magic
+    {
+        get => _magic;
+        set
+        {
+            if (_magic == value)
+                return;
+            _magic = value;
+            MagicChanged.InvokeAsync(_magic.Parameter);
+        }
+    }
+
+    [Parameter] public EventCallback<string> MagicChanged { get; set; }
+
+    [Parameter] public string[] Groups { get; set; } = [];
+
+    private bool RequestMagicWord          => Group.Parameter != PivotDefinition.UserPivotsGroup;
+    private const string NewGroupSignature = "<New group>";
+    private string NewGroupClass           => Group.Parameter == NewGroupSignature ? "" : "d-none";
+
+    private StringParameter NewGroupName
+    {
+        get => _newGroupName;
+        set
+        {
+            if (_newGroupName == value)
+                return;
+            _newGroupName = value;
+            NewGroupNameChanged.InvokeAsync(_magic.Parameter);
+        }
+    }
+
+    private EventCallback<string> NewGroupNameChanged{ get; set; }
+
+    private Task OnOK()
+    {
+        return BlazoredModal.CloseAsync(
+            ModalResult.Ok(
+                Tuple.Create(
+                    Name.Parameter,
+                    Group.Parameter == NewGroupSignature
+                        ? NewGroupName.Parameter
+                        : Group.Parameter,
+                    RequestMagicWord
+                        ? Magic.Parameter
+                        : ""
+                )
+            )
+        );
+    }
+
+    private void SelectGroup(string item)
+    {
+        Group.Parameter = item;
+        //await InvokeAsync(StateHasChanged);
+    }
+
+    private static StringParameter _name         = new();
+    private static StringParameter _group        = new();
+    private static StringParameter _newGroupName = new();
+    private static StringParameter _magic        = new();
+
+    /// <summary>
+    /// Display Pivot SaveAs dialog
+    /// </summary>
+    /// <param name="service"></param>
+    /// <param name="pivotDef"></param>
+    /// <param name="groups"></param>
+    /// <returns>Tuple (name, group, magic) or null if cancelled</returns>
+    public static async Task<Tuple<string, string, string>?> ShowDialog(
+        IModalService service,
+        PivotDefinition pivotDef,
+        string [] groups)
+    {
+        _name = new();
+        _group = new();
+        _newGroupName = new();
+        _magic = new();
+
+        _name.Parameter = pivotDef.Name ?? "";
+        _group.Parameter = pivotDef.Group ?? PivotDefinition.UserPivotsGroup;
+        _newGroupName.Parameter = "New group";
+
+        var parameters = new ModalParameters
+        {
+            { nameof(Name), _name },
+            { nameof(Group), _group },
+            { nameof(Groups), new[] {NewGroupSignature}.Concat(groups).ToArray() }
+        };
+
+        var options = new ModalOptions
+        {
+            HideCloseButton         = true,
+            DisableBackgroundCancel = true
+        };
+
+        var form = service.Show<PivotSaveAsComponent>("Pivot SaveAs", parameters, options);
+        var res = await form.Result;
+
+        if (res.Cancelled)
+            return null;
+
+        return res.Data as Tuple<string, string, string>;
+    }
+
+
+}

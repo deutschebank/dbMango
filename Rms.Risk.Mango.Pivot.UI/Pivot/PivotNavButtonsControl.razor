@@ -1,0 +1,112 @@
+﻿@using Rms.Risk.Mango.Pivot.Core.Models
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<div class="@Class">
+
+    <style>
+        .mb-0 {
+            margin-bottom: 0;
+        }
+    </style>
+
+    <div class="mr-3">
+        <div class="form-group mb-0">
+            <button type="button" class="btn btn-primary" id="run" disabled="@IsRefreshDisabled" @onclick="OnRefreshPivot" title="Run pivot">
+                <span class="ui-icon-font icon-running-man-sm"></span>
+                <span class="p-1">Run</span>
+            </button>
+            <button type="button" class="btn btn-secondary" disabled="@IsBackwardDisabled" @onclick="OnBackward" title="Show previous pivot">
+                <span class="ui-icon-font icon-arrow-left-sm"></span>
+            </button>
+            <button type="button" class="btn btn-secondary" disabled="@IsForwardDisabled" @onclick="OnForward" title="Show next pivot">
+                <span class="ui-icon-font icon-arrow-right-sm"></span>
+            </button>
+            <button type="button" class="btn btn-secondary" disabled="@IsExportDisabled" @onclick="OnCopyCsv" title="Copy pivot as CSV data">
+                <span class="ui-icon-font icon-duplicate-document-sm"></span>
+            </button>
+            <button type="button" class="btn btn-secondary" disabled="@IsExportDisabled" @onclick="OnExportCsv" title="Download pivot as CSV file">
+                <span class="ui-icon-font icon-excel-sm"></span>
+            </button>
+        </div>
+        <div class="form-group">
+            <div class="flex-stack-horizontal mr-3">
+                <label class="input-group-text w-75">Use cache</label>
+                <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                    <input type="checkbox" @bind="UseCache" />
+                    <span class="slider" data-label-on="on" data-label-off="off"></span>
+                </label>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    [Parameter] public string                     Class      { get; set; } = "form-row";
+    [Parameter] public Navigation<NavigationUnit> Navigation { get; set; } = null!;
+
+    [Parameter] public bool   IsRefreshEnabled  { get; set; } 
+    [Parameter] public bool   IsExportEnabled   { get; set; } 
+
+    [Parameter] public EventCallback RefreshPivotTriggered { get; set; }
+    [Parameter] public EventCallback CopyCsvTriggered      { get; set; }
+    [Parameter] public EventCallback ExportCsvTriggered    { get; set; }
+
+    [Parameter]
+    public bool UseCache
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UseCacheChanged.InvokeAsync(field);
+        }
+    } = true;
+
+    [Parameter] public EventCallback<bool> UseCacheChanged { get; set; }
+
+    private bool IsBackwardDisabled => !Navigation?.CanGoBackward ?? true;
+
+    private async Task<bool> OnBackward()
+    {
+        if (Navigation.Back())
+            await InvokeAsync(StateHasChanged);
+        return false;
+    }
+
+    private bool IsForwardDisabled => !Navigation?.CanGoForward ?? true;
+
+    private async Task<bool> OnForward()
+    {
+        if (Navigation.Forward())
+            await InvokeAsync(StateHasChanged);
+        return false;
+    }
+
+    private bool IsRefreshDisabled  => !IsRefreshEnabled;
+    private bool IsExportDisabled   => !IsExportEnabled;
+
+    private Task OnRefreshPivot() => RefreshPivotTriggered.InvokeAsync();
+    private Task OnCopyCsv()      => CopyCsvTriggered.InvokeAsync();
+    private Task OnExportCsv()    => ExportCsvTriggered.InvokeAsync();
+
+}

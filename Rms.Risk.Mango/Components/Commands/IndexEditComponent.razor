@@ -1,0 +1,219 @@
+﻿@using System.Text
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .CodeMirror {
+    width: 800px;
+    height: 800px;
+    max-height: 800px;
+    }
+    .key-fields {
+        min-width: 500px;
+    }
+
+    .column-name {
+        width: 50% !important;
+    }
+
+    .column-value {
+        width: 50% !important;
+    }
+</style>
+
+<div class="form-row @Class">
+    @if (!HideIndexParams)
+    {
+        <div class="flex-stack-vertical mr-3">
+            <FormItemText Name="Index name" @bind-Value="IndexName" Icon="icon-document-blank-sm" Enabled="@Enabled"/>
+            <FormItemText Name="Expire after" @bind-Value="ExpireAfter" Icon="icon-clock-sm" Enabled="@Enabled" InputType="number"/>
+            <FormItemCheckBox Name="Unique" @bind-Value="Unique" Icon="icon-unlock-outline-sm" Enabled="@Enabled"/>
+        </div>
+    }
+    <div class="">
+        <FormItemNameValue Name="Key fields" Value="@_keyFields" SetValue="@SetSorting" Changed="() => UpdateCommand()" Enabled="@Enabled" Class="key-fields"/>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter] public bool Enabled { get; set; } = true;
+
+    [Parameter]
+    public string Collection
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            ParseJson("{}");
+        }
+    } = "";
+
+    [Parameter]
+    public string Json
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            ParseJson(value);
+        }
+    } = "{}";
+
+    [Parameter] public EventCallback<string> JsonChanged     { get; set; }
+    [Parameter] public bool                  IsValid         { get; set; }
+    [Parameter] public EventCallback<bool>   IsValidChanged  { get; set; }
+    [Parameter] public bool                  HideIndexParams { get; set; }
+
+    private string IndexName
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateCommand();
+        }
+    } = "NewIndex";
+
+    private string ExpireAfter
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateCommand();
+        }
+    } = "0";
+
+    private bool Unique
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateCommand();
+        }
+    }
+
+    private List<FormItemNameValue<DatabaseStructureLoader.FieldSorting>.NameValuePair> _keyFields = [];
+
+    private void UpdateCommand()
+    {
+        Json = JsonUtils.FormatJson($@"{{
+            ""key"": {{
+    {GetIndexKeys()}
+            }},
+            ""name"": ""{IndexName}""
+{ExpireAtOption}
+{UniqueOption}
+        }}");
+
+        IsValid = (HideIndexParams || !string.IsNullOrWhiteSpace(IndexName)) && _keyFields.Any(x => !string.IsNullOrWhiteSpace(x.Name));
+        
+        JsonChanged.InvokeAsync(Json);
+        IsValidChanged.InvokeAsync(IsValid);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string ExpireAtOption => int.Parse(ExpireAfter) > 0 ? $",\"expireAfterSeconds\": {ExpireAfter}" : "";
+    private string UniqueOption => Unique ? ",\"unique\": 1" : "";
+
+    private string GetIndexKeys()
+    {
+        var sb = new StringBuilder();
+        foreach (var def in _keyFields)
+        {
+            if (def.Value == DatabaseStructureLoader.FieldSorting.Hashed)
+                sb.AppendLine($"                \"{def.Name}\" : \"hashed\",");
+            else
+                sb.AppendLine($"                \"{def.Name}\" : {(def.Value == DatabaseStructureLoader.FieldSorting.Asc ? 1 : -1)},");
+        }
+
+        return sb.ToString();
+    }
+
+    private void ParseJson(string json)
+    {
+        _keyFields = [];
+        var dict = BsonDocument.Parse(json)
+            .ToDictionary()
+            .ToDictionary(StringComparer.OrdinalIgnoreCase)
+            ;
+
+        if (dict.TryGetValue("name", out var n) && n != null)
+            IndexName = n.ToString() ?? "";
+        else
+            IndexName = "NewIndex";
+
+        if (dict.TryGetValue("unique", out var u) && u != null)
+            Unique = u.ToString() == "1" || u.ToString() == "True";
+        else
+            Unique = false;
+
+        if (dict.TryGetValue("expireAfterSeconds", out var eas) && eas != null)
+            ExpireAfter = eas.ToString()!;
+        else
+            ExpireAfter = "0";
+
+        if (dict.TryGetValue("key", out var keys) && keys is Dictionary<string, object> kd)
+        {
+            _keyFields.AddRange(
+                kd.Select(
+                    x => new FormItemNameValue<DatabaseStructureLoader.FieldSorting>.NameValuePair
+                    {
+                        Name  = x.Key, 
+                        Value = ToFieldSorting(x.Value)
+                    }
+                )
+            );
+        }
+
+        UpdateCommand();
+    }
+
+    private DatabaseStructureLoader.FieldSorting ToFieldSorting(object argValue)
+        => argValue switch
+        {
+            1        => DatabaseStructureLoader.FieldSorting.Asc,
+            -1       => DatabaseStructureLoader.FieldSorting.Desc,
+            "hashed" => DatabaseStructureLoader.FieldSorting.Hashed,
+            _        => DatabaseStructureLoader.FieldSorting.Asc
+        };
+
+    private void SetSorting(FormItemNameValue<DatabaseStructureLoader.FieldSorting>.NameValuePair tuple, string v)
+    {
+        tuple.Value = Enum.TryParse<DatabaseStructureLoader.FieldSorting>(v, true, out var vv)
+            ? vv
+            : DatabaseStructureLoader.FieldSorting.Asc
+            ;
+    }
+
+}

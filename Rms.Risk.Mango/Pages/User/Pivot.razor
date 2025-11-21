@@ -1,0 +1,286 @@
+﻿@page "/user/pivot"
+@page "/user/pivot/{DatabaseStr}/{DatabaseInstanceStr}"
+@page "/user/pivot/{DatabaseStr}/{DatabaseInstanceStr}/{Collection}/{PivotName}"
+@* @page "/user/pivot/{DatabaseStr}/{DatabaseInstanceStr}/{Collection}/{PivotName}/{Parameters}" *@
+
+@attribute [Authorize]
+
+@inject IUserSession UserSession
+@inject IJSRuntime                  JsRuntime
+@inject NavigationManager           NavigationManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<link rel="stylesheet" href="css/pivot.css" />
+
+<h3>Pivot</h3>
+
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+    <PivotComponent PivotService="@UserSession.PivotDataSource"
+                    Collections="@_collections"
+                    @bind-Collection="Collection"
+                    @bind-Pivot="PivotName"
+                    @bind-Rows="_state.Rows"
+                    PivotType="@IPivotTableDataSource.PivotType.All"
+                    GetExtraFilter="@GetExtraFilter"
+                    CurrentPivotChanged="@OnCurrentPivotChanged">
+        <ExtraFilter>
+
+            <PivotGenericExtraFilterControl 
+                Collection="@Collection"
+                LoadFilterDef = "true"
+                FilterDef="@_extraFilterDef"
+                ExtraFilter="@_extraFilter"
+                ExtraFilterChanged="@(x => SetExtraFilter(x))"
+                PivotService="@UserSession.PivotDataSource"
+                Class="mb-2 ml-1 form-row" />
+
+        </ExtraFilter>
+    </PivotComponent>
+
+    @* Share="Share" *@
+</AuthorizedOnly>
+
+@code {
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    [Parameter]
+    public string? Collection
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (field != null && _state.SelectedPivotForCollection.TryGetValue(field, out var pivot))
+            {
+                PivotName = pivot;
+                InvokeAsync(StateHasChanged);
+            }
+            SyncUrl();
+        }
+    }
+
+    [Parameter]
+    public string? PivotName
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            if (!string.IsNullOrWhiteSpace(field) && !string.IsNullOrWhiteSpace(Collection))
+                _state.SelectedPivotForCollection[Collection] = field;
+            SyncUrl();
+        }
+    }
+
+    private string? _currentUrl;
+
+    private class PivotState
+    {
+        public int                        Rows                       { get; set; } = 40;
+        public Dictionary<string, string> SelectedPivotForCollection { get; set; } = new();
+    }
+
+    private PivotState _state = new();
+    private FilterExpressionTree.ExpressionGroup _extraFilter = new();
+    private FilterExpressionTree.ExpressionGroup GetExtraFilter() => _extraFilter;
+
+    private readonly List<GroupedCollection> _collections = [];
+
+    private const string DefaultCollectionName = "Default";
+    private const string DefaultPivotName      = "Summary";
+
+    private ExtraFilterDefinition          _extraFilterDef = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (UserSession == null || _extraFilterDef.Filter.Count > 0 )
+            return;
+
+        if (DatabaseStr != UserSession.Database)
+        {
+            if (string.IsNullOrWhiteSpace(DatabaseStr))
+                DatabaseStr = UserSession.Database;
+            else
+                UserSession.Database = DatabaseStr;
+        }
+
+        if (DatabaseInstanceStr != UserSession.DatabaseInstance)
+        {
+            if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+                DatabaseInstanceStr = UserSession.DatabaseInstance;
+            else
+                UserSession.DatabaseInstance = DatabaseInstanceStr;
+        }
+
+        if (_collections.Count == 0)
+        {
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var collections = await UserSession.PivotDataSource.GetAllMeta(token: cts.Token);
+            _collections.Clear();
+            _collections.AddRange(collections);
+        }
+
+
+
+        if (string.IsNullOrWhiteSpace(Collection))
+        {
+            var collections = _collections
+                .Where(x => !x.IsGroup)
+                .Select(x => x.CollectionNameWithPrefix)
+                .OrderBy(x => x)
+                .ToList()
+                ;
+
+            Collection = collections.Contains(DefaultCollectionName)
+                ? DefaultCollectionName
+                : collections.FirstOrDefault();
+        }
+
+        if (string.IsNullOrWhiteSpace(PivotName) && !string.IsNullOrWhiteSpace(Collection))
+        {
+            var pivots = (_collections.FirstOrDefault( x => x.CollectionNameWithPrefix == Collection)?.Pivots ?? [])
+                .Select(x => x.Pivot)
+                .Select(x => x.Name)
+                .OrderBy(x => x)
+                .ToList()
+                ;
+
+            PivotName = pivots.Contains(DefaultPivotName)
+                    ? DefaultPivotName
+                    : pivots.FirstOrDefault();
+        }
+
+        _extraFilterDef = new()
+        {
+            Filter =
+            [
+                new()
+                {
+                    ControlType      = ExtraFilterDefinition.ControlTypeDropDown,
+                    AllowMultiselect = true,
+                    DisplayName      = "Department",
+                    FieldName        = "Department",
+//                    Values           = [.. DepartmentsList ],
+                    SelectorCollection = ExtraFilterDefinition.CurrentCollectionSignature,
+                    SelectorQuery = @"
+[{
+    ""$group"" : {
+      ""_id"" : null,
+      ""Department"" : {
+        ""$addToSet"" : ""$Department""
+      }
+    }
+  },
+  { ""$unwind"" : ""$Department""}
+]
+"
+                },
+
+                new()
+                {
+                    ControlType      = ExtraFilterDefinition.ControlTypeDatePicker,
+                    AllowMultiselect = true,
+                    DisplayName      = "COB",
+                    FieldName        = "COB",
+//                    Values           = [.. await UserSession.PivotDataSource.GetCobDatesAsync(Collection!) ],
+                    DefaultValue     = CobHelper.GetLatestCob().ToString(CobHelper.CobFormat),
+                    SelectorCollection = ExtraFilterDefinition.CurrentCollectionSignature,
+                    SelectorQuery = @"
+[
+  {
+      ""$group"" : {
+        ""_id"" : null,
+        ""COB"" : {
+          ""$addToSet"" : ""$COB""
+        }
+      }
+  },
+  { ""$unwind"" : ""$COB"" }
+]
+"
+                }
+            ]
+        };
+
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var data = await JsRuntime.LoadFromLocalStorage<PivotState>("pivot", cts.Token);
+        if ( data != null )
+            _state = data;
+
+        await InvokeAsync(StateHasChanged);
+
+        SyncUrl();
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + "user/pivot";
+
+        url += $"/{Uri.EscapeDataString(UserSession.Database)}";
+        if (!string.IsNullOrWhiteSpace(UserSession.DatabaseInstance))
+            url += $"/{UserSession.DatabaseInstance}";
+        else
+            url += "/default";
+
+        if (!string.IsNullOrWhiteSpace(Collection) && !string.IsNullOrWhiteSpace(PivotName))
+            url += $"/{Uri.EscapeDataString(Collection)}/{Uri.EscapeDataString(PivotName)}";
+
+        var values = _extraFilterDef.ParseExtraFilter(_extraFilter);
+        var qp = _extraFilterDef.CreateQueryParameters(values);
+
+        var paramStr = string.Join("&", qp.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+        if ( !string.IsNullOrWhiteSpace(paramStr))
+            url += $"?{paramStr}";
+
+        if (_currentUrl == url)
+            return;
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+        _currentUrl = url;
+    }
+
+    private void SetExtraFilter(FilterExpressionTree.ExpressionGroup expressionGroup)
+    {
+        _extraFilter = expressionGroup;
+        SyncUrl();
+    }
+
+    private async Task OnCurrentPivotChanged(PivotDefinition arg)
+    {
+        if (PivotName != null && Collection != null)
+            _state.SelectedPivotForCollection[Collection] = PivotName;
+
+        await InvokeAsync(async () => await JsRuntime.SaveToLocalStorage("pivot", _state));
+    }
+
+}

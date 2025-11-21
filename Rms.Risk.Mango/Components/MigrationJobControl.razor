@@ -1,0 +1,393 @@
+﻿@using Rms.Risk.Mango.Services.Context
+@using Rms.Risk.Mango.Pivot.Core.MongoDb;
+
+@inject IUserSession                   UserSession
+@inject IDatabaseConfigurationService DatabaseConfig
+@inject IAuthorizationService         Auth
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .dbName {
+    color: yellow;
+    font-weight: bold;
+    }
+
+    .colName {
+    color: lightgreen;
+    }
+
+    .colSel {
+    max-height: 60vh;
+    overflow: auto;
+    }
+
+    .descr {
+        max-width: 400px;
+    }
+    .wide-col {
+        width: 300px;
+    }
+</style>
+
+<EditForm EditContext="EditContext">
+    <div class="flex-stack-vertical">
+        <div class="flex-stack-horizontal">
+            
+            <FormItemCheckList 
+                ListClass="colSel" 
+                Values="@SelectedCollections"
+                Class="wide-col"
+                Name="To sync:" 
+                IsSelectable="@IsSelectable"
+                />
+
+            <div class="flex-stack-vertical ml-3">
+                <div class="form-row">
+
+                    <FormItemSelect 
+                        Enabled="@IsReady" 
+                        Class="mr-2" Name="From database:"
+                        @bind-Value="SourceDatabase" Values="@SourceDatabases" 
+                        />
+
+                </div>
+                @if (UserSession.IsInstanceSelectionAllowed(SourceDatabase))
+                {
+                    <div class="form-row">
+                        <FormItemSelect Enabled="@IsReady" Class="mr-2" Name="From instance:" @bind-Value="SourceDatabaseInstance" Values="@SourceDatabaseInstances" />
+                    </div>
+                }
+                <div class="form-row">
+                    <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Clear destination" @bind-Value="WipeDestination" />
+                </div>
+                <div class="form-row">
+                    <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Disable indexes" @bind-Value="DisableIndexes" />
+                </div>
+                <div class="form-row">
+                    <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Update / Insert" @bind-Value="Upsert" />
+                </div>
+                <div class="form-row">
+                    <FormItemText Enabled="@IsReady" Class="mr-2" Name="BatchSize" @bind-Value="BatchSize" InputType="number" />
+                </div>
+            </div>
+        </div>
+        <div class="text-wrap mt-3 mb-3 descr">@JobDescription</div>
+        <ExceptionControl Exception="@Error"/>
+    </div>
+    <div class="form-row modal-footer w-100 p-0">
+        <button class="btn btn-secondary" @onclick="@(()=>Modal.CancelAsync())">Cancel</button>
+        <button class="btn btn-primary" @onclick="OnOK" disabled="@(!IsReadyToRun)">Run job</button>
+    </div>
+
+</EditForm>
+
+@code {
+    [CascadingParameter] public BlazoredModalInstance Modal { get; set; } = null!;
+
+    private string SourceDatabase
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            Error = null;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(SourceDatabaseChanged);
+        }
+    } = "";
+
+    private string SourceDatabaseInstance
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            Error = null;
+            if (!string.IsNullOrWhiteSpace(field))
+                InvokeAsync(SourceDatabaseChanged);
+        }
+    } = "";
+
+    private bool                                           WipeDestination         { get; set; }
+    private bool                                           DisableIndexes          { get; set; }
+    private string                                         BatchSize               { get; set; } = "1000";
+    private bool                                           Upsert                  { get; set; }
+    private bool                                           IsReady                 { get; set; }
+    private bool                                           IsReadyToRun            => IsReady && SelectedCollections.Any(x => x.Selected);
+    private Exception?                                     Error                   { get; set; }
+    private EditContext                                    EditContext             => _editContext!;
+    private List<FormItemCheckList<string>.SelectableItem> SelectedCollections     { get; set; } = [];
+    private List<string>                                   SourceDatabaseInstances { get; set; } = [];
+
+    private CancellationTokenSource? _cts;
+
+    private Task SourceDatabaseChanged()
+    {
+        if ( _cts != null )
+        {
+            _cts.Cancel();
+            _cts.Dispose();
+        }
+
+        _cts = new (TimeSpan.FromSeconds(10));
+
+        _ = Task.Run(() => LoadInstances(_cts.Token));
+        _ = Task.Run(() => LoadCollections(_cts.Token));
+        return Task.CompletedTask;
+    }
+
+    private List<string> SourceDatabases { get; } = [];
+
+    private MarkupString JobDescription => new(
+        SelectedCollections.Any(x => x.Selected)
+        ? $"Copy the following collections from <span class=\"dbName\">{SourceDatabase}</span> to  <span class=\"dbName\">{UserSession.Database}</span>:"
+            + $"<br>{CollectionNamesToSync}."
+            + (DisableIndexes ? "<br> Indexes in destination collections will be dropped and re-created." : "")
+            + (WipeDestination ? "<br> Destination collections will be cleared first." : "")
+            + (Upsert ? "<br>  Existing documents will be updated." : "")
+        : "");
+
+
+    private string CollectionNamesToSync =>
+        string.Join(", ", SelectedCollections.Where(x => x.Selected).Select(x => $"<span class=\"colName\">{x.Value}</span>"));
+
+    private EditContext? _editContext;
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        SourceDatabases.Clear();
+        foreach (var name in DatabaseConfig.Databases.Keys
+                    .Except([UserSession.Database])
+                    .OrderBy(x => x))
+        {
+            if (!await IsUserAuthorized(name))
+                continue;
+            SourceDatabases.Add(name);
+        }
+
+        if (SourceDatabases.Count == 0)
+            return;
+
+        SourceDatabase = SourceDatabases.First();
+
+        StateHasChanged();
+    }
+
+    private async Task LoadInstances(CancellationToken token)
+    {
+        if ( !UserSession.IsInstanceSelectionAllowed(SourceDatabase) )
+        {
+            SourceDatabaseInstances.Clear();
+            SourceDatabaseInstances.Add(UserSession.DatabaseInstance);
+            SourceDatabaseInstance = UserSession.DatabaseInstance;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+            if (string.IsNullOrWhiteSpace(SourceDatabase))
+            {
+                SourceDatabaseInstances.Clear();
+                return; 
+            }
+
+            IReadOnlyCollection<string> instances;
+            if (!await UserSession.CanAccess(Auth, DatabaseAccessPolicyExtensions.ReadAccessPolicy, SourceDatabase))
+            {
+                instances = [];
+            }
+            else
+            {
+                var admin = UserSession.GetCustomAdmin(SourceDatabase, "admin");
+
+                var res = await admin.ListDatabases(token);
+
+                instances = res.Select(x => x.Name).ToList();
+            }
+
+            if ( token.IsCancellationRequested )
+                return;
+
+            SourceDatabaseInstances.Clear();
+            SourceDatabaseInstances.AddRange(instances);
+            SourceDatabaseInstance = SourceDatabaseInstances.First();
+        }
+        catch (TaskCanceledException)
+        {
+            // Task was cancelled, do nothing
+        }
+        catch (Exception ex)
+        {
+            await Display(ex);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<bool> IsUserAuthorized(string database)
+    {
+        var readAccess = await Auth.AuthorizeAsync(
+            UserSession.User.GetUser(),
+            database,
+            [new ReadAccessRequirement()]);
+        return readAccess.Succeeded;
+    }
+
+    private async Task LoadCollections(CancellationToken token)
+    {
+        try
+        {
+            if (UserSession.DatabaseInstance == null)
+                throw new("Migrations are not supported for instances with selectable databases.");
+
+            Error   = null;
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            if (string.IsNullOrWhiteSpace(SourceDatabase))
+            {
+                SelectedCollections.Clear();
+                return;
+            }
+
+            IReadOnlyCollection<string> collections;
+
+            if (!await UserSession.CanAccess(Auth, DatabaseAccessPolicyExtensions.ReadAccessPolicy, SourceDatabase))
+            {
+                collections = [];
+            }
+            else
+            {
+                var admin = UserSession.GetCustomAdmin(SourceDatabase, UserSession.DatabaseInstance);
+                collections = await admin.ListCollections(token);
+            }
+
+            var selectable = collections
+                .Select(x =>
+                    new FormItemCheckList<string>.SelectableItem(x)
+                    {
+                        SelectedChanged = EventCallback.Factory.Create<bool>(this, _ => InvokeAsync(StateHasChanged))
+                    }
+                 )
+                .GroupBy(x => 
+                             x.Value.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
+                                 ? " Meta"
+                                 : x.Value.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
+                                     ? " Cache"
+                                     : " Data"
+                 );
+
+            if ( token.IsCancellationRequested )
+                return;
+
+            SelectedCollections.Clear();
+            foreach( var group in selectable)
+            {
+                SelectedCollections.Add(new (group.Key));
+                SelectedCollections.AddRange(group.OrderBy(x => x.Value).Select(x => x));
+            }
+
+            Error = null;
+        }
+        catch (TaskCanceledException)
+        {
+            // Task was cancelled, do nothing
+        }
+        catch (Exception ex)
+        {
+            await Display(ex);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private bool IsSelectable(string arg) => !arg.StartsWith(" ");
+
+    private Task Display(Exception e)
+    {
+        Error = e;
+        return InvokeAsync(StateHasChanged);
+    }
+
+
+    private async Task OnOK()
+    {
+        var job = new MigrationJob()
+            {
+                Type                        = MigrationJob.JobType.Copy,
+                SourceDatabase              = SourceDatabase,
+                SourceDatabaseInstance      = SourceDatabaseInstance,
+                DestinationDatabase         = UserSession.Database,
+                DestinationDatabaseInstance = UserSession.DatabaseInstance,
+                Email                       = UserSession.User.GetEmail(),
+                Upsert                      = Upsert,
+                ClearDestinationBefore      = WipeDestination,
+                DisableIndexes              = DisableIndexes,
+                BatchSize                   = int.Parse(BatchSize),
+                Status                      = SelectedCollections
+                   .Where(x => x.Selected)
+                   .Select(x => new MigrationJob.CollectionJob
+                   {
+                       SourceCollection      = x.Value,
+                       DestinationCollection = x.Value,
+                   })
+                   .ToList()
+            };
+
+        await Modal.CloseAsync(ModalResult.Ok(job));
+    }
+
+    public static Task<ModalResult> ShowDialog(IModalService service)
+    {
+        var parameters = new ModalParameters();
+
+        var options = new ModalOptions
+            {
+                HideCloseButton = false,
+                DisableBackgroundCancel = true
+            };
+
+        var form = service.Show<MigrationJobControl>("New migration", parameters, options);
+        return form.Result;
+    }
+
+}

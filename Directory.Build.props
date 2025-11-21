@@ -1,0 +1,38 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Version>1.0.0</Version>
+    <LangVersion>preview</LangVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <NoWarn>1591,3021,NU3018,BL0007,SYSLIB0050</NoWarn>
+    <SolutionDirectory>$([MSBuild]::GetDirectoryNameOfFileAbove(`$(MSBuildProjectDirectory)`, `Directory.Build.props`))/</SolutionDirectory>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+	  <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+	  <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+	  <PlatformTarget>x64</PlatformTarget>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <BaseIntermediateOutputPath>$(SolutionDirectory)bin/obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <!-- UseCommonOutputDirectory disabled for now as there is an msbuild bug that prevents nuget packages being copied over
+	<UseCommonOutputDirectory>true</UseCommonOutputDirectory>
+	-->
+	  <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+<!-- UserSecretsId must match the one from GlobalAssemblyInfo.cs --> 
+	<UserSecretsId>BF0D1460-2D1E-40CC-8F10-127369F684FE</UserSecretsId>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <OutputPath>$(SolutionDirectory)bin\Debug\</OutputPath>
+	<DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+	
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <OutputPath>$(SolutionDirectory)bin\Release\</OutputPath>
+  </PropertyGroup>
+	  
+  <ItemGroup>
+    <Compile Include="$(SolutionDirectory)\GlobalAssemblyInfo.cs" />
+  </ItemGroup>
+</Project>

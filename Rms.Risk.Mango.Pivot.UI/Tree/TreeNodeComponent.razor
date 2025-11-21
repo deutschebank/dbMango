@@ -1,0 +1,320 @@
+@typeparam TItem
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<div class="tree-node">
+    <div class="node-header @SelectedClass" @onclick="SelectNode" @onmouseover="OnMouseOver" @onmouseout="OnMouseOut">
+        <div class="col">
+            <div class="row">
+                @if (Node.Children.Any())
+                {
+                    <button @onclick="ToggleExpand" class="btn btn-flat">
+                        @(IsExpanded ? "-" : "+")
+                    </button>
+                }
+                else if (LabelTemplate == null)
+                {
+                    <div class="btn-placeholder"></div>
+                }
+                <div class="node-text">
+                    @if (!ReadOnly && IsThisNodeEditing)
+                    {
+                        <input type="text" @bind="Label" @onblur="CancelEdit" @ref="_inputElementRef" @onkeydown="HandleKeyDown" />
+                    }
+                    else
+                    {
+                        if (LabelTemplate != null)
+                        {
+                            @LabelTemplate(Node)
+                        }
+                        else
+                        {
+                            @Node.Label
+                        }
+                    }
+                </div>
+                @if (!ReadOnly)
+                {
+                    <div style="visibility: @(IsHovered ? "visible" : "hidden");">
+                        <button type="button" class="btn btn-flat no-padding" @onclick="@EditNode">
+                            <span class="ui-icon-font icon-pencil-sm"></span>
+                        </button>
+                        <button type="button" class="btn btn-flat no-padding" @onclick="@AddChildNode">
+                            <span class="ui-icon-font icon-plus-sm"></span>
+                        </button>
+                        <button type="button" class="btn btn-flat no-padding" @onclick="@DeleteNode">
+                            <span class="ui-icon-font ag-icon-cross"></span>
+                        </button>
+                        @if (CanMoveUp)
+                        {
+                            <button type="button" class="btn btn-flat no-padding" @onclick="MoveUp" title="Move row up">
+                                <span class="ui-icon-font icon-arrow-up-sm"></span>
+                            </button>
+                        }
+                        @if (CanMoveDown)
+                        {
+                            <button type="button" class="btn btn-flat no-padding" @onclick="MoveDown" title="Move row down">
+                                <span class="ui-icon-font icon-arrow-down-sm"></span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            
+            @if (BodyTemplate != null)
+            {
+                <div>
+                    @BodyTemplate(Node)
+                </div>
+            }
+        </div>
+    </div>
+    @if (IsExpanded)
+    {
+        <ul>
+            @foreach (var child in Node.Children)
+            {
+                <TreeNodeComponent Node="child" OnNodeChanged="OnNodeChanged" LabelTemplate="@LabelTemplate" BodyTemplate="@BodyTemplate" />
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    [Parameter] public TreeNode<TItem>                Node          { get; set; } = null!;
+    [Parameter] public EventCallback<TreeNode<TItem>> OnNodeChanged { get; set; }
+
+    [Parameter] public RenderFragment<TreeNode<TItem>>? LabelTemplate { get; set; }
+    [Parameter] public RenderFragment<TreeNode<TItem>>? BodyTemplate  { get; set; }
+
+    [CascadingParameter(Name = "ReadOnly")]                   public bool                      ReadOnly                      { get; set; }
+    [CascadingParameter(Name = "CurrentlyEditingNodeRef")]    public TreeNode<TItem>?          SharedCurrentlyEditingNode    { get; set; }
+    [CascadingParameter(Name = "SetCurrentlyEditingNodeRef")] public Action<TreeNode<TItem>?>? SetSharedCurrentlyEditingNode { get; set; }
+    [CascadingParameter(Name = "SelectedNodeRef")]            public TreeNode<TItem>?          SharedCurrentlySelectedNode   { get; set; }
+    [CascadingParameter(Name = "SetSelectedNodeRef")]         public Action<TreeNode<TItem>?>? SetSelectedNodeRef            { get; set; }
+
+    private string Label
+    {
+        get => Node.Label;
+        set
+        {
+            if (!ShouldApply)
+                return;
+
+            Node.Label = value;
+        }
+    }
+
+    private string SelectedClass => SharedCurrentlySelectedNode == Node ? "node-selected" : "";
+
+    private bool IsHovered   { get; set; }
+    private bool ShouldApply { get; set; }
+
+    private ElementReference _inputElementRef;
+    private bool             _shouldFocusInput = false;
+    private string?          _originalLabelBeforeEdit;
+
+    private bool IsThisNodeEditing => !ReadOnly && SharedCurrentlyEditingNode == Node;
+
+    private bool IsExpanded
+    {
+        get => Node.IsExpanded;
+        set
+        {
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+            if (Node == null)
+                return;
+            Node.IsExpanded = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private bool CanMoveUp => Node.Parent != null && Node.Parent.Children.IndexOf(Node) > 0;
+    private bool CanMoveDown
+    {
+        get
+        {
+            if (Node.Parent == null) return false;
+            var children = Node.Parent.Children;
+            int index = children.IndexOf(Node);
+            return index >= 0 && index < children.Count - 1;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!ReadOnly && IsThisNodeEditing && _shouldFocusInput)
+        {
+            await _inputElementRef.FocusAsync();
+            _shouldFocusInput = false;
+        }
+    }
+
+    private void ToggleExpand()
+    {
+        Node.IsExpanded = !Node.IsExpanded;
+    }
+
+    private async Task EditNode()
+    {
+        if (ReadOnly || SetSharedCurrentlyEditingNode == null)
+            return; // Cascading value not provided
+
+        ShouldApply = true;
+
+        if (SharedCurrentlyEditingNode == null) // Nothing else is being edited
+        {
+            _originalLabelBeforeEdit = Node.Label; // Store original label
+            SetSharedCurrentlyEditingNode.Invoke(Node);
+            _shouldFocusInput = true;
+            // StateHasChanged will be triggered by the parent when SharedCurrentlyEditingNode updates
+        }
+        else if (SharedCurrentlyEditingNode == Node) // This node is already editing, ensure focus
+        {
+            _shouldFocusInput = true;
+            // _originalLabelBeforeEdit should already be set from when editing started
+            await InvokeAsync(StateHasChanged); // Ensure OnAfterRenderAsync is triggered for focus
+        }
+        // If SharedCurrentlyEditingNode is another node, do nothing to enforce single edit
+    }
+
+    private async Task SaveNode()
+    {
+        if ( ReadOnly)
+            return; // Do not save if in read-only mode
+
+        if (SetSharedCurrentlyEditingNode != null && SharedCurrentlyEditingNode == Node)
+        {
+            ShouldApply = true;
+            SetSharedCurrentlyEditingNode.Invoke(null); // Clear editing state
+            _originalLabelBeforeEdit = null; // Clear stored original label
+        }
+        await OnNodeChanged.InvokeAsync(Node);
+
+    }
+
+    private void AddChildNode()
+    {
+        if (ReadOnly)
+            return; // Do not save if in read-only mode
+
+        var newNode = new TreeNode<TItem> { Data = default, Parent = Node }; // Or initialize with a default TItem
+        Node.Children.Add(newNode);
+        IsExpanded = true;
+        OnNodeChanged.InvokeAsync(Node); // Notify parent that this node (Node) has changed (added a child)
+        // Optionally, immediately start editing the new node:
+        // if (SetSharedCurrentlyEditingNode != null && SharedCurrentlyEditingNode == null)
+        // {
+        //     SetSharedCurrentlyEditingNode.Invoke(newNode);
+        //     _shouldFocusInput = true; // This would require newNode to be rendered and then focused.
+        // }
+    }
+
+    private async Task DeleteNode()
+    {
+        if (ReadOnly)
+            return; // Do not save if in read-only mode
+
+        if (SetSharedCurrentlyEditingNode != null && SharedCurrentlyEditingNode == Node)
+        {
+            SetSharedCurrentlyEditingNode.Invoke(null); // Clear editing state if deleting the node being edited
+        }
+        Node.Parent?.Children.Remove(Node);
+        await OnNodeChanged.InvokeAsync(Node.Parent ?? Node); // Notify about change, pass parent or node itself if root
+    }
+
+    private async Task MoveUp()
+    {
+        if (ReadOnly)
+            return; // Do not save if in read-only mode
+
+        if (CanMoveUp)
+        {
+            var index = Node.Parent!.Children.IndexOf(Node);
+            (Node.Parent.Children[index - 1], Node.Parent.Children[index]) = (Node.Parent.Children[index], Node.Parent.Children[index - 1]);
+            await OnNodeChanged.InvokeAsync(Node.Parent);
+        }
+    }
+
+    private async Task MoveDown()
+    {
+        if (ReadOnly)
+            return; // Do not save if in read-only mode
+
+        if (CanMoveDown)
+        {
+            var index = Node.Parent!.Children.IndexOf(Node);
+            (Node.Parent.Children[index + 1], Node.Parent.Children[index]) = (Node.Parent.Children[index], Node.Parent.Children[index + 1]);
+            await OnNodeChanged.InvokeAsync(Node.Parent);
+        }
+    }
+
+    private void OnMouseOver()
+    {
+        IsHovered = true;
+    }
+
+    private void OnMouseOut()
+    {
+        IsHovered = false;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (ReadOnly)
+            return; // Do not save if in read-only mode
+
+        if (args.Key == "Escape")
+        {
+            await CancelEdit();
+        }
+        else if (args.Key == "Enter")
+        {
+            await SaveNode();
+        }
+        // Other keys will be handled by the browser's default behavior for input fields
+    }
+
+    private async Task CancelEdit()
+    {
+        if (ReadOnly)
+            return; // Do not save if in read-only mode
+
+        ShouldApply = false;
+        if (SetSharedCurrentlyEditingNode == null || SharedCurrentlyEditingNode != Node)
+            return;
+
+        if (_originalLabelBeforeEdit != null)
+        {
+            Node.Label = _originalLabelBeforeEdit; // Restore original label
+        }
+
+        SetSharedCurrentlyEditingNode.Invoke(null); // Clear editing state
+        _originalLabelBeforeEdit = null;            // Clear stored original label
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SelectNode()
+    {
+        SetSelectedNodeRef?.Invoke(Node);
+        await InvokeAsync(StateHasChanged);
+    }
+
+}

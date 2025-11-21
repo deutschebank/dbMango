@@ -1,0 +1,716 @@
+﻿@page "/admin/sync-structure"
+@page "/admin/sync-structure/{DatabaseStr}"
+@page "/admin/sync-structure/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+
+@using Rms.Risk.Mango.Components.Commands
+@using Rms.Risk.Mango.Controllers
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@using Rms.Service.Bootstrap.Security
+
+@inject NavigationManager      NavigationManager
+@inject IUserSession            UserSession
+@inject IJSRuntime             JsRuntime
+@inject ITempFileStorage       TempFileStorage
+@inject IPasswordManager       PasswordManager
+@inject ISingleUseTokenService SingleUseTokenService
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    pre {
+        color: white;
+    }
+
+    ul {
+        padding-left: 10px !important;
+    }
+
+    .border-left {
+        border-left: 1px solid @Night.BackgroundLight;
+    }
+
+    .cb-small {
+        width: 120px !important;
+    }
+
+    .cb-small .form-mw {
+        width: 120px !important;
+        min-width: 120px !important;
+    }
+
+    .meta {
+        color: gray;
+        font-style: italic;
+    }
+
+    .idx {
+        color: lightgreen;
+        margin-top: 5px;
+    }
+</style>
+
+<h3 class="mt-3">Sync structure</h3>
+
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+
+    <div class="row mt-3">
+        <div class="col mr-3">
+            <div class="form-row">
+                <FormButton Name="Download"    OnClick="OnDownload"          Icon="icon-download-sm" Class="mr-2"/>
+                <FormButton Name="Select all"  OnClick="OnSelectAllCurrent"  Icon="icon-view-sm"     Class=""/>
+                <FormButton Name="Select none" OnClick="OnSelectNoneCurrent" Icon="icon-hide-sm"     Class=""/>
+            </div>
+            <div class="mt-3">
+                @if ( _loading )
+                {
+                    <ProgressSpinner />
+                }
+                else
+                {
+                    <TreeComponent TItem="IndexTreeItem" RootNodes="@_currentNodes" ReadOnly="true">
+                        <LabelTemplate Context="item">
+                            <div class="row ml-1">
+                            @if ( item.Data == null ) // index label
+                            {
+                                if ( item.Label != "Collections")
+                                {
+                                    <div class="idx ml-1">@item.Label</div>
+                                }
+                                else // root node
+                                {
+                                    <div class="ml-1">@item.Label</div>
+                                }
+                            }
+                            else if ( item.Data.Index != null ) // index body
+                            {
+                                <div class="mt-2">
+                                    <IndexEditComponent Collection="@item.Data.Index.Name"
+                                                        Json="@item.Data.Index.ToJson()"
+                                                        Enabled="false"
+                                                        HideIndexParams="false"
+                                                        IsValid="true" />
+                                </div>
+                            }
+                            else if (item.Data.Collection != null ) // collection node
+                            {
+                                <FormItemCheckBox LabelOn="" LabelOff="" Value="@item.Data.IsSelected" ValueChanged="@(x => SetSourceItem(item, x))"/>
+                                if (item.Data.Collection.Name.EndsWith("-Meta"))
+                                {
+                                    <div class="meta ml-1">@item.Label</div>
+                                }
+                                else
+                                {
+                                    <div class="ml-1">@item.Label</div>
+                                }
+                                if ( item.Data?.IsSharded ?? false )
+                                {
+                                    <div class="badge badge-secondary ml-2">Sharded</div>
+                                }
+                            }
+                            </div>
+                        </LabelTemplate>
+                    </TreeComponent>
+                }
+            </div>
+        </div>
+        <div class="col mr-3 border-left">
+            <div class="form-row">
+                <FormFileUploadButton Name="Upload"      OnFileUploaded="@OnFileUploaded" Icon="icon-upload-sm" Class="mr-2"/>
+                <FormButton           Name="Select all"  OnClick="OnSelectAllTarget"      Icon="icon-view-sm"   Class=""/>
+                <FormButton           Name="Select none" OnClick="OnSelectNoneTarget"     Icon="icon-hide-sm"   Class=""/>
+            </div>
+            <div class="mt-3">
+                <TreeComponent TItem="IndexTreeItem" RootNodes="@_targetNodes" ReadOnly="true">
+                    <LabelTemplate Context="item">
+                        @if ( item.Data == null ) // index label
+                        {
+                            if ( !item.Label.Contains( "Differences", StringComparison.OrdinalIgnoreCase ))
+                            {
+                                <span class="idx">@item.Label</Span>
+                            }
+                            else // root node
+                            {
+                                <span>@item.Label</Span>
+                            }
+                        }
+                        else if ( item.Data.Index != null ) // index body
+                        {
+                            <div class="mt-2">
+                                <IndexEditComponent Collection="@item.Data.Index.Name"
+                                                    Json="@item.Data.Index.ToJson()"
+                                                    Enabled="false"
+                                                    HideIndexParams="false"
+                                                    IsValid="true" />
+                            </div>
+                        }
+                        else if (item.Data.Collection != null ) // collection node
+                        {
+                            <FormItemCheckBox LabelOn="" LabelOff="" Value="@item.Data.IsSelected" ValueChanged="@(x => Set(item, x))"/>
+                            if (item.Data.Collection.Name.EndsWith("-Meta"))
+                            {
+                                <span class="meta">@item.Label</span>
+                            }
+                            else
+                            {
+                                <span>@item.Label</span>
+                            }
+                            if ( item.Data.IsSharded )
+                            {
+                                <span class="badge badge-secondary ml-2">Sharded</span>
+                            }
+                        }
+                        else
+                        {
+                            <span>@item.Label</span>
+                            if ( item.Data.IsSharded )
+                            {
+                                <span class="badge badge-secondary ml-2">Sharded</span>
+                            }
+                        }
+                    </LabelTemplate>
+                </TreeComponent>
+            </div>
+        </div>
+        <div class="col border-left">
+            <div class="form-row">
+                <div class="form-group">
+                    <FormButton Name="Sync" OnClick="OnSync" Icon="icon-merge-sm" />
+                    <label></label>
+                </div>
+                <FormItemCheckBox Name="Dry run"            Icon="icon-running-man-sm"         @bind-Value="_syncOptions.DryRun"            Class="cb-small" />
+                <FormItemCheckBox Name="Create collections" Icon="icon-folder-add-outline"     @bind-Value="_syncOptions.CreateCollections" Class="cb-small" />
+                <FormItemCheckBox Name="Create indexes"     Icon="icon-document-add"           @bind-Value="_syncOptions.CreateIndexes"     Class="cb-small"/>
+                <FormItemCheckBox Name="Remove collections" Icon="icon-folder-remove-outline"  @bind-Value="_syncOptions.RemoveCollections" Class="cb-small" />
+                <FormItemCheckBox Name="Remove indexes"     Icon="icon-document-download-sm"   @bind-Value="_syncOptions.RemoveIndexes"     Class="cb-small" />
+            </div>
+            <div class="mt-3">
+                @foreach( var (success, message) in _progress )
+                {
+                    <div class="alert @(success ? "alert-success" : "alert-danger")">
+                        @message
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (Difference.ToBeSharded.Count > 0 )
+    {
+        <div class="alert-warning">There are collections that needs to be <strong>sharded</strong>. This is needs to be done manually because you have to specify sharding index. Usually it's {_id: "hashed"}, but this is not always true.</div>
+    }
+    @if (Difference.ToBeUnSharded.Count > 0 )
+    {
+        <div class="alert-warning">There are collections that needs to be <strong>unsharded</strong>. This is needs to be done manually because it's impossible to automatically select shard to host all the collection's data.</div>
+    }
+
+</AuthorizedOnly>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private const string ToAddLabel         = "To add/change";
+    private const string ToRemoveLabel      = "To remove";
+    private const string ToBeShardedLabel   = "To be sharded";
+    private const string ToBeUnshardedLabel = "To be unsharded";
+
+
+    public class IndexTreeItem
+    {
+        public DatabaseStructureLoader.CollectionStructure? Collection { get; set; }
+        public DatabaseStructureLoader.IndexStructure?      Index      { get; set; }
+
+        public bool IsSelected { get; set; }
+        public bool IsSharded  { get; init; }
+    }
+
+
+    private DatabaseStructureLoader.StructureDifference       Difference  { get; set; } = new();
+
+    private List<(bool Success, string Message)>              _progress           = new();
+
+    private List<DatabaseStructureLoader.CollectionStructure> _currentCollections = [];
+    private List<DatabaseStructureLoader.CollectionStructure> _targetCollections  = [];
+
+    private bool _loading;
+
+    private readonly DatabaseStructureLoader.SyncStructureOptions _syncOptions = new()
+        {
+            RemoveCollections = false,
+            RemoveIndexes     = false
+        };
+
+    private readonly List<TreeNode<IndexTreeItem>> _currentNodes =
+    [
+        new ()
+        {
+            Label = "Current",
+            Children = []
+        }
+    ];
+
+    private readonly List<TreeNode<IndexTreeItem>> _targetNodes =
+    [
+        new ()
+        {
+            Label    = "Upload to see differences...",
+            Children = []
+        }
+    ];
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        SyncUrl();
+
+        try
+        {
+            _loading = true;
+            StateHasChanged();
+
+            var cts2 = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
+            var (collections, root) = await LoadStructure(UserSession.MongoDbAdmin, UserSession.MongoDbAdminForAdminDatabase, cts2.Token);
+            _currentCollections = collections;
+            _currentNodes.Clear();
+            _currentNodes.Add(root);
+
+            // #if DEBUG
+            //             var json = await File.ReadAllTextAsync("C:\\shabale\\Downloads\\Forge UAT-structure.json");
+            //             _targetCollections = DatabaseStructureLoader.ParseCollections(json);
+            //             CompareStructure();
+            // #endif
+        }
+        catch (Exception ex)
+        {
+            _loading = false;
+            await ModalDialogUtils.ShowExceptionDialog(Modal, $"Error loading structure for {Database}", ex);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/sync-structure/{Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"/{DatabaseInstance}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    public static async Task<(List<DatabaseStructureLoader.CollectionStructure>, TreeNode<IndexTreeItem>)> LoadStructure(IMongoDbDatabaseAdminService db, IMongoDbDatabaseAdminService admin, CancellationToken token)
+    {
+        var root = new TreeNode<IndexTreeItem>
+        {
+            Label = "Collections"
+        };
+
+        var collections = (await DatabaseStructureLoader.LoadCollections(db, admin, token))
+           .Select(x =>
+               new
+               {
+                   Group =
+                        x.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
+                            ? " Meta"
+                            : x.Name.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
+                                ? " Cache"
+                                : " Data",
+                   Value = x
+               }
+            )
+            .ToList();
+
+        var allCollections = collections
+            .OrderBy(x => x.Value.Name)
+            .Select( x => x.Value )
+            .ToList();
+
+        // Add collections to the root node
+        var collectionNodes = collections
+            .GroupBy(x => x.Group)
+            .OrderBy(x => x.Key)
+            .Select(gr => new TreeNode<IndexTreeItem>
+            {
+                Label    = gr.Key,
+                IsExpanded = true,
+                Children = gr
+                    .OrderBy(x => x.Value.Name)
+                    .Select(coll => new TreeNode<IndexTreeItem>
+                    {
+                        Label      = coll.Value.Name,
+                        IsExpanded = false,
+                        Data       = new() 
+                        { 
+                            Collection = coll.Value, 
+                            IsSharded  = coll.Value.IsSharded 
+                        },
+                        Children      = coll.Value.Indexes
+                            .OrderBy(idx => idx.Name)
+                            .Select(idx => new TreeNode<IndexTreeItem>
+                            {
+                                Label      = idx.Name,
+                                IsExpanded = false,
+                                Children = 
+                                [
+                                    new TreeNode<IndexTreeItem>
+                                    {
+                                        Label            = idx.Name,
+                                        LabelFragment    = _ => null!,
+                                        Data             = new()  { Collection = coll.Value, Index = idx },
+                                    }
+                                ]
+                            })
+                            .ToList()
+                    })
+                    .ToList()
+            })
+            .ToList();
+
+        root.Children   = collectionNodes;
+        root.IsExpanded = true;
+        Set(root, true);
+
+        return (allCollections, root);
+    }
+
+    private string ConvertCurrentCollectionsToJson() => Newtonsoft.Json.JsonConvert.SerializeObject(_currentCollections.Where(IsSelected).ToList(), Newtonsoft.Json.Formatting.Indented);
+
+    private bool IsSelected(DatabaseStructureLoader.CollectionStructure coll)
+        => IsSelected(_currentNodes, coll);
+
+    private static bool IsSelected(List<TreeNode<IndexTreeItem>> nodes, DatabaseStructureLoader.CollectionStructure coll)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Data?.Collection?.Name.Equals(coll.Name, StringComparison.OrdinalIgnoreCase) ?? false)
+            {
+                return node.Data.IsSelected;
+            }
+            if (IsSelected(node.Children, coll))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private async Task OnDownload()
+    {
+        var url = await DownloadController.GetDownloadLink(
+            TempFileStorage,
+            PasswordManager,
+            SingleUseTokenService,
+            async fileName => await File.WriteAllTextAsync(fileName, ConvertCurrentCollectionsToJson()),
+            $"{FileUtils.Shield(Database)}-structure.json"
+        );
+
+        await JsRuntime.InvokeVoidAsync("open", $"{NavigationManager.BaseUri}{url}", "_blank");
+
+    }
+
+    private async Task OnSync()
+    {
+        var toAdd = ExtractSelected(ToAddLabel);
+        var toRemove = ExtractSelected(ToRemoveLabel);
+
+        if (toAdd.Count == 0 && toRemove.Count == 0)
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Sync structure", "No changes detected.");
+            return;
+        }
+
+        if ( !_syncOptions.DryRun )
+        {
+            var res = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Sync structure", "Are you sure you want to synchronize the database structure? This will add or remove collections and indexes as needed.");
+            if (res.Cancelled) 
+                return; 
+        }
+        var admin = UserSession.MongoDbAdmin;
+
+        try
+        {
+            var newDiff = new DatabaseStructureLoader.StructureDifference();
+            newDiff.ToAdd.AddRange(Difference.ToAdd.Where(x => toAdd.Contains(x.Name)));
+            newDiff.ToRemove.AddRange(Difference.ToRemove.Where(x => toRemove.Contains(x.Name)));
+
+            _progress = await DatabaseStructureLoader.SyncStructure(admin, newDiff, _syncOptions);
+            await InvokeAsync(StateHasChanged);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Sync structure", "Synchronization completed successfully.");
+        } 
+        catch (Exception ex3)
+        {
+            await InvokeAsync(StateHasChanged);
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error during synchronization", ex3);
+        }
+
+        return;
+        
+        HashSet<string> ExtractSelected(string label)
+        {
+            var idx   = _targetNodes[0].Children.FindIndex(x => x.Label.Equals(label, StringComparison.OrdinalIgnoreCase));
+
+            var res = idx >= 0 
+                    ? _targetNodes[0].Children[idx].Children
+                       .Where(x => x.Data is { IsSelected: true, Collection: not null } )
+                       .Select(x => x.Data!.Collection!.Name)
+                       .ToHashSet(StringComparer.OrdinalIgnoreCase) 
+                    : []
+                ;
+            return res;
+        }
+
+    }
+
+
+    private async Task OnFileUploaded(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            if (args.FileCount == 0)
+                return;
+            var file = args.GetMultipleFiles(1).FirstOrDefault();
+            if (file == null)
+                return;
+
+            await using var stream = file.OpenReadStream(10 * 1024 * 1024); // 10 MB limit
+            var json = await new StreamReader(stream).ReadToEndAsync();
+
+            _targetCollections = DatabaseStructureLoader.ParseCollections(json);
+            if (_targetCollections.Count == 0)
+            {
+                await ModalDialogUtils.ShowInfoDialog(Modal,"Sync structure", "No collections found in the uploaded file.");
+                return;
+            }
+
+            CompareStructure();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error uploading structure", ex);
+
+        }
+    }
+
+    private bool SelectedInCurrent(DatabaseStructureLoader.CollectionStructure node)
+    {
+        var found = _currentNodes[0].Children.FirstOrDefault(x => x.Data?.Collection?.Name.Equals(node.Name, StringComparison.OrdinalIgnoreCase) ?? false);
+        if ( found == null )
+            return true;
+        return found.Data?.IsSelected ?? true;
+
+    }
+
+    private void CompareStructure()
+    {
+        var targetCollections = _targetCollections.Where(SelectedInCurrent).ToList();
+        if (targetCollections.Count == 0)
+        {
+            if (Difference.ToAdd.Count == 0 && Difference.ToRemove.Count == 0 && _targetNodes.Count == 1)
+                return;
+
+            Difference = new();
+            _targetNodes.Clear();
+            _targetNodes.Add(
+                new()
+                    {
+                        Label = "Upload to see differences...",
+                        Children = []
+                    }
+            );
+            return;
+        }
+
+        Difference = DatabaseStructureLoader.GetStructureDifference(_currentCollections.Where(SelectedInCurrent).ToList(), targetCollections);
+
+        _targetNodes[0].IsExpanded = true;
+        _targetNodes[0].Label = $"Differences (Add: {Difference.ToAdd.Count + Difference.ToAdd.Sum(x => x.Indexes.Count)} Remove: {Difference.ToRemove.Count + Difference.ToRemove.Sum(x => x.Indexes.Count)})";
+        _targetNodes[0].Children.Clear();
+
+        if (Difference.ToAdd.Count > 0)
+        {
+            _targetNodes[0].Children.Add(
+                new()
+                    {
+                        Label = ToAddLabel,
+                        IsExpanded = true,
+                        Children = Difference.ToAdd.OrderBy(x => x.Name).Select(coll => new TreeNode<IndexTreeItem>
+                        {
+                            Label = $"{coll.Name} ({coll.Type})",
+                            Data = new() { Collection = coll },
+                            Children = coll.Indexes.OfType<DatabaseStructureLoader.IndexStructureDiff>().Select(idx => new TreeNode<IndexTreeItem>
+                            {
+                                Label = $"{idx.Name} ({idx.Type})",
+                                Data = new() { Collection = coll, Index = idx }
+                            }).ToList()
+                        }).ToList()
+                    }
+            );
+        }
+
+        if (Difference.ToRemove.Count > 0)
+        {
+            _targetNodes[0].Children.Add(
+                new()
+                    {
+                        Label = ToRemoveLabel,
+                        IsExpanded = true,
+                        Children = Difference.ToRemove.OrderBy(x => x.Name).Select(coll => new TreeNode<IndexTreeItem>
+                        {
+                            Label = $"{coll.Name} ({coll.Type})",
+                            Data = new() { Collection = coll },
+                            Children = coll.Indexes.OfType<DatabaseStructureLoader.IndexStructureDiff>().Select(idx => new TreeNode<IndexTreeItem>
+                            {
+                                Label = $"{idx.Name} ({idx.Type})",
+                                Data = new() { Collection = coll, Index = idx }
+                            }).ToList()
+                        }).ToList()
+                    }
+            );
+        }
+
+        if ( Difference.ToBeSharded.Count > 0 )
+        {
+            _targetNodes[0].Children.Add(
+                new()
+                {
+                    Label      = ToBeShardedLabel,
+                    IsExpanded = true,
+                    Children = Difference.ToBeSharded.OrderBy(x => x).Select(coll => new TreeNode<IndexTreeItem>
+                    {
+                        Label    = $"{coll}",
+                        Data     = new()  { IsSharded = false },
+                    }).ToList()
+                }
+            );
+        }
+
+        if ( Difference.ToBeUnSharded.Count > 0 )
+        {
+            _targetNodes[0].Children.Add(
+                new()
+                {
+                    Label      = ToBeUnshardedLabel,
+                    IsExpanded = true,
+                    Children = Difference.ToBeUnSharded.OrderBy(x => x).Select(coll => new TreeNode<IndexTreeItem>
+                    {
+                        Label = $"{coll}",
+                        Data  = new()  { IsSharded = false },
+                    }).ToList()
+                }
+            );
+        }
+
+        OnSelectAllTarget();
+    }
+
+    private static void Set(TreeNode<IndexTreeItem> item, bool value)
+    {
+        if (item.Data != null)
+        {
+            item.Data.IsSelected = value;
+        }
+        foreach (var child in item.Children)
+        {
+            Set(child, value);
+        }
+    }
+
+    private Task OnSelectAllCurrent()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, true);
+        CompareStructure();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectNoneCurrent()
+    {
+        foreach( var node in _currentNodes)
+            Set(node, false);
+        CompareStructure();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectAllTarget()
+    {
+        foreach( var node in _targetNodes)
+            Set(node, true);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectNoneTarget()
+    {
+        foreach( var node in _targetNodes)
+            Set(node, false);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SetSourceItem(TreeNode<IndexTreeItem> item, bool b)
+    {
+        Set(item, b);
+        CompareStructure();
+        return InvokeAsync(StateHasChanged);
+    }
+
+}

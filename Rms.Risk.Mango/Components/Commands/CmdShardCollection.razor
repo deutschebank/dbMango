@@ -1,0 +1,122 @@
+﻿@using MongoDB.Bson.IO
+@using Rms.Risk.Mango.Components.JForms
+@inherits CmdBase
+@attribute [MongoCommand(CmdType.Admin, "Shard", "Collections")]
+
+@if (Parameters != null)
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+{
+    <div class="@Class">
+        <div class="flex-stack-horizontal">
+            <div class="form-row mr-3">
+                <JFormCommand CommandTemplate="@CommandTemplate" Template="@_template" CommandChanged="@OnCommandChanged"/>
+            </div>
+            <div class="form-row">
+                <IndexEditComponent @bind-Json="IndexJson" @bind-IsValid="@IsValid" Collection="@Collection" HideIndexParams="true"/>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <FormJson Value="@(Parameters?.CommandJson)" Class="cmd-json" />
+        </div>
+        <div class="form-row">
+            <FormJson Value="@Result" Class="res-json"/>
+        </div>
+    </div>
+}
+
+@code {
+
+    private readonly TemplateRec _template = new()
+    {
+        Parameters =
+        [
+            new() { Type = "bool", Name = "Unique",                Path = "$.unique",              Icon = "icon-wrench-outline-sm" },
+            new() { Type = "int",  Name  = "Initial Chunks",       Path = "$.numInitialChunks",    Icon = "icon-wrench-outline-sm" },
+            new() { Type = "bool", Name = "PresplitHashedZones",   Path = "$.presplitHashedZones", Icon = "icon-wrench-outline-sm" }
+        ]
+    };
+
+    protected override string CommandTemplate => @"{
+    shardCollection : ""[DATABASE].[COLLECTION]"",
+    key : { ""_id"": ""hashed""},
+    unique: false,
+    presplitHashedZones: false,
+    numInitialChunks: 8182,
+}";
+
+    private string IndexJson
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateCommand();
+        }
+    } = "{ key : { _id : \"hashed\"} }";
+
+    private bool IsValid
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            Validate();
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        if (Parameters != null)
+            Parameters.RequiredConnectionType = CommandParams.DatabaseConnectionType.Admin;
+    }
+
+    private void UpdateCommand()
+    {
+        if (Parameters == null)
+            return;
+
+        var doc = BsonDocument.Parse(Parameters.CommandJson);
+        doc["key"] = BsonDocument.Parse(IndexJson)["key"];
+
+        Parameters.CommandJson = doc.ToJson(new() { Indent = true, OutputMode = JsonOutputMode.RelaxedExtendedJson });
+        Parameters.NeedConfirmation = true;
+        Validate();
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected override void Validate()
+    {
+        if (Parameters != null && Parameters.CanExecute != IsValid)
+        {
+            Parameters.CanExecute = IsValid;
+            InvokeAsync(StateHasChanged);
+        }
+
+    }
+
+}

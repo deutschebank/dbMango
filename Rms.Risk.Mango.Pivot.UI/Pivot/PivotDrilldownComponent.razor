@@ -1,0 +1,183 @@
+﻿@using Rms.Risk.Mango.Pivot.Core
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<style>
+    .code-editor {
+    min-height: 150px;
+    font-family: monospace;
+    }
+</style>
+
+<form class="@Class">
+    <div class="@_rowClass">
+        <div class="form-group mr-3">
+            <label for="DrillFiled">Field to drilldown into:</label>
+            <div class="input-group mr-sm-2">
+                <div class="dropdown">
+                    <button id="DrillFiled" class="btn btn-secondary dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                        @CurrentField
+                    </button>
+                    <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                        @foreach (var d in Pivot?.Drilldown ?? [])
+                        {
+                            <a class="dropdown-item" @onclick="() => SelectDrilldown(d)" @onclick:preventDefault>@d.ColumnName</a>
+                        }
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-secondary ml-3" @onclick="OnAdd" title="Add another field">
+                    <span class="ui-icon-font icon-document-add"></span>
+                </button>
+                <button type="button" class="btn btn-secondary" disabled="@IsDeleteDisabled" @onclick="OnDelete" title="Remove current drilldown rule">
+                    <span class="ui-icon-font icon-trash-sm"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (CurrentDrilldownDef != null)
+    {
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="ColumnName">Field name</label>
+                <div class="input-group mr-sm-2">
+                    <input class="w-100 form-control" @bind="CurrentDrilldownDef.ColumnName" id="ColumnName"/>
+                </div>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="AllPivots">Pivot to drilldown into:</label>
+                <div class="input-group mr-sm-2">
+                    <div class="dropdown">
+                        <button id="AllPivots" class="btn btn-secondary dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            @CurrentDrilldownDef?.DrilldownPivot
+                        </button>
+                        <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                            @foreach (var d in AllPivots)
+                            {
+                                if (d.IsGroup)
+                                {
+                                    <label>@d.Text</label>
+                                }
+                                else
+                                {
+                                    <a class="dropdown-item" @onclick="() => SelectDrilldownPivot(d.Pivot.Name)" @onclick:preventDefault>@d.Pivot.Name</a>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="filter">Append to filter</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control code-editor" @bind="CurrentDrilldownDef!.DrilldownCondition" id="filter" rows="10"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="@_rowClass">
+            <div class="form-group w-100 mr-3">
+                <label for="filter2">Append before grouping</label>
+                <div class="input-group mr-sm-2">
+                    <textarea class="w-100 form-control code-editor" @bind="CurrentDrilldownDef!.AppendToBeforeGrouping" id="filter2" rows="10"></textarea>
+                </div>
+            </div>
+        </div>
+    }
+</form>
+
+@code {
+    [Parameter] public string Class { get; set; } = "";
+
+    [Parameter]
+    public PivotDefinition? Pivot
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+
+            field = value;
+            CurrentDrilldownDef = field?.Drilldown.FirstOrDefault();
+            InvokeAsync(StateHasChanged);
+        }
+    } = null!;
+
+    [Parameter] public List<GroupedPivot> AllPivots { get; set; } = [];
+
+
+    private PivotDefinition.DrilldownDef? CurrentDrilldownDef { get; set; }
+    private string                        CurrentField        => CurrentDrilldownDef?.ColumnName ?? "";
+
+    private string _rowClass = "";
+
+    private Task SelectDrilldown(PivotDefinition.DrilldownDef? d)
+    {
+        if (d == null)
+            return Task.CompletedTask;
+
+        CurrentDrilldownDef = d;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SelectDrilldownPivot(string? pivotName)
+    {
+        if (CurrentDrilldownDef == null)
+            return Task.CompletedTask;
+        CurrentDrilldownDef.DrilldownPivot = pivotName ?? Pivot?.Name ?? "";
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnDelete()
+    {
+        if (IsDeleteDisabled || Pivot == null)
+            return Task.CompletedTask;
+
+        Pivot.Drilldown.Remove(CurrentDrilldownDef!);
+
+        CurrentDrilldownDef = Pivot.Drilldown.FirstOrDefault();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public bool IsDeleteDisabled => (Pivot?.Drilldown?.Count ?? 0) == 0;
+
+    private Task OnAdd()
+    {
+        if (Pivot == null)
+            return Task.CompletedTask;
+
+        var d = new PivotDefinition.DrilldownDef
+        {
+            ColumnName = "Type column name here",
+            DrilldownPivot = Pivot.Name
+        };
+        Pivot.Drilldown.Add(d);
+        CurrentDrilldownDef = d;
+        return InvokeAsync(StateHasChanged);
+    }
+
+}
