@@ -1,4 +1,4 @@
-![Template](Rms.Risk.Mango/wwwroot/images/mango.svg){height=170}
+![Logo](Rms.Risk.Mango/wwwroot/images/mango.svg){height=170}
 
 # dbMango - fully audited MongoDB shell.
 
