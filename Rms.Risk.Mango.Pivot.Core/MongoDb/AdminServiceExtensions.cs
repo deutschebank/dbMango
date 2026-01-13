@@ -69,6 +69,21 @@ public static class AdminServiceExtensions
         return res["version"].ToString() ?? "0.0.0";
     }
 
+    public static async Task<string> GetFeatureCompatibilityVersion(
+        this IMongoDbDatabaseAdminService service,
+        CancellationToken                 token = default)
+    {
+        var res = await service.RunCommand(
+            new()
+            {
+                ["getParameter"] = 1,
+                ["featureCompatibilityVersion"] = 1,
+            }
+            , token);
+
+        return res["featureCompatibilityVersion"]["version"].ToString() ?? "0.0";
+    }
+
     //public static async Task<bool> IsSharded( this IMongoDbDatabaseAdminService db, string database, string collectionName )
     //{
     //    try

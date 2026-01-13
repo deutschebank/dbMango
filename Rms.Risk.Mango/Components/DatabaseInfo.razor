@@ -167,7 +167,22 @@ freeStorage: 0
         _stats["Write access"] = writeAccess.Succeeded;
         _stats["Admin access"] = adminAccess.Succeeded;
 
-        _stats["Version"] = await admin.GetVersion();
+        try
+        {
+            _stats["Version"]          = await UserSession.MongoDbAdminForAdminDatabase.GetVersion();
+        }
+        catch
+        {
+            // ignore
+        }
+        try
+        {
+            _stats["Features"] = await UserSession.MongoDbAdminForAdminDatabase.GetFeatureCompatibilityVersion();
+        }
+        catch
+        {
+            // ignore
+        }
 
     }
 
