@@ -16,7 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-﻿using System.Reflection;
+
+using System.Reflection;
 using log4net;
 
 namespace Rms.Risk.Mango.Services;
@@ -25,9 +26,12 @@ public class ConnectedUserList : IConnectedUserList
 {
     private static readonly ILog _log = LogManager.GetLogger(MethodBase.GetCurrentMethod()!.DeclaringType!);
 
-    public static int UsersReportingIntervalMinutes = 20;
+    // ReSharper disable FieldCanBeMadeReadOnly.Global
+    public static int UsersReportingIntervalMinutes = 60;
+    // ReSharper restore FieldCanBeMadeReadOnly.Global
 
-    private readonly List<IConnectedUser> _users = [];
+    private readonly List<IConnectedUser>  _users       = [];
+    private readonly Dictionary<string, bool> _activeUsers = [];
 
     public ConnectedUserList()
     {
@@ -42,8 +46,9 @@ public class ConnectedUserList : IConnectedUserList
             {
                 await Task.Delay(TimeSpan.FromMinutes(UsersReportingIntervalMinutes));
 
-                var users = string.Join("\n\t", Users);
-                _log.Debug($"Connected users:\n\t{users}");
+                var users = string.Join("\n\t", _activeUsers.Keys);
+                _activeUsers.Clear();
+                _log.Debug($"Active users within last hour interval:\n\t{users}");
             }
             catch (Exception)
             {
@@ -68,7 +73,10 @@ public class ConnectedUserList : IConnectedUserList
     public void Add(IConnectedUser user)
     {
         lock (_users)
+        {
             _users.Add(user);
+            _activeUsers[user.Name] = true;
+        }
     }
 
     public void Remove(IConnectedUser user)

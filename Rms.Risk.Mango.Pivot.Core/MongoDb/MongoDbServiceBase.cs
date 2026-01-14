@@ -168,6 +168,10 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                         .Replace("  ", " ")
             ;
 
+        jsonFilter = jsonFilter.Length > 400
+            ? jsonFilter[..400] + "..."
+            : jsonFilter;
+
         var id = Interlocked.Increment(ref FetchInfo.FetchId);
         Interlocked.Increment(ref FetchInfo.ParallelFinds);
         try

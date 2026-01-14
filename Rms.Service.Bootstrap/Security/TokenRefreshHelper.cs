@@ -69,7 +69,7 @@ internal static class TokenRefreshHelper
     {
         if ( userTokens is { RefreshToken: not null, IsRefreshTokenExpired: true } )
         {
-            _log.LogDebug( $"Refresh token already expired for Email=\"{email}\" at Expiration=\"{userTokens.RefreshTokenExpiresAt:G}\", Now=\"{DateTime.UtcNow:G}\". No refresh attempt made." );
+            //_log.LogDebug( $"Refresh token already expired for Email=\"{email}\" at Expiration=\"{userTokens.RefreshTokenExpiresAt:G}\", Now=\"{DateTime.UtcNow:G}\". No refresh attempt made." );
             userTokens.Clear();
 
             return false;
@@ -86,9 +86,9 @@ internal static class TokenRefreshHelper
             return null;
         }
 
-        _log.LogDebug( userTokens.IsAccessTokenExpired
-                        ? $"Access token for Email=\"{email}\" already expired at Expiration=\"{expiration:G}\", Now=\"{DateTime.UtcNow:G}\". Refreshing."
-                        : $"Access token for Email=\"{email}\" expires at Expiration=\"{expiration:G}, Now=\"{DateTime.UtcNow:G}\". Condition={expiration > DateTime.UtcNow + gap} Refreshing." );
+        //_log.LogDebug( userTokens.IsAccessTokenExpired
+        //                ? $"Access token for Email=\"{email}\" already expired at Expiration=\"{expiration:G}\", Now=\"{DateTime.UtcNow:G}\". Refreshing."
+        //                : $"Access token for Email=\"{email}\" expires at Expiration=\"{expiration:G}, Now=\"{DateTime.UtcNow:G}\". Condition={expiration > DateTime.UtcNow + gap} Refreshing." );
 
 
         return true;
@@ -105,7 +105,7 @@ internal static class TokenRefreshHelper
             var needToRefresh = NeedToRefresh( userTokens, email );
             if ( needToRefresh != true )
             {
-                _log.LogDebug( $"Access token for Email=\"{email}\" renewed in different thread new Expiration=\"{userTokens.AccessTokenExpiresAt:G}\", Now=\"{DateTime.UtcNow:G}\"" );
+                //_log.LogDebug( $"Access token for Email=\"{email}\" renewed in different thread new Expiration=\"{userTokens.AccessTokenExpiresAt:G}\", Now=\"{DateTime.UtcNow:G}\"" );
                 return needToRefresh;
             }
 
@@ -214,16 +214,18 @@ internal static class TokenRefreshHelper
         if ( accessToken == null || refreshToken == null )
         {
             if ( userTokens.ClearExpired() )
-                _log.LogDebug($"Expired token(s) were revoked. Email=\"{email}\"\n"+
-                           $"\tAccessTokenExpiresAt=\"{userTokens.AccessTokenExpiresAt:G}\" AccessTokenExpired={userTokens.IsAccessTokenExpired}\n" +
-                           $"\tRefreshTokenExpiresAt=\"{userTokens.RefreshTokenExpiresAt:G}\" RefreshTokenExpired={userTokens.IsRefreshTokenExpired}\n" +
-                           $"\tNow=\"{DateTime.UtcNow:G}\" (UTC time)");
+            {
+                //_log.LogDebug($"Expired token(s) were revoked. Email=\"{email}\"\n"+
+                //           $"\tAccessTokenExpiresAt=\"{userTokens.AccessTokenExpiresAt:G}\" AccessTokenExpired={userTokens.IsAccessTokenExpired}\n" +
+                //           $"\tRefreshTokenExpiresAt=\"{userTokens.RefreshTokenExpiresAt:G}\" RefreshTokenExpired={userTokens.IsRefreshTokenExpired}\n" +
+                //           $"\tNow=\"{DateTime.UtcNow:G}\" (UTC time)");
+            }
             return;
         }
 
         userTokens.UpdateTokens( accessToken, refreshToken, idToken );
 
-        _log.LogDebug($"Tokens updated for Email=\"{email}\" AccessTokenExpiresAt=\"{userTokens.AccessTokenExpiresAt:G}\" " +
-                   $"AccessTokenExpired={userTokens.IsAccessTokenExpired} Now=\"{DateTime.UtcNow:G}\" (UTC time)");
+        //_log.LogDebug($"Tokens updated for Email=\"{email}\" AccessTokenExpiresAt=\"{userTokens.AccessTokenExpiresAt:G}\" " +
+        //           $"AccessTokenExpired={userTokens.IsAccessTokenExpired} Now=\"{DateTime.UtcNow:G}\" (UTC time)");
     }
 }
