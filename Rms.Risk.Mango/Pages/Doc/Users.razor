@@ -1,0 +1,10 @@
+﻿@page "/doc/users"
+@attribute [Authorize]
+@inject IConnectedUserList ConnectedUserList
+
+<h3>Active users</h3>
+
+<TableControl Items="@ConnectedUserList.Users" Class="table table-hover table-striped fit-content" PagerSize="35">
+    <TableColumnControl Name="Connected Since (UTC)" Field="ConnectedAtUtc" />
+    <TableColumnControl Name="User ID" Field="Name" />
+</TableControl>
