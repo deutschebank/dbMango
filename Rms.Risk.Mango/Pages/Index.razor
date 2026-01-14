@@ -78,8 +78,20 @@
                     <div class="col col-md-auto mt-4">
                         <div>Databases you don't have access to:</div>
                         <TableControl Items="@NoAccessTo" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
-                            <TableColumnControl Field="Name" />
-                            <TableColumnControl Field="Contacts" />
+                            <TableColumnControl Field="Name" Name="Database name">
+                                <Template Context="ctx">
+                                    <div title="@GetTooltip(ctx.Row)">
+                                        @ctx.Row.Name
+                                    </div>
+                                </Template>
+                            </TableColumnControl>
+                            <TableColumnControl Field="Contacts" Name="Contacts">
+                                <Template Context="ctx">
+                                    <div title="@GetTooltip(ctx.Row)">
+                                        @ctx.Row.Contacts
+                                    </div>
+                                </Template>
+                            </TableColumnControl>
                         </TableControl>
                     </div>
                 </div>
@@ -243,5 +255,24 @@
     private void NavigateToPivot()  => NavigationManager.NavigateTo("/user/pivot");
     private void NavigateToAfh()    => NavigationManager.NavigateTo("/user/afh");
     private void NavigateToShell()  => NavigationManager.NavigateTo("/admin/shell");
+
+    private string GetTooltip(dynamic arg2Row)
+    {
+        if (arg2Row is not NoAccessToRec rec || string.IsNullOrWhiteSpace(rec.Name))
+            return string.Empty;
+
+        return GetAccessGroupDesc(rec.Name);
+    }
+
+    private string GetAccessGroupDesc(string databaseName)
+    {
+        var config = DatabaseConfig.Databases.GetValueOrDefault(databaseName);
+        if (config?.Groups == null)
+            return string.Empty;
+
+        return $"Read: {string.Join(", ",  config.Groups.ReadOnly)}; " +
+               $"Write: {string.Join(", ", config.Groups.ReadWrite)}; " +
+               $"Admin: {string.Join(", ", config.Groups.Admin)}";
+    }
 
 }
