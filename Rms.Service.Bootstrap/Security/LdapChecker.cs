@@ -17,6 +17,7 @@
  * limitations under the License.
  */
 ﻿using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Novell.Directory.Ldap;
 
 namespace Rms.Service.Bootstrap.Security;
@@ -25,9 +26,15 @@ public class LdapChecker
 {
     private readonly  LdapSettings _settings;
 
+    private readonly Regex[] _ignoreAccount;
+
     public LdapChecker(LdapSettings settings)
     {
-        _settings = settings;
+        _settings      = settings;
+        _ignoreAccount = settings.IgnoreAccounts
+            .Select(pattern => new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled))
+            .ToArray();
+
         Task.Run(CleanUp);
     }
 
@@ -66,6 +73,9 @@ public class LdapChecker
 
     public async Task<bool> IsGroupMember(string email, string group, CancellationToken token)
     {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(group))
+            return false;
+
         // fast method via memberOf attribute
 
         if (_fastUserGroups.TryGetValue(email, out var groups))
@@ -97,6 +107,9 @@ public class LdapChecker
 
     public async Task<HashSet<string>> GetUserGroups(string email, CancellationToken token)
     {
+        if (string.IsNullOrWhiteSpace(email))
+            return [];
+
         if (!_userGroups.TryGetValue(email, out var groups))
         {
             groups             = await DoOnLdap(email, GetGroups, token);
@@ -130,6 +143,9 @@ public class LdapChecker
 
     private async Task<HashSet<string>> GetGroups(LdapConnection connection, string email, CancellationToken token)
     {
+        if (string.IsNullOrWhiteSpace(email))
+            return [];
+
         var result = await connection.SearchAsync(
             _settings.EntryPoint,
             LdapConnection.ScopeSub,
@@ -166,6 +182,9 @@ public class LdapChecker
 
     private async Task<(string, HashSet<string>)> GetCnAndGroups(LdapConnection connection, string email, CancellationToken token)
     {
+        if (string.IsNullOrWhiteSpace(email))
+            throw new("No email supplied to GetCnAndGroups");
+
         var result = await connection.SearchAsync(
             _settings.EntryPoint,
             LdapConnection.ScopeSub,
@@ -174,34 +193,46 @@ public class LdapChecker
             false, 
             token);
 
+        var accountName = "";
+        var groups = new HashSet<string>();
+
         while (await result.HasMoreAsync(token))
         {
             var entry      = await result.NextAsync(token);
             var aSet = entry.GetAttributeSet();
+            
             if (!aSet.TryGetValue("cn", out var cnAttr))
                 continue;
-            if ( cnAttr.StringValue.EndsWith("-a") || cnAttr.StringValue.EndsWith("-d"))
+            
+            var skip = _ignoreAccount.Any(regex => regex.IsMatch(cnAttr.StringValue));
+            if (skip)
                 continue;
 
-            var groups = new HashSet<string>();
-            if (aSet.TryGetValue("memberOf", out var memberOf))
+            if (!aSet.TryGetValue("memberOf", out var memberOf)) 
+                continue;
+
+            if ( string.IsNullOrWhiteSpace(accountName) )
+                accountName = cnAttr.StringValue;
+
+            foreach (var value in memberOf.StringValues)
             {
-                foreach (var value in memberOf.StringValues)
-                {
-                    var dict = Extract(value);
-                    groups.Add(dict["CN"]);
-                }
+                var dict = Extract(value);
+                if ( dict.TryGetValue("CN", out var cnValue))
+                    groups.Add(cnValue);
             }
-
-
-            return (cnAttr.StringValue, groups);
         }
 
-        throw new($"Can't get CN for {email}");
+        if ( groups.Count == 0 )
+            throw new($"Can't get CN for {email}");
+        
+        return (accountName, groups);
     }
 
     private async Task<HashSet<string>> GetGroupMembers(LdapConnection connection, string groupName, CancellationToken token)
     {
+        if (string.IsNullOrWhiteSpace(groupName))
+            return [];
+
         if (_groupMembers.TryGetValue(groupName, out var hashSet))
             return hashSet;
 
@@ -249,6 +280,9 @@ public class LdapChecker
 
     private async Task<HashSet<string>> GetNestedGroups(LdapConnection connection, string groupName, CancellationToken token)
     {
+        if (string.IsNullOrWhiteSpace(groupName))
+            return [];
+
         if (_nestedGroups.TryGetValue(groupName, out var hashSet))
             return hashSet;
 

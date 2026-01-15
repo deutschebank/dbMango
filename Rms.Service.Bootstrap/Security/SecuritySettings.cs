@@ -78,6 +78,7 @@ public class LdapSettings
     public string                     Password         { get; set; } = "";
     public string                     EntryPoint       { get; set; } = "";
     public Dictionary<string, string> RoleGroupMapping { get; set; } = new();
+    public string[]                   IgnoreAccounts   { get; set; } = [];
 }
 
 /// <summary>
