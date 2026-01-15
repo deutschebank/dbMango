@@ -16,7 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *@
-﻿<button class="btn @ButtonClass" @onclick="@(()=>OnClick.InvokeAsync())" disabled="@(!Enabled)">
+﻿<button class="btn @ButtonClass" @onclick="@(()=>OnClick.InvokeAsync())" disabled="@(!Enabled)" title="@Hint">
     @if (!string.IsNullOrWhiteSpace(Icon))
     {
         <span class="ui-icon-font @Icon" />
@@ -32,6 +32,7 @@
     [Parameter] public bool          IsPrimary { get; set; }
     [Parameter] public string        Icon      { get; set; } = "";
     [Parameter] public string        Name      { get; set; } = "OK";
+    [Parameter] public string        Hint      { get; set; } = "";
     [Parameter] public string        Class     { get; set; } = "mr-1";
     [Parameter] public EventCallback OnClick   { get; set; }
 

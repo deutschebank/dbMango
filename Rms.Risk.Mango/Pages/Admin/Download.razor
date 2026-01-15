@@ -50,9 +50,14 @@
             <First>
                 <div class="ml-1 mr-1">
                     <div class="form-row">
-                        <FormButton Name="Select meta" OnClick="OnSelectAllMeta"     Icon="icon-context-info-outline-sm" Class=""/>
-                        <FormButton Name="Select all"  OnClick="OnSelectAllCurrent"  Icon="icon-view-sm"     Class=""/>
-                        <FormButton Name="Select none" OnClick="OnSelectNoneCurrent" Icon="icon-hide-sm"     Class=""/>
+                        <FormButton Name="" Hint="Select meta" OnClick="OnSelectAllMeta"     Icon="icon-context-info-outline-sm" Class="mr-1"/>
+                        <FormButton Name="" Hint="Select all"  OnClick="OnSelectAllCurrent"  Icon="icon-view-sm"                 Class="mr-1" />
+                        <FormButton Name="" Hint="Select none" OnClick="OnSelectNoneCurrent" Icon="icon-hide-sm"                 Class="mr-1" />
+                        <FormToggleButton Class="mr-1"
+                                          Arg="@_prettyPrint"
+                                          GetIcon="@((_) => _prettyPrint ? "icon-document-code" : "icon-document-sm")"
+                                          GetHint="@((_) => _prettyPrint ? "Formated Json" : "Condensed Json")"
+                                          OnClick="@OnPrettyPrintClicked" />
                     </div>
                     <div class="mt-3">
                         <TreeComponent TItem="IndexTreeItem" RootNodes="@_currentNodes" ReadOnly="true">
@@ -139,6 +144,8 @@
     private bool               IsReadyToCancel => IsReady && !SelectedJob.Complete;
     private string             Error           { get; set; } = "";
     private List<MigrationJob> RunningJobs     { get; set; } = [];
+    
+    private bool _prettyPrint = true;
 
     private CancellationTokenSource _cts = new();
 
@@ -303,10 +310,10 @@
             )
             .ToList();
 
-        var allCollections = collections
-            .OrderBy(x => x.Value.Name)
-            .Select( x => x.Value )
-            .ToList();
+        // var allCollections = collections
+        //     .OrderBy(x => x.Value.Name)
+        //     .Select( x => x.Value )
+        //     .ToList();
 
         // Add collections to the root node
         var collectionNodes = collections
@@ -402,8 +409,9 @@
             SourceDatabase              = UserSession.Database,
             SourceDatabaseInstance      = UserSession.DatabaseInstance,
             DestinationDatabase         = UserSession.Database,
-            DestinationDatabaseInstance = UserSession.DatabaseInstance!,
+            DestinationDatabaseInstance = UserSession.DatabaseInstance,
             Email                       = UserSession.User.GetEmail(),
+            PrettyPrint                 = _prettyPrint,
             Upsert                      = false,
             ClearDestinationBefore      = false,
             BatchSize                   = 1,
@@ -490,6 +498,12 @@
             Error = e.ToString();
         }
 
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnPrettyPrintClicked()
+    {
+        _prettyPrint = !_prettyPrint;
         await InvokeAsync(StateHasChanged);
     }
 

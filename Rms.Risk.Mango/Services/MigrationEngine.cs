@@ -356,7 +356,8 @@ public class MigrationEngine(
 
                     await using var entryStream = fileEntry.Open();
                     await using var writer = new StreamWriter(entryStream);
-                    await writer.WriteAsync(doc.ToJson());
+
+                    await writer.WriteAsync(doc.ToJson(new() { Indent = job.PrettyPrint }));
 
                     copied += 1;
                     if ( copied % 500 == 0 )
