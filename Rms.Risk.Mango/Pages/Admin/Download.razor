@@ -3,12 +3,10 @@
 @page "/admin/download/{DatabaseStr}/{DatabaseInstanceStr}"
 
 @implements IDisposable
-
-@using Rms.Risk.Mango.Pivot.Core.MongoDb
 @attribute [Authorize]
 
 @inject NavigationManager NavigationManager
-@inject IUserSession       UserSession
+@inject IUserSession      UserSession
 @inject IJSRuntime        JsRuntime
 @inject IMigrationEngine  MigrationEngine
 
@@ -42,13 +40,28 @@
         color: lightgreen;
         margin-top: 5px;
     }
+
+    .panel{
+        height: calc(100vh - 100px);
+    }
+
+    .panel .form-control {
+        height: 100%;
+    }
+
+    .panel .list-body {
+        height: calc(100vh - 135px - 34px);
+        max-height: calc(100vh - 135px - 34px);
+        overflow-y: auto;
+    }
+
 </style>
 
 <AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
     <div class="row mt-3">
-        <SplitPanel Orientation="horizontal" InitialSplit="0.3">
+        <SplitPanel Orientation="horizontal" InitialSplit="0.2">
             <First>
-                <div class="ml-1 mr-1">
+                <div class="panel ml-1 mr-1">
                     <div class="form-row">
                         <FormButton Name="" Hint="Select meta" OnClick="OnSelectAllMeta"     Icon="icon-context-info-outline-sm" Class="mr-1"/>
                         <FormButton Name="" Hint="Select all"  OnClick="OnSelectAllCurrent"  Icon="icon-view-sm"                 Class="mr-1" />
@@ -60,33 +73,12 @@
                                           OnClick="@OnPrettyPrintClicked" />
                     </div>
                     <div class="mt-3">
-                        <TreeComponent TItem="IndexTreeItem" RootNodes="@_currentNodes" ReadOnly="true">
-                            <LabelTemplate Context="item">
-                                <div class="row ml-1">
-                                    @if ( item.Data == null ) // index label
-                                    {
-                                        <div class="idx">@item.Label</div>
-                                    }
-                                    else if (item.Data.Collection != null ) // collection node
-                                    {
-                                        <FormItemCheckBox LabelOn="" LabelOff="" Value="@item.Data.IsSelected" ValueChanged="@(x => SetSourceItem(item, x))"/>
-                                        if (item.Data.Collection.Name.EndsWith("-Meta"))
-                                        {
-                                            <div class="meta ml-1">@item.Label</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="ml-1">@item.Label</div>
-                                        }
-                                    }
-                                </div>
-                            </LabelTemplate>
-                        </TreeComponent>
+                        <CollectionsList @ref="_collectionsListRef" @bind-Selection="SelectedCollections" Class="mr-2" Multiselect="true"/>
                     </div>
                 </div>
             </First>
             <Second>
-                <div class="ml-1 mr-1">
+                <div class="panel ml-1 mr-1">
                     <div class="form-row">
                         <div class="form-group">
                             <FormButton Name="Download"    OnClick="OnDownload" Icon="icon-download-sm" Class="mr-2"/>
@@ -134,29 +126,15 @@
     [Parameter] public string? DatabaseStr         { get; set; }
     [Parameter] public string? DatabaseInstanceStr { get; set; }
 
-    public class IndexTreeItem
-    {
-        public DatabaseStructureLoader.CollectionStructure? Collection { get; set; }
-        public bool IsSelected { get; set; }
-    }
-
-    private bool               IsReady         { get; set; }
-    private bool               IsReadyToCancel => IsReady && !SelectedJob.Complete;
-    private string             Error           { get; set; } = "";
-    private List<MigrationJob> RunningJobs     { get; set; } = [];
+    private bool               IsReady             { get; set; }
+    private bool               IsReadyToCancel     => IsReady && !SelectedJob.Complete;
+    private string             Error               { get; set; } = "";
+    private List<MigrationJob> RunningJobs         { get; set; } = [];
+    private List<string>       SelectedCollections { get; set; } = [];
     
-    private bool _prettyPrint = true;
-
-    private CancellationTokenSource _cts = new();
-
-    private readonly List<TreeNode<IndexTreeItem>> _currentNodes =
-    [
-        new ()
-        {
-            Label    = "Collections",
-            Children = []
-        }
-    ];
+    private          bool                    _prettyPrint        = true;
+    private readonly CancellationTokenSource _cts                = new();
+    private          CollectionsList         _collectionsListRef = null!;
 
     private string Database
     {
@@ -194,7 +172,6 @@
         }
     } = new() { Complete = true };
 
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -220,11 +197,7 @@
 
             _ = Task.Run(() => RefreshLoop(_cts.Token), _cts.Token);
 
-            var cts2 = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-
-            var (_, root) = await LoadStructure(UserSession.MongoDbAdmin, UserSession.MongoDbAdminForAdminDatabase, cts2.Token);
-            _currentNodes.Clear();
-            _currentNodes.Add(root);
+            SelectedCollections.Clear();
 
         }
         catch (Exception ex)
@@ -286,120 +259,9 @@
         JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
-    public static async Task<(List<DatabaseStructureLoader.CollectionStructure>, TreeNode<IndexTreeItem>)> LoadStructure(IMongoDbDatabaseAdminService db, IMongoDbDatabaseAdminService admin, CancellationToken token)
-    {
-        var root = new TreeNode<IndexTreeItem>
-        {
-            Label = "Collections"
-        };
-
-        var collStructure = await DatabaseStructureLoader.LoadCollections(db, admin, token);
-
-        var collections = (collStructure)
-       .Select(x =>
-               new
-               {
-                   Group =
-                        x.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
-                            ? " Meta"
-                            : x.Name.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
-                                ? " Cache"
-                                : " Data",
-                   Value = x
-               }
-            )
-            .ToList();
-
-        // var allCollections = collections
-        //     .OrderBy(x => x.Value.Name)
-        //     .Select( x => x.Value )
-        //     .ToList();
-
-        // Add collections to the root node
-        var collectionNodes = collections
-            .GroupBy(x => x.Group)
-            .OrderBy(x => x.Key)
-            .Select(gr => new TreeNode<IndexTreeItem>
-            {
-                Label    = gr.Key,
-                IsExpanded = true,
-                Children = gr
-                    .OrderBy(x => x.Value.Name)
-                    .Select(coll => new TreeNode<IndexTreeItem>
-                    {
-                        Label      = coll.Value.Name,
-                        IsExpanded = false,
-                        Data       = new() 
-                        { 
-                            Collection = coll.Value, 
-                        }
-                    })
-                    .ToList()
-            })
-            .ToList();
-
-        root.Children   = collectionNodes;
-        root.IsExpanded = true;
-        Set(root, false);
-
-        foreach( var node in root.Children)
-            Set(node, true, x => x.Data?.Collection?.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase) ?? false);
-
-        return (collStructure, root);
-    }
-
-    private static void Set(TreeNode<IndexTreeItem> item, bool value, Func<TreeNode<IndexTreeItem>, bool>? filter = null )
-    {
-        filter ??= _ => true;
-
-        if (item.Data != null && filter(item))
-        {
-            item.Data.IsSelected = value;
-        }
-        foreach (var child in item.Children)
-        {
-            Set(child, value, filter);
-        }
-    }
-
-    private Task OnSelectAllCurrent()
-    {
-        foreach( var node in _currentNodes)
-            Set(node, true);
-        return InvokeAsync(StateHasChanged);
-    }
-
-    private Task OnSelectAllMeta()
-    {
-        foreach( var node in _currentNodes)
-            Set(node, true, x => x.Data?.Collection?.Name.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase) ?? false);
-        return InvokeAsync(StateHasChanged);
-    }
-
-    private Task OnSelectNoneCurrent()
-    {
-        foreach( var node in _currentNodes)
-            Set(node, false);
-        return InvokeAsync(StateHasChanged);
-    }
-
-    private Task SetSourceItem(TreeNode<IndexTreeItem> item, bool b)
-    {
-        Set(item, b);
-        return InvokeAsync(StateHasChanged);
-    }
-
-    private static IEnumerable<TreeNode<IndexTreeItem>> GetAllNodes(TreeNode<IndexTreeItem> node)
-    {
-        yield return node;
-        foreach (var child in node.Children)
-        {
-            foreach (var descendant in GetAllNodes(child))
-            {
-                yield return descendant;
-            }
-        }
-    }
+    private void OnSelectAllCurrent()  => _collectionsListRef.SelectAll();
+    private void OnSelectAllMeta()     => _collectionsListRef.SelectMeta();
+    private void OnSelectNoneCurrent() => _collectionsListRef.SelectNone();
 
     private async Task OnDownload()
     {
@@ -415,12 +277,11 @@
             Upsert                      = false,
             ClearDestinationBefore      = false,
             BatchSize                   = 1,
-            Status = GetAllNodes(_currentNodes[0])
-                    .Where(x => (x.Data?.IsSelected ?? false) && x.Data.Collection != null)
+            Status =SelectedCollections
                     .Select(x => new MigrationJob.CollectionJob
                      {
-                         SourceCollection      = x.Data!.Collection!.Name,
-                         DestinationCollection = x.Data!.Collection!.Name,
+                         SourceCollection      = x,
+                         DestinationCollection = x,
                      })
                     .ToList()
         };

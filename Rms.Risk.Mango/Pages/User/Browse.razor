@@ -2,8 +2,6 @@
 @page "/user/browse/{DatabaseStr}/{CollectionStr}"
 @page "/user/browse/{DatabaseStr}/{DatabaseInstanceStr}/{CollectionStr}"
 @using Rms.Risk.Mango.Language
-@using Rms.Risk.Mango.Pivot.Core.MongoDb
-@implements IDisposable
 
 @attribute [Authorize]
 
@@ -55,10 +53,6 @@
         background-color: #1d2a3b;
     }
 
-    .meta {
-        color: grey;
-    }
-
     pre {
         width: 100%;
         height: 100%;
@@ -94,21 +88,7 @@
     <SplitPanel Orientation="horizontal" InitialSplit="0.2">
         <First>
             <div class="panel">
-                <FormItemList Enabled="@IsReady" Class="mr-2" Name="Collection" @bind-Value="SelectedCollection" Values="@Collections" IsSelectable="IsSelectable">
-                    <OptionTemplate>
-                        <div class="d-flex">
-                            <div class="flex-grow-1 m-1 @GetCollectionClass(context)">@context</div>
-                            @if (Stats.TryGetValue(context, out var stat))
-                            {
-                                if (stat.Sharded)
-                                {
-                                    <div class="m-1">Sharded</div>
-                                }
-                                <div class="m-1 ">@NumbersUtils.ToHumanReadable(stat.Size)</div>
-                            }
-                        </div>
-                    </OptionTemplate>
-                </FormItemList>
+                <CollectionsList @bind-Value="SelectedCollection" Class="mr-2"/>
             </div>
         </First>
         <Second>
@@ -154,10 +134,9 @@
     [SupplyParameterFromQuery(Name = "q")]
     public string Text { get; set; } = "";
 
-    private                 List<string>                                  Collections { get; set; } = [];
-    private                 ConcurrentDictionary<string, CollectionStats> Stats       { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly List<int>                                     _rowValues                = Enumerable.Range(0, 8).Select(x => x * 5 + 25).ToList();
-    private                 Dictionary<string, List<string>>              AllHistory  { get; set; } = [];
+    private static readonly List<int> _rowValues = Enumerable.Range(0, 8).Select(x => x * 5 + 25).ToList();
+
+    private Dictionary<string, List<string>> AllHistory { get; set; } = [];
 
     private int Rows
     {
@@ -227,45 +206,36 @@
         }
     }
 
+    private bool IsReady => !_running && !string.IsNullOrWhiteSpace(Database) && !string.IsNullOrWhiteSpace(DatabaseInstance) && !string.IsNullOrWhiteSpace(SelectedCollection);
+
     private string Timeout      { get; set; } = "20";
     private string FetchSize    { get; set; } = "100";
-    private bool   IsReady      { get; set; }
     private bool   ShowAsJson   { get; set; }
     private bool   ShowDropdown { get; set; }
 
     private string              Result      { get; set; } = "{}";
     private List<BsonDocument>  ResultBson  { get; set; } = [];
-    public  ArrayBasedPivotData ResultPivot { get; set; } = new([]);
+    private ArrayBasedPivotData ResultPivot { get; set; } = new([]);
 
     private EditContext?   _editContext;
     private EditContext    EditContext => _editContext!;
-
+    
+    private          bool                    _running            = false;
     private readonly CancellationTokenSource _globalCancellation = new();
-
-    private static string GetCollectionClass(string collectionName) =>
-        collectionName.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
-            ? "meta"
-            : "";
 
     protected override void OnInitialized()
     {
         _editContext = new (this);
     }
 
-    public void Dispose()
-    {
-        _globalCancellation.Cancel();
-        _globalCancellation.Dispose();
-    }
-
-
-
     private class BrowseState
     {
+        // ReSharper disable PropertyCanBeMadeInitOnly.Local
         public string                           Text       { get; set; } = "";
         public int                              Rows       { get; set; } = 25;
         public Dictionary<string, List<string>> History    { get; set; } = [];
         public string?                          Collection { get; set; }
+        // ReSharper restore PropertyCanBeMadeInitOnly.Local
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -306,67 +276,6 @@
 
         if (Text is "null" or null)
             Text = "";
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var admin = UserSession.MongoDbAdmin;
-
-                var cts2 = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
-                var grouped = (await admin.ListCollections(cts2.Token))
-                    .GroupBy(x =>
-                        x.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
-                            ? " Meta"
-                            : x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
-                                ? " Cache"
-                                : " Data"
-                    );
-
-                Collections.Clear();
-                foreach( var group in grouped)
-                {
-                    Collections.Add(group.Key);
-                    Collections.AddRange(group.OrderBy(x => x).Select(x => x));
-                }
-
-                if (!Collections.Contains(SelectedCollection))
-                    SelectedCollection = Collections.FirstOrDefault( x => !x.StartsWith(" ")) ?? "";
-
-                IsReady = true;
-                await InvokeAsync(StateHasChanged);
-
-                _ = Task.Run(LoadCollStats, _globalCancellation.Token);
-            }
-            catch (Exception e)
-            {
-                await Display(e);
-            }
-        }, _globalCancellation.Token);
-    }
-
-    private async Task LoadCollStats()
-    {
-        var admin = UserSession.MongoDbAdmin;
-        var collections = Collections.ToList(); // make a copy to avoid modifying the original list during iteration
-
-        foreach (var name in collections)
-        {
-            try
-            {
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
-
-                var doc = await admin.CollStats(name, cts.Token);
-                doc.Details = null; // Remove details to avoid large output
-
-                Stats[name] = doc;
-                await InvokeAsync(StateHasChanged);
-            }
-            catch (Exception)
-            {
-                // ignore
-            }
-        }
     }
 
     private async Task<BrowseState?> GetState(CancellationToken token)  
@@ -397,7 +306,7 @@
 
         try
         {
-            IsReady = false;
+            _running     = true;
             ShowDropdown = false;
             await InvokeAsync(StateHasChanged);
 
@@ -447,7 +356,7 @@
         }
         finally
         {
-            IsReady = true;
+            _running = false;
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -672,7 +581,5 @@
         else
             await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Success");
     }
-
-    private bool IsSelectable(string arg) => !arg.StartsWith(" ");
 
 }

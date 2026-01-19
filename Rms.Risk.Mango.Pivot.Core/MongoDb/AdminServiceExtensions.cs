@@ -18,7 +18,6 @@
  */
 ﻿using MongoDB.Bson;
 using Rms.Risk.Mango.Pivot.Core.Models;
-using Rms.Risk.Mango.Services;
 using Rms.Risk.Mango.Services.Models;
 
 namespace Rms.Risk.Mango.Pivot.Core.MongoDb;

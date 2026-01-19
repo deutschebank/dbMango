@@ -119,6 +119,7 @@ public class Program
            .AddSingleton<IDatabaseConfigurationService, DatabaseConfigurationService>()
            .AddSingleton<IDocumentationService        , DocumentationService>()
            .AddSingleton<ICommandListService          , CommandListService>()
+           .AddSingleton<IMongoCollectionStatsService , MongoCollectionStatsService>()
            .AddScoped<IUserService                    , UserServiceProxy>()
            .AddScoped<IUserSession                    , UserSession>()
            .AddScoped<IConnectedUser                  , ConnectedUser>()
