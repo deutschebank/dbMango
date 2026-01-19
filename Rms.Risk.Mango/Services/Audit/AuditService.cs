@@ -25,7 +25,7 @@ using Rms.Risk.Mango.Pivot.UI.Services;
 namespace Rms.Risk.Mango.Services.Audit;
 
 // ReSharper disable InconsistentNaming
-public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings, int _auditExpireDays, string? _databaseInstance = null) : IAuditService
+public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings, int _auditExpireDays, ILogger<AuditService> _log, string? _databaseInstance = null) : IAuditService
 // ReSharper restore InconsistentNaming
 {
     public const string AuditCollection = DatabaseStructureLoader.AuditCollection;
@@ -69,6 +69,8 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
             ["commandType"] = commandType,
             ["command"]     = rec.Command
         });
+
+        _log.LogInformation(doc.ToJson());
 
         await _database.GetCollection<BsonDocument>(AuditCollection).InsertOneAsync(doc, new (), token);
     }

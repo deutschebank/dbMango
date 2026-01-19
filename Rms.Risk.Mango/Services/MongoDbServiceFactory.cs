@@ -43,10 +43,19 @@ public class MongoDbServiceFactory : IMongoDbServiceFactory
     private readonly ExpiringConcurrentDictionary<AuditServiceKey, IAuditService>                _auditServices;
     private readonly ExpiringConcurrentDictionary<PivotServiceKey, IPivotTableDataSource>        _pivotServices;
     private readonly ExpiringConcurrentDictionary<AdminServiceKey, IMongoDbDatabaseAdminService> _adminServices;
-    private readonly IDbMangoPlugin?                                                              _dbMangoPlugin;
+    private readonly IDbMangoPlugin?                                                             _dbMangoPlugin;
+    private readonly ILogger<MongoDbServiceFactory>                                              _log;
+    private readonly ILogger<AuditService>                                                       _auditLog;
 
-    public MongoDbServiceFactory(IDatabaseConfigurationService databases, IOptions<DbMangoSettings> settings, IDbMangoPlugin? dbMangoPlugin = null)
+    public MongoDbServiceFactory(
+        IDatabaseConfigurationService  databases, 
+        IOptions<DbMangoSettings>      settings, 
+        ILogger<MongoDbServiceFactory> log, 
+        ILogger<AuditService>          auditLog,
+        IDbMangoPlugin? dbMangoPlugin = null)
     {
+        _log           = log;
+        _auditLog      = auditLog;
         _databases     = databases;
         _settings      = settings;
         _dbMangoPlugin = dbMangoPlugin;
@@ -127,12 +136,19 @@ public class MongoDbServiceFactory : IMongoDbServiceFactory
         var inMongo = new AuditService(
             GetConfig(_databases.Databases[key.AuditDatabase].Config, key.DatabaseInstance),
             _settings.Value.Settings,
-            _settings.Value.AuditExpireDays
+            _settings.Value.AuditExpireDays,
+            _auditLog
         );
 
         _inOracle ??= _settings.Value.AuditLogsInOracle && _dbMangoPlugin != null
             ? _dbMangoPlugin.CreateSecureAuditService(_settings.Value.OracleConnectionSettings)
             : null;
+
+        if ( _settings.Value.AuditLogsInOracle && _dbMangoPlugin == null )
+        {
+            _log.LogWarning("AuditLogsInOracle is enabled but no DbMangoPlugin is loaded, so Oracle audit logging is disabled.");
+        }
+        _log.LogDebug($"Creating AuditService for database '{key.AuditDatabase}': InOracle={_inOracle != null} PluginLoaded={_dbMangoPlugin != null}");
 
         return _inOracle == null
             ? inMongo
