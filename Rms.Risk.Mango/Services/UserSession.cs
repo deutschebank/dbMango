@@ -71,7 +71,7 @@ internal class UserSession : IUserSession
     public override int GetHashCode() => HashCode.Combine(_user.GetEmail(), Database, DatabaseInstance, TaskNumber);
     // ReSharper restore NonReadonlyMemberInGetHashCode
 
-    public async Task<bool> HasValidTask()
+    public async Task<bool> HasValidTask(bool checkExtraInfo)
     {
         TaskNumber     ??= "ITSK0000000000";
         TaskCheckError =   null;
@@ -86,7 +86,7 @@ internal class UserSession : IUserSession
 
         if (_checkReply == null)
         {
-            _checkReply = await _changeNumberChecker.IsValid(TaskNumber, User.GetEmail(), now);
+            _checkReply = await _changeNumberChecker.IsValid(TaskNumber, User.GetEmail(), checkExtraInfo ? _databases.Databases[Database].Comments : null, now);
             if (!_checkReply.IsValid)
             {
                 TaskCheckError = _checkReply.ErrorMessage;

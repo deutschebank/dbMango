@@ -493,11 +493,11 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    public static async Task<string?> CanExecuteCommand(IUserSession userSession, Func<Func<Task>, Task> invokeAsync, IModalService modal)
+    public static async Task<string?> CanExecuteCommand(IUserSession userSession, Func<Func<Task>, Task> invokeAsync, IModalService modal, bool checkExtraInfo = true)
     {
         var check = new [] { false };
 
-        await invokeAsync(async () => check[0] = await userSession.HasValidTask());
+        await invokeAsync(async () => check[0] = await userSession.HasValidTask(checkExtraInfo));
 
         if (check[0]) 
             return userSession.TaskNumber;

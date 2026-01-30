@@ -104,7 +104,7 @@ public interface IUserSession
     /// Checks if the session has a valid task.
     /// </summary>
     /// <returns>A task that resolves to true if the task is valid; otherwise, false.</returns>
-    Task<bool> HasValidTask();
+    Task<bool> HasValidTask(bool checkExtraInfo = true);
 
     /// <summary>
     /// Determines if the user can access a specific resource based on the provided policy and database name.

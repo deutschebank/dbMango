@@ -89,6 +89,9 @@
                 <div class="form-row fit-content">
                     <FormItemText Class="full-width" Name="LDAP Admin group" @bind-Value="Value.Groups.Admin" Icon="icon-layers-sm" />
                 </div>
+                <div class="form-row fit-content">
+                    <FormItemText Class="full-width" Name="Comments" @bind-Value="Value.Comments" Icon="icon-layers-sm" />
+                </div>
 
             </div>
         </div>
@@ -181,7 +184,7 @@
     }
 
     private Task<string?> CanExecuteCommand()
-        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal, false);  // NOTE: this is the only place where extra info is not checked
 
 
     private async Task Update()
