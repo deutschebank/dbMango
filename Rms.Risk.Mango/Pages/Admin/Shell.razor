@@ -515,7 +515,7 @@
 
         userSession.TaskNumber = res;
 
-        await invokeAsync(async () => check[0] = await userSession.HasValidTask());
+        await invokeAsync(async () => check[0] = await userSession.HasValidTask(checkExtraInfo));
 
         if (check[0]) 
             return userSession.TaskNumber;
