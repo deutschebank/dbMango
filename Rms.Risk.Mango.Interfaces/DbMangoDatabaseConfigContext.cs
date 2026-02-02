@@ -27,7 +27,10 @@ public class DatabaseParams
     /// Gets or sets the contact information for the database.
     /// </summary>
     public string Contacts { get; set; } = "";
-
+    /// <summary>
+    /// Comments
+    /// </summary>
+    public string Comments { get; set; } = "";
     /// <summary>
     /// Gets or sets the MongoDB connection URL.
     /// </summary>

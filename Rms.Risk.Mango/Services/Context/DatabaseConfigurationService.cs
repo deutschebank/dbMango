@@ -135,6 +135,7 @@ public class DatabaseConfigurationService : IDatabaseConfigurationService
         var c = new DatabasesConfig.DatabaseConfig
         {
             Contacts = ctx.DatabaseParams.Contacts,
+            Comments = ctx.DatabaseParams.Comments,
             Config = new()
             {
                 MongoDbUrl       = ctx.DatabaseParams.MongoDbUrl,
@@ -208,12 +209,13 @@ public class DatabaseConfigurationService : IDatabaseConfigurationService
 
             DatabaseParams = new()
             {
-                Contacts              = c.Contacts,
-                MongoDbUrl            = c.Config.MongoDbUrl,
-                MongoDbDatabase       = c.Config.MongoDbDatabase,
-                DirectConnection      = c.Config.DirectConnection,
-                UseTls                = c.Config.UseTls,
-                AllowShardAccess      = c.Config.AllowShardAccess,
+                Contacts         = c.Contacts,
+                Comments= c.Comments,
+                MongoDbUrl       = c.Config.MongoDbUrl,
+                MongoDbDatabase  = c.Config.MongoDbDatabase,
+                DirectConnection = c.Config.DirectConnection,
+                UseTls           = c.Config.UseTls,
+                AllowShardAccess = c.Config.AllowShardAccess,
 
                 UserAuthUser          = c.Config.Auth?.User ?? "",
                 UserAuthPassword      = userPass,

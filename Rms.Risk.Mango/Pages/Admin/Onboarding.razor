@@ -36,10 +36,11 @@
                       RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
                       SelectionChanged="@OnSelectionChanged"
             >
-            <TableColumnControl Name="Name"             Field="Name" />
-            <TableColumnControl Name="Contacts"         Field="Contacts" />
-            <TableColumnControl Name="Database"         Field="MongoDbDatabase" />
-            <TableColumnControl Name="Url"              Field="MongoDbUrl" />
+            <TableColumnControl Name="Name"     Field="Name" />
+            <TableColumnControl Name="Contacts" Field="Contacts" />
+            <TableColumnControl Name="Database" Field="MongoDbDatabase" />
+            <TableColumnControl Name="Url"      Field="MongoDbUrl" />
+            <TableColumnControl Name="Comments" Field="Comments" />
         </TableControl>
 
         <div class="mt-4">
@@ -55,6 +56,7 @@
     {
         public string                         Name            { get; set; } = "";
         public string                         Contacts        => Value.Contacts;
+        public string                         Comments        => Value.Comments;
         public string                         MongoDbUrl      => Value.Config.MongoDbUrl;
         public string                         MongoDbDatabase => Value.Config.MongoDbDatabase;
         public DatabasesConfig.DatabaseConfig Value           { get; set; } = new();

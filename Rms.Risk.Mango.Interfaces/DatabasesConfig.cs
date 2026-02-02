@@ -90,9 +90,10 @@ public class DatabasesConfig
         {
             var c = new DatabaseConfig
             {
-                Config = Config.Clone(),
-                Groups = Groups.Clone(),
-                Contacts = Contacts
+                Config   = Config.Clone(),
+                Groups   = Groups.Clone(),
+                Contacts = Contacts,
+                Comments = Comments
             };
             return c;
         }
