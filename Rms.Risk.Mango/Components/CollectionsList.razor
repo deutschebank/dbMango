@@ -103,7 +103,7 @@
         get => _selection.Where(x => x.Value).Select(x => x.Key).OrderBy(x => x).ToList();
         set
         {
-            if ( Selection.SequenceEqual(value.OrderBy(x => x)) )
+            if (Selection.OrderBy(x => x).SequenceEqual(value.OrderBy(x => x)))
                 return;
 
             _selection.Clear();
@@ -227,6 +227,7 @@
     {
         var sel = _selection.GetValueOrDefault(collection);
         _selection[collection] = !sel;
+        SelectionChanged.InvokeAsync(Selection);
         return Task.CompletedTask;
     }
 
