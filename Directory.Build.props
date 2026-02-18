@@ -22,6 +22,8 @@
     <Nullable>enable</Nullable>
 <!-- UserSecretsId must match the one from GlobalAssemblyInfo.cs --> 
 	<UserSecretsId>BF0D1460-2D1E-40CC-8F10-127369F684FE</UserSecretsId>
+    <!-- Force NuGet to use only the NuGet.Config in the solution root -->
+    <RestoreConfigFile>$(MSBuildThisFileDirectory)nuget.config</RestoreConfigFile>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
