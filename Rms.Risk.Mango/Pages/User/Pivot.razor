@@ -32,31 +32,38 @@
 
 <h3>Pivot</h3>
 
-<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
-    <PivotComponent PivotService="@UserSession.PivotDataSource"
-                    Collections="@_collections"
-                    @bind-Collection="Collection"
-                    @bind-Pivot="PivotName"
-                    @bind-Rows="_state.Rows"
-                    PivotType="@IPivotTableDataSource.PivotType.All"
-                    GetExtraFilter="@GetExtraFilter"
-                    CurrentPivotChanged="@OnCurrentPivotChanged">
-        <ExtraFilter>
+@if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+{
+    <p>Pivot functionality disabled for this database...</p>
+}
+else
+{
+    <AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+        <PivotComponent PivotService="@UserSession.PivotDataSource"
+                        Collections="@_collections"
+                        @bind-Collection="Collection"
+                        @bind-Pivot="PivotName"
+                        @bind-Rows="_state.Rows"
+                        PivotType="@IPivotTableDataSource.PivotType.All"
+                        GetExtraFilter="@GetExtraFilter"
+                        CurrentPivotChanged="@OnCurrentPivotChanged">
+            <ExtraFilter>
 
-            <PivotGenericExtraFilterControl 
-                Collection="@Collection"
-                LoadFilterDef = "true"
-                FilterDef="@_extraFilterDef"
-                ExtraFilter="@_extraFilter"
-                ExtraFilterChanged="@(x => SetExtraFilter(x))"
-                PivotService="@UserSession.PivotDataSource"
-                Class="mb-2 ml-1 form-row" />
+                <PivotGenericExtraFilterControl 
+                    Collection="@Collection"
+                    LoadFilterDef = "true"
+                    FilterDef="@_extraFilterDef"
+                    ExtraFilter="@_extraFilter"
+                    ExtraFilterChanged="@(x => SetExtraFilter(x))"
+                    PivotService="@UserSession.PivotDataSource"
+                    Class="mb-2 ml-1 form-row" />
 
-        </ExtraFilter>
-    </PivotComponent>
+            </ExtraFilter>
+        </PivotComponent>
 
-    @* Share="Share" *@
-</AuthorizedOnly>
+        @* Share="Share" *@
+    </AuthorizedOnly>
+}
 
 @code {
     [Parameter] public string? DatabaseStr         { get; set; }
@@ -134,6 +141,9 @@
             else
                 UserSession.DatabaseInstance = DatabaseInstanceStr;
         }
+
+        if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+            return;
 
         if (_collections.Count == 0)
         {

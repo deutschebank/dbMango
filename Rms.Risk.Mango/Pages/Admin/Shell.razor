@@ -466,7 +466,9 @@
         }
     }
 
-    private string DecryptPasswords(string text)
+    private string DecryptPasswords(string text) => DecryptPasswords(PasswordManager, text);
+
+    public static string DecryptPasswords(IPasswordManager pm, string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return text;
@@ -480,7 +482,7 @@
                 continue;
 
             var encryptedValue = match.Groups[1].Value;
-            var decryptedValue = PasswordManager.DecryptPassword(encryptedValue);
+            var decryptedValue = pm.DecryptPassword(encryptedValue);
             text = text.Replace(match.Value, decryptedValue);
         }
 

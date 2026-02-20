@@ -1,0 +1,563 @@
+﻿@page "/user/prepare-patch"
+@page "/user/prepare-patch/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+
+@using MongoDB.Bson.Serialization
+
+@inject NavigationManager     NavigationManager
+@inject IUserSession          UserSession
+@inject IJSRuntime            JsRuntime
+@inject IPatchService         PatchService
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        /* height: 100px; */
+        position: relative;
+        width: 100%;
+    }
+
+    .res-field {
+        width: 100%;
+        height: calc(100vh - 150px);
+        overflow: auto;
+        background-color: #1d2a3b;
+    }
+
+    pre {
+        width: 100%;
+        height: 100%;
+        font-size: 10pt;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+
+    .CodeMirror {
+        height: 150px;
+    }
+
+    .full-width {
+        width: 408px !important;
+    }
+
+    .column-active {
+        min-width: 30px;
+        width: 30px;
+    }
+</style>
+
+<h3 class="mt-3">Prepare patch</h3>
+
+@if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+{
+    <p>Patch management functionality is disabled for this database...</p>
+}
+else
+{
+<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <div class="flex-stack-vertical">
+                <div class="flex-stack-horizontal">
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Add" Icon="icon-document-add" OnClick="Add" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Save" Icon="icon-save-outline-sm" OnClick="Save" IsPrimary="true" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Delete" Icon="icon-trash-sm" OnClick="Delete" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Format" Icon="icon-pencil-sm" OnClick="async () => await Format()" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Copy" Icon="icon-duplicate-document-sm" OnClick="Copy" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Paste" Icon="icon-paste" OnClick="Paste" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="" Icon="icon-lock-sm" OnClick="OnEncrypt" IsPrimary="false" />
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@CanCopyUrl" Name="" Icon="icon-link-sm" OnClick="CopyUrl" IsPrimary="false" />
+                    </div>
+
+                </div>
+                <div class="flex-stack-horizontal mb-1">
+                    <span class="ml-2">Use <a @onclick="OnEncrypt" role="link" style="color: @Night.Link">encrypted</a> sensitive data in form of [*...].</span>
+                </div>
+            </div>
+        </div>
+
+    </EditForm>
+
+    <ExceptionControl Exception="@_lastException" />
+
+    <SplitPanel Orientation="Horizontal" InitialSplit="0.3">
+        <First>
+            <div class="fit-content">
+                <TableControl Items="@_patches" 
+                              Class="table table-hover table-striped table-forge table-forge-striped fit-content" 
+                              Selectable="true" 
+                              RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
+                              SelectionChanged="@OnSelectionChanged"
+                >
+                    <TableColumnControl Name="Active" Field="Active" Class="column-active" >
+                        <Template>
+                            <FormItemCheckBox Value="@(((PatchRecord)context.Row).Active)" Enabled="false" LabelOn="" LabelOff=""/>
+                        </Template>
+                    </TableColumnControl>
+                    <TableColumnControl Name="Name"      Field="Name" />
+                    <TableColumnControl Name="Databases" Field="DatabasesToApply" Class="column-active">
+                        <Template>
+                            @(string.Join(", ", ((PatchRecord)context.Row).DatabasesToApply.Where(x => x.IsSelected).Select(x => x.DatabaseName)))
+                        </Template>
+                    </TableColumnControl>
+                    <TableColumnControl Name="Comments" Field="Comments" />
+                </TableControl>
+            </div>
+        </First>
+        <Second>
+            <div class="w-100 pl-3">
+                <div class="d-flex flex-row fit-content">
+                    <div class="col">
+                        <div class="d-flex flex-row fit-content">
+                            <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Active"        @bind-Value="_selectedRecord.Active"   Icon="icon-tos-sm" />
+                            <FormItemText     Enabled="@IsReady" Class="mr-2"            Name="Timeout (sec)" @bind-Value="_selectedRecord.Timeout"  Icon="icon-clock-sm" InputType="number" />
+                        </div>
+                        <div class="d-flex flex-row fit-content">
+                            <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Name"          @bind-Value="_selectedRecord.Name"     Icon="icon-document-sm" />
+                        </div>
+                        <div class="d-flex flex-row fit-content">
+                            <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Comments"      @bind-Value="_selectedRecord.Comments" Icon="icon-annotate-sm" />
+                        </div>
+                    </div>
+                    <div class="col">
+                        <TableControl Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3"
+                                      Items="@_selectedRecord.DatabasesToApply"
+                                      PageSize="10" 
+                                      Filterable="false">
+            
+                            <TableColumnControl Name="Database" Field="DatabaseName" Class="min-w" />
+                            <TableColumnControl Name="Instance" Field="InstanceName" Class="min-w"/>
+
+                            <TableColumnControl Name="Apply" Field="IsSelected" Class="column-cb align-right" Sortable="false" Filterable="false">
+                                <Template Context="ctx">
+                                    <FormToggleButton Enabled="true" Class="btn-toggle" GetIcon="@GetCheckMarkIcon" Arg="@((DatabaseRec)ctx.Row)" OnClick="@(() => OnToggleClicked((DatabaseRec)ctx.Row))" />
+                                </Template>
+                            </TableColumnControl>
+                        </TableControl>
+
+                    </div>
+                </div>
+                <div class="">
+                    @for (var i = 0; i < _selectedRecord.Patch.Count; i++)
+                    {
+                        var index = i;
+
+                        <div class="flex-stack-horizontal flex-align-end">
+                            <button type="button" class="btn btn-secondary" @onclick="() => AddStageAfter(index)" title="Add row">
+                                <span class="ui-icon-font icon-plus-sm"></span>
+                            </button>
+                            @if (index > 0)
+                            {
+                                <button type="button" class="btn btn-secondary" @onclick="() => MoveStageUp(index)" title="Up">
+                                    <span class="ui-icon-font icon-arrow-up-sm"></span>
+                                </button>
+                            }
+                            @if (index < _selectedRecord.Patch.Count - 1)
+                            {
+                                <button type="button" class="btn btn-secondary" @onclick="() => MoveStageDown(index)" title="Down">
+                                    <span class="ui-icon-font icon-arrow-down-sm"></span>
+                                </button>
+                            }
+                            @if (index > 0)
+                            {
+                                <button type="button" class="btn btn-secondary" @onclick="() => RemoveStage(index)" title="Remove row">
+                                    <span class="ui-icon-font icon-trash-sm"></span>
+                                </button>
+                            }
+                            <FormItemCheckBox @bind-Value="_selectedRecord.Patch[index].Use" />
+                        </div>
+
+                        <div class="js-field">
+                            <FormCodeEditor @bind-Text="_selectedRecord.Patch[index].Text" MediaType="application/x-json" Class="" />
+                        </div>
+                    }
+                </div>
+            </div>
+        </Second>
+    </SplitPanel>
+
+</AuthorizedOnly>
+}
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [SupplyParameterFromQuery(Name = "id")] public string? SelectedIdStr { get; set; }
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private bool        IsReady     { get; set; }
+    private EditContext EditContext => _editContext!;
+
+    private List<PatchRecord> _patches        = [];
+    private PatchRecord       _selectedRecord = new();
+    private Exception?        _lastException;
+    private EditContext?      _editContext;
+    private List<DatabaseRec> _allDatabases = [];
+
+    private static string GetCheckMarkIcon(DatabaseRec model) => model.IsSelected ? "icon-checkmark-sm" : "";
+
+    protected override void OnInitialized()
+    {
+        _editContext = new (this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+            return;
+
+        _allDatabases                    = await PatchService.LoadDatabasesList("ReadAccess");
+        _selectedRecord.DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList();
+
+        _patches = await PatchService.LoadPatches(false);
+        ReAddMissingDatabases();
+        _patches.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
+
+        var first = !string.IsNullOrWhiteSpace(SelectedIdStr) ? _patches.FirstOrDefault(x => x.Id.ToString() == SelectedIdStr) : null;
+        first ??= _patches.FirstOrDefault(x => x.Active);
+        first ??= _patches.FirstOrDefault();
+
+        if (first != null)
+            _selectedRecord = first;
+
+        SyncUrl();
+
+        IsReady = true;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ReAddMissingDatabases()
+    {
+        foreach (var patch in _patches)
+        {
+            foreach (var db in _allDatabases)
+            {
+                if (!patch.DatabasesToApply.Any(x => x.DatabaseName == db.DatabaseName && x.InstanceName == db.InstanceName))
+                    patch.DatabasesToApply.Add(db.Clone());
+
+                patch.DatabasesToApply.Sort((x, y) =>
+                {
+                    var cmp = string.Compare(x.DatabaseName, y.DatabaseName, StringComparison.OrdinalIgnoreCase);
+                    return cmp != 0 ? cmp : string.Compare(x.InstanceName, y.InstanceName, StringComparison.OrdinalIgnoreCase);
+                });
+            }
+        }
+    }
+
+    private async Task<bool> Format()
+    {
+        try
+        {
+            _lastException = null;
+            foreach (var stage in _selectedRecord.Patch)
+            {
+                var doc = BsonDocument.Parse(stage.Text);
+                stage.Text = doc.ToJson(new() { Indent = true });
+            }
+
+            await InvokeAsync(StateHasChanged);
+            return true;
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+            return false;
+        }
+
+    }
+
+    private Task Add()
+    {
+        _selectedRecord                  = new()
+        {
+            Name             = $"Patch {DateTime.UtcNow:dd MMM HH:mm:ss}",
+            DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList()
+        };
+
+        _patches.Add(_selectedRecord);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Save()
+    {
+        var res = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Confirmation", $"Are you sure want to save patch \"{_selectedRecord.Name}\"?");
+        if (!res.Confirmed)
+            return;
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            if (!await Format())
+                return;
+
+            await PatchService.SavePatch(_selectedRecord);
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+
+    }
+
+    private async Task Delete()
+    {
+        var res = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Confirmation", $"Are you sure want to delete patch \"{_selectedRecord.Name}\"?");
+        if (!res.Confirmed)
+            return;
+
+        try
+        {
+            IsReady = false;
+            await InvokeAsync(StateHasChanged);
+
+            await PatchService.DeletePatch(_selectedRecord);
+            _patches.Remove(_selectedRecord);
+
+            var first = _patches.FirstOrDefault(x => x.Active);
+            if (first != null)
+                _selectedRecord = first;
+            else
+            {
+                _selectedRecord = new()
+                {
+                    Name = "New patch",
+                    DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList()
+                };
+            }
+        }
+        finally
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+        }
+
+    }
+
+
+    private string GetPatchText()
+    {
+        // var text = "[" + string.Join(",", _selectedRecord.Patch.Where(x => x.Use && !string.IsNullOrWhiteSpace(x.Text)).Select(CombineStage)) + "]";
+        // var arr  = BsonSerializer.Deserialize<BsonArray>(text);
+        // return arr.ToJson(new() { Indent = true });
+        return _selectedRecord.ToJson(new() { Indent = true });
+    }
+
+    private Task Display(Exception e)
+    {
+        _lastException = e;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"user/prepare-patch/{Database}/{DatabaseInstance}?id={_selectedRecord.Id}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task AddStageAfter(int i)
+    {
+        _selectedRecord.Patch.Insert(i + 1, new());
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RemoveStage(int i)
+    {
+        if (i == 0)
+            return;
+
+        _selectedRecord.Patch.RemoveAt(i);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task MoveStageUp(int i)
+    {
+        if (i == 0)
+            return;
+
+        var item = _selectedRecord.Patch[i];
+        _selectedRecord.Patch.RemoveAt(i);
+        _selectedRecord.Patch.Insert(i - 1, item);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task MoveStageDown(int i)
+    {
+        if (i >= _selectedRecord.Patch.Count - 1)
+            return;
+
+        var item = _selectedRecord.Patch[i];
+        _selectedRecord.Patch.RemoveAt(i);
+        _selectedRecord.Patch.Insert(i+1, item);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Copy()
+    {
+        try
+        {
+            _lastException = null;
+            var text = GetPatchText();
+
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", text);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Confirmation", $"Patch \"{_selectedRecord.Name}\" copied to clipboard.");
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+    }
+
+    private async Task Paste()
+    {
+        try
+        {
+            _lastException = null;
+            await InvokeAsync(StateHasChanged);
+
+            var text = await JsRuntime.InvokeAsync<string>("DashboardUtils.PasteFromClipboard");
+            var patch  = BsonSerializer.Deserialize<PatchRecord>(text);
+
+            var oldId = _selectedRecord.Id;
+            _selectedRecord = patch;
+            _selectedRecord.Id = oldId;
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
+    }
+
+    private void OnSelectionChanged((dynamic Row, string Col) data)
+    {
+        _selectedRecord = (PatchRecord)data.Row;
+        SyncUrl();
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnToggleClicked(DatabaseRec model)
+    {
+        model.IsSelected = !model.IsSelected;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnEncrypt()
+    {
+        var res = await Shell.ShowEncryptionDialog(Modal);
+        if (!res.Cancelled)
+        {
+            var encrypted = (string?)res.Data;
+            if ( string.IsNullOrWhiteSpace(encrypted) )
+                return;
+
+            var toInsert  = $"[{encrypted}]";
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", toInsert);
+        }
+    }
+
+    private bool CanCopyUrl => _selectedRecord.Active && _selectedRecord.DatabasesToApply.Any(x => x.IsSelected);
+
+    private async Task CopyUrl()
+    {
+        try
+        {
+            var url = NavigationManager.BaseUri + $"admin/execute-patch/{Database}/{DatabaseInstance}?id={_selectedRecord.Id}";
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", url);
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", "Url was copied to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", ex);
+        }
+    }
+
+}

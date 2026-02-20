@@ -136,6 +136,11 @@ public interface IUserSession
     IMongoDbDatabaseAdminService GetCustomAdmin(string databaseName, string databaseInstance);
 
     /// <summary>
+    /// Gets the MongoDB service for interacting with the database.
+    /// </summary>
+    IMongoDbService<BsonDocument> GetCustomMongoDbService(string databaseName, string databaseInstance, string collectionName);
+
+    /// <summary>
     /// Gets a shard connection for the specified host and port.
     /// </summary>
     /// <param name="host">The host of the shard.</param>

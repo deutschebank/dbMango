@@ -194,7 +194,7 @@
     private static string GetCollectionClass(string collectionName) =>
         collectionName.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase) || collectionName.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
             ? "meta"
-            : collectionName.EndsWith("-Audit", StringComparison.OrdinalIgnoreCase)
+            : collectionName.StartsWith("dbMango-", StringComparison.OrdinalIgnoreCase)
                 ? "audit"
                 : "";
 

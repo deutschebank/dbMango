@@ -8,10 +8,12 @@
 
 @inject NavigationManager             NavigationManager
 @inject IDatabaseConfigurationService DatabaseConfig
-@inject IUserSession                   Session
+@inject IUserSession                  Session
 @inject IJSRuntime                    JsRuntime
 @inject IAuthorizationService         Auth
 @inject IOptions<DbMangoSettings>     DbMangoSettings
+@inject IDatabaseConfigurationService DatabaseConfigurationService
+@inject IUserSession                  UserSession
 
 @*
  *                                dbMango
@@ -129,8 +131,8 @@
 
 @code{
 
-    [Parameter] public string? DatabaseStr { get; set; }
-    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [SupplyParameterFromQuery(Name = "db")]       public string? DatabaseStr         { get; set; }
+    [SupplyParameterFromQuery(Name = "instance")] public string? DatabaseInstanceStr { get; set; }
 
     private List<string> DatabasesNames    { get; }      = [];
     private List<string> DatabaseInstances { get; set; } = [];
@@ -159,7 +161,23 @@
         }
 
         if (string.IsNullOrWhiteSpace(DatabaseStr) || !await IsUserAuthorized(DatabaseStr))
-            DatabaseStr = Database;
+        {
+            var cts   = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var state = await GetState(cts.Token);
+            if (state?.Database != null && await IsUserAuthorized(state.Database))
+            {
+                DatabaseStr = state.Database;
+                DatabaseInstanceStr = state.DatabaseInstance;
+            }
+            else
+            {
+                DatabaseStr = null;
+                DatabaseInstanceStr = null;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database; 
         else
             Database = DatabaseStr;
 
@@ -168,9 +186,70 @@
         else
             DatabaseInstance = DatabaseInstanceStr;
 
+        if ( string.IsNullOrWhiteSpace(Database))
+        {
+            KeyValuePair<string, DatabasesConfig.DatabaseConfig>? db = null;
+
+            foreach (var kvp in DatabaseConfigurationService.Databases)
+            {
+                if (!await UserSession.CanAccess(Auth, "ReadAccess", kvp.Key)) 
+                    continue;
+
+                db = kvp;
+                break;
+            }
+
+            if (db != null)
+                Database = db.Value.Key;
+        }
+
         SyncUrl();
         await InvokeAsync(StateHasChanged);
     }
+
+    private class IndexState
+    {
+        public string? Database { get; set; }
+        public string? DatabaseInstance { get; set; }
+    }
+
+    private async Task<IndexState?> GetState(CancellationToken token)
+    {
+        try
+        {
+            var json = await JsRuntime.LoadFromLocalStorage("Index", token);
+
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            return JsonUtils.FromJson<IndexState>(json);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task SaveState(CancellationToken token)
+    {
+        try
+        {
+            var state = new IndexState
+            {
+                Database = Database,
+                DatabaseInstance = DatabaseInstance
+            };
+
+            var json = JsonUtils.ToJson(state);
+            await JsRuntime.SaveToLocalStorage("Index", json, token);
+        }
+        catch (Exception)
+        {
+            // Ignore errors during saving state
+            // This is not critical, and we can continue without saving
+        }
+    }
+
 
     private string Database
     {
@@ -212,6 +291,9 @@
             if (DatabaseInstances.All(x=> x != DatabaseInstance) )
                 DatabaseInstance = DatabaseInstances.First();
 
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await SaveState(cts.Token);
+
             SyncUrl();
         }
         catch (Exception ex)
@@ -223,10 +305,10 @@
 
     private void SyncUrl()
     {
-        // var url = NavigationManager.BaseUri + $"{Database}";
-        // if (!string.IsNullOrWhiteSpace(DatabaseInstance))
-        //     url += $"/{DatabaseInstance}";
-        // JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+        var url = NavigationManager.BaseUri + $"?db={Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"&instance={DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
     private async Task<List<string>> GetDatabasesInstanceNames()

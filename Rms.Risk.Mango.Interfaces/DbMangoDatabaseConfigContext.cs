@@ -95,4 +95,10 @@ public class DatabaseParams
     /// Gets or sets a value indicating whether shard access is allowed.
     /// </summary>
     public bool AllowShardAccess { get; set; }
+
+    /// <summary>
+    /// Disables the use of dbMango collections in the database. When set to true, dbMango will not create or use any technical 
+    /// collections in the database. Pivot, patches and audit-in-mongo will become unavailable.
+    /// </summary>
+    public bool DisableDbMangoCollections { get; set; }
 }

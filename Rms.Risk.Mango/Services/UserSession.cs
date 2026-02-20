@@ -41,8 +41,7 @@ internal class UserSession : IUserSession
     private readonly IChangeNumberChecker                  _changeNumberChecker;
     private readonly IDatabaseConfigurationService         _databases;
 
-    public UserSession(IOptions<DbMangoSettings>             settings, 
-                       UserService                           user, 
+    public UserSession(UserService                           user, 
                        IMongoDbServiceFactory                mongoDbServiceFactory, 
                        IChangeNumberChecker                  changeNumberChecker,
                        IDatabaseConfigurationService         databases)
@@ -52,8 +51,8 @@ internal class UserSession : IUserSession
         _changeNumberChecker   = changeNumberChecker;
         _databases             = databases;
         
-        Database               = settings.Value.Initial;
-        DatabaseInstance       = _databases.Databases[settings.Value.Initial].Config.MongoDbDatabase;
+        Database         = _databases.Databases.Keys.FirstOrDefault("");
+        DatabaseInstance = Database == "" ? "" : _databases.Databases[Database].Config.MongoDbDatabase;
     }
 
     public override bool Equals(object? obj)
@@ -210,17 +209,16 @@ internal class UserSession : IUserSession
         }
     }
 
-    public IMongoDbService<BsonDocument> MongoDb
+    public IMongoDbService<BsonDocument> MongoDb => GetCustomMongoDbService(Database, DatabaseInstance, Collection);
+
+    public IMongoDbService<BsonDocument> GetCustomMongoDbService(string databaseName, string databaseInstance, string collection)
     {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(Collection))
-                throw new("Collection is not selected");
+        if (string.IsNullOrWhiteSpace(collection))
+            throw new("Collection is not selected");
 
-            _ = GetDatabaseConfig(Database);
+        _ = GetDatabaseConfig(databaseName);
 
-            return _mongoDbServiceFactory.Create(Database, Collection, DatabaseInstance);
-        }
+        return _mongoDbServiceFactory.Create(databaseName, collection, databaseInstance);
     }
 
     public IMongoDbDatabaseAdminService MongoDbAdmin => GetCustomAdmin(Database, DatabaseInstance);

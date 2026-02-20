@@ -40,6 +40,9 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
 
     public async Task Record(AuditRecord rec, CancellationToken token = default)
     {
+        if ( _config.DisableDbMangoCollections)
+            return;
+
         var commandType = rec.Command.ElementAt(0).Name ?? "";
         if (MongoDbCommandHelper.IsReadOnlyCommand(commandType))
             return;
@@ -77,6 +80,10 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
 
     public async Task<List<AuditRecord>> Audit(DateTime startDate, DateTime endDate, CancellationToken token = default)
     {
+        if ( _config.DisableDbMangoCollections)
+            return [];
+
+
         var filter = $@"{{
     ""$and"" : [
         {{ ts : {{ ""$gte"" : ISODate(""{startDate:yyyy-MM-dd}T00:00:00"") }} }},
@@ -126,10 +133,5 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
             return "";
         return doc[name].ToString() ?? "";
     }
-    //private static bool GetBool(BsonDocument doc, string name)
-    //{
-    //    if (!doc.Contains(name) || doc[name].IsBsonNull )
-    //        return false;
-    //    return doc[name].ToBoolean();
-    //}
+
 }

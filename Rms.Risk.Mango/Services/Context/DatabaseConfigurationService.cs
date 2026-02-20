@@ -63,7 +63,9 @@ public class DatabaseConfigurationService : IDatabaseConfigurationService
         var raw = await _storage.List("dbMango", cts.Token);
         RawDatabases = new(raw.ToDictionary(x => x.Name, x => x));
 
-        var newDb = _config.Value.Databases.ToDictionary(x => x.Key, x => x.Value.Clone());
+        var newDb = _config.Value.Databases
+            .Where(x => !x.Key.StartsWith("<")) // skip <initial-database-name-placeholder>
+            .ToDictionary(x => x.Key, x => x.Value.Clone());
 
         foreach (var databaseConfig in RawDatabases.Select( x => (x.Key, Config : ConvertTo(x.Value))))
         {
@@ -138,11 +140,13 @@ public class DatabaseConfigurationService : IDatabaseConfigurationService
             Comments = ctx.DatabaseParams.Comments,
             Config = new()
             {
-                MongoDbUrl       = ctx.DatabaseParams.MongoDbUrl,
-                MongoDbDatabase  = ctx.DatabaseParams.MongoDbDatabase,
-                DirectConnection = ctx.DatabaseParams.DirectConnection,
-                UseTls           = ctx.DatabaseParams.UseTls,
-                AllowShardAccess = ctx.DatabaseParams.AllowShardAccess,
+                MongoDbUrl                = ctx.DatabaseParams.MongoDbUrl,
+                MongoDbDatabase           = ctx.DatabaseParams.MongoDbDatabase,
+                DirectConnection          = ctx.DatabaseParams.DirectConnection,
+                UseTls                    = ctx.DatabaseParams.UseTls,
+                AllowShardAccess          = ctx.DatabaseParams.AllowShardAccess,
+                DisableDbMangoCollections = ctx.DatabaseParams.DisableDbMangoCollections,
+
                 Auth = new()
                 {
                     User         = ctx.DatabaseParams.UserAuthUser,
@@ -209,13 +213,14 @@ public class DatabaseConfigurationService : IDatabaseConfigurationService
 
             DatabaseParams = new()
             {
-                Contacts         = c.Contacts,
-                Comments= c.Comments,
-                MongoDbUrl       = c.Config.MongoDbUrl,
-                MongoDbDatabase  = c.Config.MongoDbDatabase,
-                DirectConnection = c.Config.DirectConnection,
-                UseTls           = c.Config.UseTls,
-                AllowShardAccess = c.Config.AllowShardAccess,
+                Contacts                  = c.Contacts,
+                Comments                  = c.Comments,
+                MongoDbUrl                = c.Config.MongoDbUrl,
+                MongoDbDatabase           = c.Config.MongoDbDatabase,
+                DirectConnection          = c.Config.DirectConnection,
+                UseTls                    = c.Config.UseTls,
+                AllowShardAccess          = c.Config.AllowShardAccess,
+                DisableDbMangoCollections = c.Config.DisableDbMangoCollections,
 
                 UserAuthUser          = c.Config.Auth?.User ?? "",
                 UserAuthPassword      = userPass,

@@ -777,6 +777,9 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
 
     public async Task<ArrayBasedPivotData?> GetCachedResultAsync(string collectionName,  PivotDefinition def, FilterExpressionTree.ExpressionGroup? extraFilter, Func<string, PivotDefinition, FilterExpressionTree.ExpressionGroup?, string> getQueryText, CancellationToken token = default )
     {
+        if ( _config.DisableDbMangoCollections )
+            return null;
+
         try
         {
             var id = GetCacheKey(collectionName, def, extraFilter, getQueryText );
@@ -808,6 +811,9 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
 
     public async Task CacheResultsAsync(string collectionName, ArrayBasedPivotData data, PivotDefinition def, FilterExpressionTree.ExpressionGroup? extraFilter, Func<string, PivotDefinition, FilterExpressionTree.ExpressionGroup?, string> getQueryText, CancellationToken token = default )
     {
+        if ( _config.DisableDbMangoCollections )
+            return;
+
         var id = GetCacheKey(collectionName, def, extraFilter, getQueryText);
         data.Id = id;
 

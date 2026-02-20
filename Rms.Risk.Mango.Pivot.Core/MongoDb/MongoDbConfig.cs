@@ -56,13 +56,14 @@ public class MongoDbSettings
 
 public class MongoDbConfigRecord
 {
-    public string       MongoDbUrl       { get; set; } = MongoDbConfig.MongoDbUrl                   ;
-    public string       MongoDbDatabase  { get; set; } = MongoDbConfig.MongoDbDatabase              ;
-    public MongoDbAuth? Auth             { get; set; }
-    public MongoDbAuth? AdminAuth        { get; set; }
-    public bool         DirectConnection { get; set; } = MongoDbConfig.MongoDbDirectConnection             ;
-    public bool         UseTls           { get; set; } = MongoDbConfig.MongoDbUseTls                       ;
-    public bool         AllowShardAccess { get; set; } = MongoDbConfig.MongoDbAllowShardAccess;
+    public string       MongoDbUrl                { get; set; } = MongoDbConfig.MongoDbUrl                   ;
+    public string       MongoDbDatabase           { get; set; } = MongoDbConfig.MongoDbDatabase              ;
+    public MongoDbAuth? Auth                      { get; set; }
+    public MongoDbAuth? AdminAuth                 { get; set; }
+    public bool         DirectConnection          { get; set; } = MongoDbConfig.MongoDbDirectConnection             ;
+    public bool         UseTls                    { get; set; } = MongoDbConfig.MongoDbUseTls                       ;
+    public bool         AllowShardAccess          { get; set; } = MongoDbConfig.MongoDbAllowShardAccess;
+    public bool         DisableDbMangoCollections { get; set; }
 
     public override string ToString() => GetKey();
 
@@ -72,13 +73,14 @@ public class MongoDbConfigRecord
     public MongoDbConfigRecord Clone()
         => new()
         {
-            MongoDbUrl       = MongoDbUrl         ,
-            MongoDbDatabase  = MongoDbDatabase    ,
-            Auth             = Auth?.Clone()      ,
-            AdminAuth        = AdminAuth?.Clone(),
-            DirectConnection = DirectConnection   ,
-            UseTls           = UseTls             ,
-            AllowShardAccess = AllowShardAccess
+            MongoDbUrl                = MongoDbUrl         ,
+            MongoDbDatabase           = MongoDbDatabase    ,
+            Auth                      = Auth?.Clone()      ,
+            AdminAuth                 = AdminAuth?.Clone() ,
+            DirectConnection          = DirectConnection   ,
+            UseTls                    = UseTls             ,
+            AllowShardAccess          = AllowShardAccess   ,
+            DisableDbMangoCollections = DisableDbMangoCollections
         };
 
     public void Check()

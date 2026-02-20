@@ -1,0 +1,472 @@
+﻿@page "/admin/execute-patch"
+@page "/admin/execute-patch/{DatabaseStr}/{DatabaseInstanceStr}"
+@attribute [Authorize]
+
+@using Markdig
+@using Markdown.ColorCode
+@using MongoDB.Bson.Serialization
+@using Rms.Service.Bootstrap.Security
+
+@inject NavigationManager NavigationManager
+@inject IUserSession      UserSession
+@inject IJSRuntime        JsRuntime
+@inject IPatchService     PatchService
+@inject IPasswordManager PassordManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .js-field {
+        /* height: 100px; */
+        position: relative;
+        width: 100%;
+    }
+
+    .res-field {
+        font-size: 12pt;
+        width: 100%;
+        height: calc(100vh - 186px);
+        max-height: calc(100vh - 186px);
+        overflow: auto;
+    }
+
+
+    pre {
+        width: 100%;
+        height: 100%;
+        font-size: 10pt;
+        background-color: #1d2a3b;
+        color: #FFFFFF;
+    }
+
+    .CodeMirror {
+        height: 150px;
+    }
+
+    .full-width {
+        width: 408px !important;
+    }
+
+    .column-active {
+        min-width: 30px;
+        width: 30px;
+    }
+</style>
+
+<h3 class="mt-3">Execute patch</h3>
+
+@if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+{
+    <p>Patch management functionality is disabled for this database...</p>
+}
+else
+{
+<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+    <EditForm EditContext="EditContext">
+
+        <div class="form-row">
+            <div class="flex-stack-vertical">
+                <div class="flex-stack-horizontal">
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <FormButton Enabled="@IsReady" Name="Execute" Icon="icon-running-man-sm" OnClick="Execute" IsPrimary="true" />
+                    </div>
+                </div>
+                <div class="flex-stack-horizontal mb-1">
+                    <span class="ml-2">Never accept patches with clear text secrets. Always use <a @onclick="OnEncrypt" role="link" style="color: @Night.Link">encryption</a> for sensitive data in form of [*...].</span>
+                </div>
+            </div>
+        </div>
+
+    </EditForm>
+
+    <ExceptionControl Exception="@_lastException" />
+
+    <SplitPanel Orientation="Horizontal" InitialSplit="0.3">
+        <First>
+            <div class="fit-content">
+                <TableControl Items="@_patches"
+                              Class="table table-hover table-striped table-forge table-forge-striped fit-content"
+                              Selectable="true"
+                              RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
+                              SelectionChanged="@OnSelectionChanged">
+                    <TableColumnControl Name="Active" Field="Active" Class="column-active">
+                        <Template>
+                            <FormItemCheckBox Value="@(((PatchRecord)context.Row).Active)" Enabled="false" LabelOn="" LabelOff="" />
+                        </Template>
+                    </TableColumnControl>
+                    <TableColumnControl Name="Name" Field="Name" />
+                    <TableColumnControl Name="Databases" Field="DatabasesToApply" Class="column-active">
+                        <Template>
+                            @(string.Join(", ", ((PatchRecord)context.Row).DatabasesToApply.Where(x => x.IsSelected).Select(x => x.DatabaseName)))
+                        </Template>
+                    </TableColumnControl>
+                    <TableColumnControl Name="Comments" Field="Comments" />
+                </TableControl>
+            </div>
+        </First>
+        <Second>
+            <div class="w-100 pl-3">
+                <TabControl @bind-ActivePage="ActivePage">
+                    <TabPage Text="Details">
+                        <div class="mt-3 d-flex flex-row fit-content">
+                            <div class="col">
+                                <div class="d-flex flex-row fit-content">
+                                    <FormItemCheckBox Enabled="false" Class="mr-2" Name="Active" @bind-Value="_selectedRecord.Active" Icon="icon-tos-sm" />
+                                    <FormItemText Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)" @bind-Value="_selectedRecord.Timeout" Icon="icon-clock-sm" InputType="number" />
+                                </div>
+                                <div class="d-flex flex-row fit-content">
+                                    <FormItemText Enabled="@IsReady" Class="full-width mr-2" Name="Name" @bind-Value="_selectedRecord.Name" Icon="icon-document-sm" />
+                                </div>
+                                <div class="d-flex flex-row fit-content">
+                                    <FormItemText Enabled="@IsReady" Class="full-width mr-2" Name="Comments" @bind-Value="_selectedRecord.Comments" Icon="icon-annotate-sm" />
+                                </div>
+                            </div>
+                            <div class="col">
+                                <TableControl Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3"
+                                              Items="@_selectedRecord.DatabasesToApply"
+                                              PageSize="10"
+                                              Filterable="false">
+
+                                    <TableColumnControl Name="Database" Field="DatabaseName" Class="min-w" />
+                                    <TableColumnControl Name="Instance" Field="InstanceName" Class="min-w" />
+
+                                    <TableColumnControl Name="Apply" Field="IsSelected" Class="column-cb align-right" Sortable="false" Filterable="false">
+                                        <Template Context="ctx">
+                                            <FormToggleButton Enabled="true" Class="btn-toggle" GetIcon="@GetCheckMarkIcon" Arg="@((DatabaseRec)ctx.Row)" OnClick="@(() => OnToggleClicked((DatabaseRec)ctx.Row))" />
+                                        </Template>
+                                    </TableColumnControl>
+                                </TableControl>
+
+                            </div>
+                        </div>
+                        <div class="">
+                            @for (var i = 0; i < _selectedRecord.Patch.Count; i++)
+                            {
+                                var index = i;
+
+                                <div class="flex-stack-horizontal flex-align-end">
+                                    @if (index > 0)
+                                    {
+                                        <button type="button" class="btn btn-secondary" @onclick="() => MoveStageUp(index)" title="Up">
+                                            <span class="ui-icon-font icon-arrow-up-sm"></span>
+                                        </button>
+                                    }
+                                    @if (index < _selectedRecord.Patch.Count - 1)
+                                    {
+                                        <button type="button" class="btn btn-secondary" @onclick="() => MoveStageDown(index)" title="Down">
+                                            <span class="ui-icon-font icon-arrow-down-sm"></span>
+                                        </button>
+                                    }
+                                    <FormItemCheckBox @bind-Value="_selectedRecord.Patch[index].Use" />
+                                </div>
+
+                                <div class="js-field">
+                                    <FormCodeEditor @bind-Text="_selectedRecord.Patch[index].Text" MediaType="application/x-json" Class="" />
+                                </div>
+                            }
+                        </div>
+                    </TabPage>
+                    <TabPage Text="Results">
+                        <pre class="mt-3 res-field">
+                            @Result
+                        </pre>
+                    </TabPage>
+                </TabControl>
+            </div>
+        </Second>
+    </SplitPanel>
+
+</AuthorizedOnly>
+}
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [SupplyParameterFromQuery(Name = "id")] public string? SelectedIdStr { get; set; }
+
+    [Parameter] public string? DatabaseStr { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+
+    private string Database
+    {
+        get => UserSession.Database;
+        set
+        {
+            if (UserSession.Database == value)
+                return;
+            UserSession.Database = value;
+            SyncUrl();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string DatabaseInstance
+    {
+        get => UserSession.DatabaseInstance;
+        set
+        {
+            if (UserSession.DatabaseInstance == value)
+                return;
+            UserSession.DatabaseInstance = value;
+            SyncUrl();
+        }
+    }
+
+    private bool         IsReady     { get; set; }
+    private EditContext  EditContext => _editContext!;
+    private MarkupString Result      { get; set; }
+    private string       ActivePage { get; set; } = "Details";
+
+    private List<PatchRecord> _patches = [];
+    private PatchRecord       _selectedRecord = new();
+    private Exception?        _lastException;
+    private EditContext?      _editContext;
+    private List<DatabaseRec> _allDatabases = [];
+
+    private static string GetCheckMarkIcon(DatabaseRec model) => model.IsSelected ? "icon-checkmark-sm" : "";
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        if (string.IsNullOrWhiteSpace(DatabaseStr))
+            DatabaseStr = Database;
+        else
+            Database = DatabaseStr;
+
+        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+            DatabaseInstanceStr = DatabaseInstance;
+        else
+            DatabaseInstance = DatabaseInstanceStr;
+
+        if ( UserSession.DatabaseConfig.DisableDbMangoCollections)
+            return;
+
+        _allDatabases                    = await PatchService.LoadDatabasesList("AdminAccess");
+        _selectedRecord.DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList();
+
+        _patches = await PatchService.LoadPatches(true);
+        FilterInaccessiblePatches();
+        _patches.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
+
+        var first = !string.IsNullOrWhiteSpace(SelectedIdStr) ? _patches.FirstOrDefault(x => x.Id.ToString() == SelectedIdStr) : null;
+        first ??= _patches.FirstOrDefault(x => x.Active);
+        first ??= _patches.FirstOrDefault();
+
+        _selectedRecord = first ?? new() { Name = "No patches available or accessible", DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList() };
+
+        SyncUrl();
+
+        IsReady = true;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void FilterInaccessiblePatches()
+    {
+        if (_patches.Count == 0)
+            return;
+
+        var allowed = _allDatabases
+                      .Where(x => !string.IsNullOrWhiteSpace(x.DatabaseName))
+                      .Select(x => x.DatabaseName!)
+                      .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = _patches.Count - 1; i >= 0; i--)
+        {
+            var patch = _patches[i];
+
+            var dbs = patch.DatabasesToApply ?? [];
+
+            // Keep only selected databases that the user has admin access to.
+            var filtered = dbs
+                .Where(d => d.IsSelected && !string.IsNullOrWhiteSpace(d.DatabaseName) && allowed.Contains(d.DatabaseName))
+                .ToList();
+
+            patch.DatabasesToApply = filtered;
+
+            // If no databases remain after filtering, remove the patch entirely.
+            if (patch.DatabasesToApply.Count == 0)
+            {
+                _patches.RemoveAt(i);
+            }
+        }
+    }
+
+
+    private Task Display(Exception e)
+    {
+        _lastException = e;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncUrl()
+    {
+        var url = NavigationManager.BaseUri + $"admin/execute-patch/{DatabaseStr}/{DatabaseInstanceStr}?id={_selectedRecord.Id}";
+
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+    }
+
+    private async Task MoveStageUp(int i)
+    {
+        if (i == 0)
+            return;
+
+        var item = _selectedRecord.Patch[i];
+        _selectedRecord.Patch.RemoveAt(i);
+        _selectedRecord.Patch.Insert(i - 1, item);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task MoveStageDown(int i)
+    {
+        if (i >= _selectedRecord.Patch.Count - 1)
+            return;
+
+        var item = _selectedRecord.Patch[i];
+        _selectedRecord.Patch.RemoveAt(i);
+        _selectedRecord.Patch.Insert(i + 1, item);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnSelectionChanged((dynamic Row, string Col) data)
+    {
+        _selectedRecord = (PatchRecord)data.Row;
+        SyncUrl();
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnToggleClicked(DatabaseRec model)
+    {
+        model.IsSelected = !model.IsSelected;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnEncrypt()
+    {
+        var res = await Shell.ShowEncryptionDialog(Modal);
+        if (!res.Cancelled)
+        {
+            var encrypted = (string?)res.Data;
+            if (string.IsNullOrWhiteSpace(encrypted))
+                return;
+
+            var toInsert = $"[{encrypted}]";
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", toInsert);
+        }
+    }
+
+    private readonly MarkdownPipeline _htmlPipeline = new MarkdownPipelineBuilder()
+           .UseAdvancedExtensions()
+           .UseColorCode()
+           .Build()
+        ;
+
+    private Task Display(IEnumerable<BsonDocument> res)
+    {
+        var json = res.ToJson(new() { Indent = true });
+
+        var md = $"```json\n{json}\n```";
+        Result = new(Markdown.ToHtml(md, _htmlPipeline));
+
+        return InvokeAsync(StateHasChanged);
+    }
+    private async Task Execute()
+    {
+        if ( !_selectedRecord.Active )
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Warning", $"Can not execute inactive patch \"{_selectedRecord.Name}\".");
+            return;
+        }
+
+        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Confirmation", $"Are you sure want to execute patch \"{_selectedRecord.Name}\"?");
+        if (!r.Confirmed)
+            return;
+
+        List<BsonDocument> res = [];
+
+        try
+        {
+            var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+            if (string.IsNullOrWhiteSpace(ticket)) 
+                return;
+
+            IsReady = false;
+            ActivePage = "Results";
+            await InvokeAsync(StateHasChanged);
+
+            var docs = _selectedRecord.Patch
+                .Where(x => x.Use)
+                .Select(x => (Step: x, Doc: BsonSerializer.Deserialize<BsonDocument>(Shell.DecryptPasswords(PassordManager, x.Text))))
+                .ToList()
+                ;
+
+            foreach (var db in _selectedRecord.DatabasesToApply.Where(x => x.IsSelected))
+            {
+                res.Add(new() { { $">>>>>>>> Applying \"{_selectedRecord.Name}\" to database", $"{db.DatabaseName} / {db.InstanceName}" } });
+
+                var admin = UserSession.GetCustomAdmin(db.DatabaseName, db.InstanceName);
+
+                foreach (var (step, doc) in docs)
+                {
+                    var cts = new CancellationTokenSource(TimeSpan.Parse(string.IsNullOrWhiteSpace(_selectedRecord.Timeout) ? "00:00:30" : _selectedRecord.Timeout) );
+
+                    Shell.UpdateComment(doc, ticket, UserSession.User.GetEmail());
+                    res.Add(doc);
+                    res.Add(new() { { "----------------------------------", "----------------------------------" } });
+                    await Display(res);
+
+                    res.AddRange(await admin.RunCommand(doc, step.Text, cts.Token));
+                    res.Add(new() { { "==================================", "==================================" } });
+
+                    step.Use = false;
+
+                    await Display(res);
+                }
+
+                db.IsSelected = false; // Deselect database after applying patch to it.
+            }
+
+            _selectedRecord.Active = false; // Deactivate after execution to prevent accidental re-execution.
+            await PatchService.SavePatch(_selectedRecord);
+
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Success", $"Patch \"{_selectedRecord.Name}\" executed successfully.");
+        }
+        catch (Exception e)
+        {
+            IsReady = true;
+            await InvokeAsync(StateHasChanged);
+
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", e);
+        }
+    }
+
+}

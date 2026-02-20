@@ -123,6 +123,7 @@ public class Program
            .AddScoped<IUserService                    , UserServiceProxy>()
            .AddScoped<IUserSession                    , UserSession>()
            .AddScoped<IConnectedUser                  , ConnectedUser>()
+           .AddScoped<IPatchService                   , PatchService>()
            .AddSingleton<IConnectedUserList           , ConnectedUserList>()
             ;
 
