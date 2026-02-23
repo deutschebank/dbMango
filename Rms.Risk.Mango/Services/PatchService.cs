@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using ColorCode.Compilation.Languages;
+using Microsoft.AspNetCore.Authorization;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using Rms.Risk.Mango.Interfaces;
@@ -39,6 +40,8 @@ public class PatchService(IUserSession _userSession, IAuthorizationService _auth
 
     public async Task SavePatch(PatchRecord rec)
     {
+        CheckCRUDCommands(rec);
+
         var service = _userSession.MongoDbAdmin;
         var cts     = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
@@ -110,6 +113,32 @@ $@"{{
         }
 
         return databases;
+    }
+
+    private readonly HashSet<string> _crudCommands =  new () { "find", "insert", "update", "delete", "aggregate" };
+
+    public void CheckCRUDCommands(PatchRecord rec)
+    {
+        if ( !rec.OnlyCRUDCommands )
+            return;
+
+        foreach (var stage in rec.Patch)
+        {
+            if (!stage.Use)
+                continue;
+
+            var bson    = BsonDocument.Parse( stage.Text );
+            var command =  bson.ElementAt(0).Name.ToLowerInvariant();
+            if ( IsCRUDCommand(bson) )
+                continue;
+            throw new InvalidOperationException($"Only CRUD commands are allowed: {command}");
+        }
+    }
+
+    public bool IsCRUDCommand(BsonDocument bson)
+    {
+        var command =  bson.ElementAt(0).Name.ToLowerInvariant();
+        return _crudCommands.Contains(command) || MongoDbCommandHelper.IsReadOnlyCommand(bson);
     }
 
 }

@@ -7,11 +7,12 @@
 @using MongoDB.Bson.Serialization
 @using Rms.Service.Bootstrap.Security
 
-@inject NavigationManager NavigationManager
-@inject IUserSession      UserSession
-@inject IJSRuntime        JsRuntime
-@inject IPatchService     PatchService
-@inject IPasswordManager PassordManager
+@inject NavigationManager     NavigationManager
+@inject IUserSession          UserSession
+@inject IJSRuntime            JsRuntime
+@inject IPatchService         PatchService
+@inject IPasswordManager      PasswordManager
+@inject IAuthorizationService Auth
 
 @*
  *                                dbMango
@@ -78,7 +79,7 @@
 }
 else
 {
-<AuthorizedOnly Policy="AdminAccess" Resource="@UserSession.Database">
+<AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
     <EditForm EditContext="EditContext">
 
         <div class="form-row">
@@ -133,10 +134,13 @@ else
                                     <FormItemText Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)" @bind-Value="_selectedRecord.Timeout" Icon="icon-clock-sm" InputType="number" />
                                 </div>
                                 <div class="d-flex flex-row fit-content">
-                                    <FormItemText Enabled="@IsReady" Class="full-width mr-2" Name="Name" @bind-Value="_selectedRecord.Name" Icon="icon-document-sm" />
+                                    <FormItemText Enabled="false" Class="full-width mr-2" Name="Name" @bind-Value="_selectedRecord.Name" Icon="icon-document-sm" />
                                 </div>
                                 <div class="d-flex flex-row fit-content">
-                                    <FormItemText Enabled="@IsReady" Class="full-width mr-2" Name="Comments" @bind-Value="_selectedRecord.Comments" Icon="icon-annotate-sm" />
+                                        <FormItemText Enabled="false" Class="full-width mr-2" Name="Comments" @bind-Value="_selectedRecord.Comments" Icon="icon-annotate-sm" />
+                                </div>
+                                <div class="d-flex flex-row fit-content">
+                                    <FormItemCheckBox Enabled="false" Class="mr-2" Name="Only CRUD commands" @bind-Value="_selectedRecord.OnlyCRUDCommands" Icon="icon-user-star-outline" />
                                 </div>
                             </div>
                             <div class="col">
@@ -179,7 +183,7 @@ else
                                 </div>
 
                                 <div class="js-field">
-                                    <FormCodeEditor @bind-Text="_selectedRecord.Patch[index].Text" MediaType="application/x-json" Class="" />
+                                    <FormCodeEditor Readonly="true" Text="@_selectedRecord.Patch[index].Text" MediaType="application/x-json" Class="" />
                                 </div>
                             }
                         </div>
@@ -239,7 +243,8 @@ else
     private PatchRecord       _selectedRecord = new();
     private Exception?        _lastException;
     private EditContext?      _editContext;
-    private List<DatabaseRec> _allDatabases = [];
+    private List<DatabaseRec> _writeAllowedDatabases = [];
+    private List<DatabaseRec> _adminAllowedDatabases = [];
 
     private static string GetCheckMarkIcon(DatabaseRec model) => model.IsSelected ? "icon-checkmark-sm" : "";
 
@@ -266,18 +271,21 @@ else
         if ( UserSession.DatabaseConfig.DisableDbMangoCollections)
             return;
 
-        _allDatabases                    = await PatchService.LoadDatabasesList("AdminAccess");
-        _selectedRecord.DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList();
+        _adminAllowedDatabases           = await PatchService.LoadDatabasesList("AdminAccess");
+        _writeAllowedDatabases           = await PatchService.LoadDatabasesList("WriteAccess");
+        _selectedRecord.DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList();
 
         _patches = await PatchService.LoadPatches(true);
+        
         FilterInaccessiblePatches();
+        
         _patches.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
 
         var first = !string.IsNullOrWhiteSpace(SelectedIdStr) ? _patches.FirstOrDefault(x => x.Id.ToString() == SelectedIdStr) : null;
         first ??= _patches.FirstOrDefault(x => x.Active);
         first ??= _patches.FirstOrDefault();
 
-        _selectedRecord = first ?? new() { Name = "No patches available or accessible", DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList() };
+        _selectedRecord = first ?? new() { Name = "No patches available or accessible", DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList() };
 
         SyncUrl();
 
@@ -291,20 +299,36 @@ else
         if (_patches.Count == 0)
             return;
 
-        var allowed = _allDatabases
-                      .Where(x => !string.IsNullOrWhiteSpace(x.DatabaseName))
-                      .Select(x => x.DatabaseName!)
-                      .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var writeAllowed = _writeAllowedDatabases
+           .Where(x => !string.IsNullOrWhiteSpace(x.DatabaseName))
+           .Select(x => x.DatabaseName!)
+           .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var adminAllowed = _adminAllowedDatabases
+           .Where(x => !string.IsNullOrWhiteSpace(x.DatabaseName))
+           .Select(x => x.DatabaseName!)
+           .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         for (var i = _patches.Count - 1; i >= 0; i--)
         {
             var patch = _patches[i];
 
+            // skip invalid patches
+            if (patch.OnlyCRUDCommands && !PatchService.IsCRUDPatch(patch))
+            {
+                _patches.RemoveAt(i);
+                continue;
+            }
+
             var dbs = patch.DatabasesToApply ?? [];
 
             // Keep only selected databases that the user has admin access to.
             var filtered = dbs
-                .Where(d => d.IsSelected && !string.IsNullOrWhiteSpace(d.DatabaseName) && allowed.Contains(d.DatabaseName))
+                .Where(d => 
+                    d.IsSelected 
+                    && !string.IsNullOrWhiteSpace(d.DatabaseName) 
+                    && (patch.OnlyCRUDCommands ? writeAllowed.Contains(d.DatabaseName) : adminAllowed.Contains(d.DatabaseName))
+                )
                 .ToList();
 
             patch.DatabasesToApply = filtered;
@@ -316,7 +340,6 @@ else
             }
         }
     }
-
 
     private Task Display(Exception e)
     {
@@ -422,7 +445,7 @@ else
 
             var docs = _selectedRecord.Patch
                 .Where(x => x.Use)
-                .Select(x => (Step: x, Doc: BsonSerializer.Deserialize<BsonDocument>(Shell.DecryptPasswords(PassordManager, x.Text))))
+                .Select(x => (Step: x, Doc: BsonSerializer.Deserialize<BsonDocument>(Shell.DecryptPasswords(PasswordManager, x.Text))))
                 .ToList()
                 ;
 

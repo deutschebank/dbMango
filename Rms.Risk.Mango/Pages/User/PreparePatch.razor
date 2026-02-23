@@ -151,14 +151,21 @@ else
                 <div class="d-flex flex-row fit-content">
                     <div class="col">
                         <div class="d-flex flex-row fit-content">
-                            <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Active"        @bind-Value="_selectedRecord.Active"   Icon="icon-tos-sm" />
-                            <FormItemText     Enabled="@IsReady" Class="mr-2"            Name="Timeout (sec)" @bind-Value="_selectedRecord.Timeout"  Icon="icon-clock-sm" InputType="number" />
+                            <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Active"             @bind-Value="_selectedRecord.Active"           Icon="icon-tos-sm" />
+                            <FormItemText     Enabled="@IsReady" Class="mr-2"            Name="Timeout (sec)"      @bind-Value="_selectedRecord.Timeout"          Icon="icon-clock-sm" InputType="number" />
+                        </div>                                                                                                                                    
+                        <div class="d-flex flex-row fit-content">                                                                                                 
+                            <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Name"               @bind-Value="_selectedRecord.Name"             Icon="icon-document-sm" />
+                        </div>                                                                                                                                    
+                        <div class="d-flex flex-row fit-content">                                                                                                 
+                            <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Comments"           @bind-Value="_selectedRecord.Comments"         Icon="icon-annotate-sm" />
+                        </div>                                                                                                                                    
+                        <div class="d-flex flex-row fit-content">                                                                                                 
+                            <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Active"             @bind-Value="_selectedRecord.Active"           Icon="icon-tos-sm" />
+                            <FormItemText     Enabled="@IsReady" Class="mr-2"            Name="Timeout (sec)"      @bind-Value="_selectedRecord.Timeout"          Icon="icon-clock-sm" InputType="number" />
                         </div>
                         <div class="d-flex flex-row fit-content">
-                            <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Name"          @bind-Value="_selectedRecord.Name"     Icon="icon-document-sm" />
-                        </div>
-                        <div class="d-flex flex-row fit-content">
-                            <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Comments"      @bind-Value="_selectedRecord.Comments" Icon="icon-annotate-sm" />
+                            <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Only CRUD commands" @bind-Value="_selectedRecord.OnlyCRUDCommands" Icon="icon-user-star-outline" />
                         </div>
                     </div>
                     <div class="col">
@@ -351,7 +358,7 @@ else
 
     private Task Add()
     {
-        _selectedRecord                  = new()
+        _selectedRecord = new()
         {
             Name             = $"Patch {DateTime.UtcNow:dd MMM HH:mm:ss}",
             DatabasesToApply = _allDatabases.Select(x => x.Clone()).ToList()
@@ -363,6 +370,9 @@ else
 
     private async Task Save()
     {
+        if (!await IsPatchValid())
+            return;
+
         var res = await ModalDialogUtils.ShowConfirmationDialog(Modal, "Confirmation", $"Are you sure want to save patch \"{_selectedRecord.Name}\"?");
         if (!res.Confirmed)
             return;
@@ -478,11 +488,35 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
+    private async Task<bool> IsPatchValid()
+    {
+        try
+        {
+            var isCrud = PatchService.IsCRUDPatch(_selectedRecord); // also parses every stage (validation!)
+            if ( _selectedRecord.OnlyCRUDCommands && !isCrud )
+            {
+                await ModalDialogUtils.ShowInfoDialog(Modal, "Error", "This supposed to be a CRUD patch, but it contains at least one admin command.");
+                return false;
+            }
+
+            return true;
+        }
+        catch ( Exception e )
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Error", "There is an error in this patch: " + e.Message);
+            return false;
+        }
+    }
+
     private async Task Copy()
     {
         try
         {
             _lastException = null;
+
+            if (!await IsPatchValid())
+                return;
+
             var text = GetPatchText();
 
             await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", text);
@@ -550,6 +584,9 @@ else
     {
         try
         {
+            if (!await IsPatchValid())
+                return;
+
             var url = NavigationManager.BaseUri + $"admin/execute-patch/{Database}/{DatabaseInstance}?id={_selectedRecord.Id}";
             await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", url);
             await ModalDialogUtils.ShowInfoDialog(Modal, "Copied", "Url was copied to clipboard.");
