@@ -160,10 +160,6 @@ else
                         <div class="d-flex flex-row fit-content">                                                                                                 
                             <FormItemText     Enabled="@IsReady" Class="full-width mr-2" Name="Comments"           @bind-Value="_selectedRecord.Comments"         Icon="icon-annotate-sm" />
                         </div>                                                                                                                                    
-                        <div class="d-flex flex-row fit-content">                                                                                                 
-                            <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Active"             @bind-Value="_selectedRecord.Active"           Icon="icon-tos-sm" />
-                            <FormItemText     Enabled="@IsReady" Class="mr-2"            Name="Timeout (sec)"      @bind-Value="_selectedRecord.Timeout"          Icon="icon-clock-sm" InputType="number" />
-                        </div>
                         <div class="d-flex flex-row fit-content">
                             <FormItemCheckBox Enabled="@IsReady" Class="mr-2"            Name="Only CRUD commands" @bind-Value="_selectedRecord.OnlyCRUDCommands" Icon="icon-user-star-outline" />
                         </div>
