@@ -1,6 +1,5 @@
 ﻿@page "/"
-@* @page "/{DatabaseStr}"
-@page "/{DatabaseStr}/{DatabaseInstanceStr}" *@
+
 @using Microsoft.Extensions.Options
 @using Rms.Risk.Mango.Services.Context
 @using Rms.Service.Bootstrap
@@ -40,7 +39,7 @@
     }
 </style>
 
-<PageTitle>Index</PageTitle>
+<PageTitle>dbMango</PageTitle>
 
 <AuthorizeView>
     <Authorized>
