@@ -102,26 +102,33 @@ else
 
     <SplitPanel Orientation="Horizontal" InitialSplit="0.3">
         <First>
-            <div class="fit-content">
-                <TableControl Items="@_patches"
-                              Class="table table-hover table-striped table-forge table-forge-striped fit-content"
-                              Selectable="true"
-                              RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
-                              SelectionChanged="@OnSelectionChanged">
-                    <TableColumnControl Name="Active" Field="Active" Class="column-active">
-                        <Template>
-                            <FormItemCheckBox Value="@(((PatchRecord)context.Row).Active)" Enabled="false" LabelOn="" LabelOff="" />
-                        </Template>
-                    </TableColumnControl>
-                    <TableColumnControl Name="Name" Field="Name" />
-                    <TableColumnControl Name="Databases" Field="DatabasesToApply" Class="column-active">
-                        <Template>
-                            @(string.Join(", ", ((PatchRecord)context.Row).DatabasesToApply.Where(x => x.IsSelected).Select(x => x.DatabaseName)))
-                        </Template>
-                    </TableColumnControl>
-                    <TableColumnControl Name="Comments" Field="Comments" />
-                </TableControl>
-            </div>
+            @if ( !IsReady )
+            {
+                    <ProgressSpinner/>
+            }
+            else
+            {
+                <div class="fit-content">
+                    <TableControl Items="@_patches"
+                                  Class="table table-hover table-striped table-forge table-forge-striped fit-content"
+                                  Selectable="true"
+                                  RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
+                                  SelectionChanged="@OnSelectionChanged">
+                        <TableColumnControl Name="Active" Field="Active" Class="column-active">
+                            <Template>
+                                <FormItemCheckBox Value="@(((PatchRecord)context.Row).Active)" Enabled="false" LabelOn="" LabelOff="" />
+                            </Template>
+                        </TableColumnControl>
+                        <TableColumnControl Name="Name" Field="Name" />
+                        <TableColumnControl Name="Databases" Field="DatabasesToApply" Class="column-active">
+                            <Template>
+                                @(string.Join(", ", ((PatchRecord)context.Row).DatabasesToApply.Where(x => x.IsSelected).Select(x => x.DatabaseName)))
+                            </Template>
+                        </TableColumnControl>
+                        <TableColumnControl Name="Comments" Field="Comments" />
+                    </TableControl>
+                </div>
+            }
         </First>
         <Second>
             <div class="w-100 pl-3">
@@ -258,37 +265,45 @@ else
         if (!firstRender)
             return;
 
-        if (string.IsNullOrWhiteSpace(DatabaseStr))
-            DatabaseStr = Database;
-        else
-            Database = DatabaseStr;
+        try
+        {
 
-        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
-            DatabaseInstanceStr = DatabaseInstance;
-        else
-            DatabaseInstance = DatabaseInstanceStr;
 
-        if ( UserSession.DatabaseConfig.DisableDbMangoCollections)
-            return;
+            if (string.IsNullOrWhiteSpace(DatabaseStr))
+                DatabaseStr = Database;
+            else
+                Database = DatabaseStr;
 
-        _adminAllowedDatabases           = await PatchService.LoadDatabasesList("AdminAccess");
-        _writeAllowedDatabases           = await PatchService.LoadDatabasesList("WriteAccess");
-        _selectedRecord.DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList();
+            if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+                DatabaseInstanceStr = DatabaseInstance;
+            else
+                DatabaseInstance = DatabaseInstanceStr;
 
-        _patches = await PatchService.LoadPatches(true);
-        
-        FilterInaccessiblePatches();
-        
-        _patches.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
+            if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+                return;
 
-        var first = !string.IsNullOrWhiteSpace(SelectedIdStr) ? _patches.FirstOrDefault(x => x.Id.ToString() == SelectedIdStr) : null;
-        first ??= _patches.FirstOrDefault(x => x.Active);
-        first ??= _patches.FirstOrDefault();
+            _adminAllowedDatabases = await PatchService.LoadDatabasesList("AdminAccess");
+            _writeAllowedDatabases = await PatchService.LoadDatabasesList("WriteAccess");
+            _selectedRecord.DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList();
 
-        _selectedRecord = first ?? new() { Name = "No patches available or accessible", DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList() };
+            _patches = await PatchService.LoadPatches(true);
+
+            FilterInaccessiblePatches();
+
+            _patches.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
+
+            var first = !string.IsNullOrWhiteSpace(SelectedIdStr) ? _patches.FirstOrDefault(x => x.Id.ToString() == SelectedIdStr) : null;
+            first ??= _patches.FirstOrDefault(x => x.Active);
+            first ??= _patches.FirstOrDefault();
+
+            _selectedRecord = first ?? new() { Name = "No patches available or accessible", DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList() };
+        }
+        catch (Exception e)
+        {
+            await Display(e);
+        }
 
         SyncUrl();
-
         IsReady = true;
 
         await InvokeAsync(StateHasChanged);
