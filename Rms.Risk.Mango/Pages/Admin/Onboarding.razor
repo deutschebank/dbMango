@@ -46,6 +46,11 @@
         <div class="mt-4">
             <DatabaseOnboardingControl Name="@_selectedRecord.Name" Value="@_selectedRecord.Value" OnRefresh="@Refresh"/>
         </div>
+        <div class="mt-4">
+            <div class="alert alert-info">
+                Use the <a href="/admin/manage/@_selectedRecord.Name" target="_blank">Manage MongoDB instance</a> page to create or manage databases for the selected configuration.
+            </div>
+        </div>
     </div>
 
 </AuthorizedOnly>
