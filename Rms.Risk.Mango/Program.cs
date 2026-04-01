@@ -134,10 +134,8 @@ public class Program
 
         plugin?.ConfigureServices(builder);
 
-        if (builder.Environment.IsDevelopment())
-        {
-            builder.WebHost.UseStaticWebAssets();
-        }
+        // Required for split-repo/project-reference static web assets
+        builder.WebHost.UseStaticWebAssets();
 
         builder.WebHost
                .UseKestrel((_, kestrelServerOptions) => { kestrelServerOptions.ConfigureStandardKestrel(builder, options); });
@@ -170,24 +168,13 @@ public class Program
         app.UseStandardEndpoint(options);
         app.UseAntiforgery();
 
-        if (!app.Environment.IsDevelopment())
-            app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
+        //if (!app.Environment.IsDevelopment())
+        //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
 
-        app.MapGet("/account/logout", async (HttpContext context) =>
-        {
-            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            await context.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme, new AuthenticationProperties
-            {
-                RedirectUri = "/"
-            });
-        });
-
-        app.MapStaticAssets();
+        //app.MapStaticAssets();
+        app.UseStaticFiles();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
-        //        app.MapBlazorHub();
-
-        //app.MapFallbackToPage("/_Host");
 
         // ----------------------------------------------- run the server ---------------------------------------------
 
