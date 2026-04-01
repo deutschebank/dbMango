@@ -1,0 +1,55 @@
+@page "/logout"
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.AspNetCore.Authentication.OpenIdConnect
+@inject IHttpContextAccessor HttpContextAccessor
+@inject NavigationManager NavManager
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@ 
+
+<p>Signing out...</p>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+	        var httpContext = HttpContextAccessor.HttpContext;
+            if (httpContext != null)
+	        {
+		        await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+		        //await httpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
+	        }
+        }
+        catch (Exception)
+        {
+	        // ignore
+        }   
+
+        try
+        {
+            NavManager.NavigateTo("/", false);
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+    }
+}

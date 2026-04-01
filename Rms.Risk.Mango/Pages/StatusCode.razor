@@ -1,4 +1,6 @@
-/* 
+﻿@page "/StatusCode/{responseCode}"
+
+@*
  *                                dbMango
  *
  * Copyright 2025 Deutsche Bank AG
@@ -15,21 +17,12 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
+ *@
 
-namespace Rms.Risk.Mango.Pages;
+<h3>StatusCode @ResponseCode</h3>
 
-public class LogoutModel : PageModel
-{
-    public async Task<IActionResult> OnGet()
-    {
-        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        await HttpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
-        return LocalRedirect("/");
-    }
+@code {
+
+	[Parameter]
+	public string ResponseCode { get; set; } = string.Empty;
 }

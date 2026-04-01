@@ -1,0 +1,21 @@
+﻿@page "/login/{ReturnUrl?}"
+@attribute [Authorize]
+@inject NavigationManager NavManager
+
+@code {
+	[Parameter] public string? ReturnUrl { get; set; }
+
+	protected override void OnInitialized()
+	{
+		RedirectBack();
+	}
+
+	private void RedirectBack() =>
+		NavManager.NavigateTo("/" + (string.IsNullOrEmpty(ReturnUrl) ? "" : Base64Decode(ReturnUrl)));
+
+	private static string Base64Decode(string base64EncodedData) 
+	{
+		var base64EncodedBytes = Convert.FromBase64String(base64EncodedData);
+		return System.Text.Encoding.UTF8.GetString(base64EncodedBytes);
+	}
+}

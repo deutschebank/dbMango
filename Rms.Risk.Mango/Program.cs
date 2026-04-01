@@ -17,6 +17,9 @@
  * limitations under the License.
  */
 using Blazored.Modal;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -89,9 +92,11 @@ public class Program
         // Add services to the container.
         
         builder.Services
-           .AddServerSideBlazor()
-           .AddHubOptions(x=> x.MaximumReceiveMessageSize = 100_000_000)
-           ; 
+           .AddRazorComponents()
+           .AddInteractiveServerComponents();
+
+        builder.Services
+           .AddSignalR(x => x.MaximumReceiveMessageSize = 100_000_000);
 
         builder.Services
                .TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
@@ -129,8 +134,12 @@ public class Program
 
         plugin?.ConfigureServices(builder);
 
+        if (builder.Environment.IsDevelopment())
+        {
+            builder.WebHost.UseStaticWebAssets();
+        }
+
         builder.WebHost
-               .UseStaticWebAssets()
                .UseKestrel((_, kestrelServerOptions) => { kestrelServerOptions.ConfigureStandardKestrel(builder, options); });
 
         AfhHelpers.Init();
@@ -158,12 +167,27 @@ public class Program
         if ( builder.IsHttps() )
             app.UseHttpsRedirection();
 
-        app.UseStaticFiles();
-
         app.UseStandardEndpoint(options);
+        app.UseAntiforgery();
 
-        app.MapBlazorHub();
-        app.MapFallbackToPage("/_Host");
+        if (!app.Environment.IsDevelopment())
+            app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
+
+        app.MapGet("/account/logout", async (HttpContext context) =>
+        {
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            await context.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme, new AuthenticationProperties
+            {
+                RedirectUri = "/"
+            });
+        });
+
+        app.MapStaticAssets();
+        app.MapRazorComponents<App>()
+            .AddInteractiveServerRenderMode();
+        //        app.MapBlazorHub();
+
+        //app.MapFallbackToPage("/_Host");
 
         // ----------------------------------------------- run the server ---------------------------------------------
 
