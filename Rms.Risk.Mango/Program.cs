@@ -174,7 +174,7 @@ public class Program
         //app.MapStaticAssets();
         app.UseStaticFiles();
         app.MapControllers();
-        app.MapBlazorHub();
+//        app.MapBlazorHub();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
 
