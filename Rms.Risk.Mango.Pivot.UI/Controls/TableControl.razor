@@ -1,6 +1,7 @@
 ﻿@using System.Dynamic
 @using System.Runtime.CompilerServices
 @using System.Text
+@using System.Text.Json
 @using Microsoft.CSharp.RuntimeBinder
 
 @inject IJSRuntime JsRuntime
@@ -610,23 +611,54 @@
             return "";
 
         if (value is string s)
-            return s;
+            return ToSingleLineWithLengthLimit(s);
 
-        if (format == null)
-            return value.ToString() ?? "";
+        if (value is System.Collections.IDictionary || value is System.Collections.IEnumerable)
+            return ToSingleLineWithLengthLimit(ConvertCollectionToString(value));
 
+        var str = format == null
+            ? value.ToString() ?? ""
+            : value switch
+            {
+                double d    => d    .ToString( format ),
+                float f     => f    .ToString( format ),
+                long l      => l    .ToString( format ),
+                int i       => i    .ToString( format ),
+                TimeSpan ts => ts   .ToString( format == "N0" ? "g" : format),
+                decimal dc  => dc   .ToString( format ),
+                DateTime dt => DateTimeFormatting(dt, format),
+                _           => value.ToString() ?? ""
+            };
 
-        return value switch
+        return ToSingleLineWithLengthLimit(str);
+    }
+
+    private static string ConvertCollectionToString(object value)
+    {
+        try
         {
-            double d    => d    .ToString( format ),
-            float f     => f    .ToString( format ),
-            long l      => l    .ToString( format ),
-            int i       => i    .ToString( format ),
-            TimeSpan ts => ts   .ToString( format == "N0" ? "g" : format),
-            decimal dc  => dc   .ToString( format ),
-            DateTime dt => DateTimeFormatting(dt, format),
-            _           => value.ToString() ?? ""
-        };
+            return JsonSerializer.Serialize(value);
+        }
+        catch (Exception)
+        {
+            return value.ToString() ?? "";
+        }
+    }
+
+    private static string ToSingleLineWithLengthLimit(string value)
+    {
+        const int maxLength = 100;
+        const string ellipsis = "...";
+
+        var singleLine = value
+            .Replace("\r\n", " ")
+            .Replace('\n', ' ')
+            .Replace('\r', ' ');
+
+        if (singleLine.Length <= maxLength)
+            return singleLine;
+
+        return singleLine[..(maxLength - ellipsis.Length)] + ellipsis;
     }
 
     private static string DateTimeFormatting(DateTime dt, string format)
