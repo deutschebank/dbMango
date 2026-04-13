@@ -17,9 +17,6 @@
  * limitations under the License.
  */
 using Blazored.Modal;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -171,10 +168,8 @@ public class Program
         //if (!app.Environment.IsDevelopment())
         //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
 
-        app.MapStaticAssets();
+        app.MapStaticAssets().ShortCircuit();
         app.UseStaticFiles();
-        app.MapControllers();
-//        app.MapBlazorHub();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
 

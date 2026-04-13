@@ -17,7 +17,6 @@
  * limitations under the License.
  */
 ﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using Rms.Risk.Mango.Interfaces;
 using Rms.Risk.Mango.Pivot.Core;
