@@ -166,7 +166,7 @@ public class Program
 
         app.UseStandardEndpoint(options);
         app.UseAntiforgery();
-        app.UseStaticFiles();
+        //app.UseStaticFiles();
 
         //if (!app.Environment.IsDevelopment())
         //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");

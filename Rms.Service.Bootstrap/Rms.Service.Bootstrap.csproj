@@ -2,6 +2,7 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
+    <StaticWebAssetBasePath>_content/$(AssemblyName)</StaticWebAssetBasePath>
   </PropertyGroup>
 
   <ItemGroup>
