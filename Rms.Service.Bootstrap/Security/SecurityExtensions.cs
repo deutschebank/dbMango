@@ -79,7 +79,7 @@ internal static class SecurityExtensions
             services.TryAddEnumerable(ServiceDescriptor.Scoped<CircuitHandler, UserCircuitHandler>());
 
             authBuilder
-               .AddCookie( OidcHelper.ConfigureCookieForOpenIdConnect)
+               .AddCookie( x => OidcHelper.ConfigureCookieForOpenIdConnect(settings, x))
                .AddOpenIdConnect(
                     OpenIdConnectDefaults.AuthenticationScheme,
                     x => OidcHelper.ConfigureOpenIdConnect(settings, x)

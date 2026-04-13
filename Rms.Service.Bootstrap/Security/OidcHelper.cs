@@ -239,7 +239,14 @@ internal static class OidcHelper
     /// <summary>
     /// https://stackoverflow.com/questions/72868249/how-to-handle-user-oidc-tokens-in-blazor-server-when-the-browser-is-refreshed-an
     /// </summary>
-    public static void ConfigureCookieForOpenIdConnect(CookieAuthenticationOptions options) =>
+    public static void ConfigureCookieForOpenIdConnect(IOptions<SecuritySettings> settings, CookieAuthenticationOptions options)
+    {
+        var cookieName = settings.Value.Oidc.CookieName;
+        if (string.IsNullOrWhiteSpace(cookieName))
+            cookieName = $".{AppDomain.CurrentDomain.FriendlyName}.Cookies.{Random.Shared.GetHexString(8)}";
+
+        options.Cookie.Name = cookieName;
+
         options.Events.OnValidatePrincipal = async context =>
         {
             var user = context.Principal;
@@ -275,6 +282,7 @@ internal static class OidcHelper
                 context.RejectPrincipal();
             }
         };
+    }
 
     public static string Base64Decode(string base64EncodedData) 
     {
