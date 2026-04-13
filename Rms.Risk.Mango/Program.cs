@@ -171,7 +171,6 @@ public class Program
         //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
 
         app.MapStaticAssets().ShortCircuit();
-        app.UseStaticFiles();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
 
