@@ -107,17 +107,6 @@
 	<a class="dismiss">🗙</a>
 </div>
 
-    <script>
-        (function () {
-            var web = document.createElement('script');
-            web.src = '/_framework/blazor.web.js';
-            web.onerror = function () {
-                var server = document.createElement('script');
-                server.src = '/_framework/blazor.server.js';
-                document.body.appendChild(server);
-            };
-            document.body.appendChild(web);
-        })();
-    </script>
+    <script src='@Assets["_framework/blazor.web.js"]'></script>
 </body>
 </html>
