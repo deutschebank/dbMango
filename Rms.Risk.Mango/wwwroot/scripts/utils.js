@@ -1,5 +1,6 @@
 ﻿
-var DashboardUtils = {};
+window.DashboardUtils = window.DashboardUtils || {};
+var DashboardUtils = window.DashboardUtils;
 
 DashboardUtils.GetLocalTimeZoneOffset = function() {
   return new Date().getTimezoneOffset();
@@ -131,53 +132,74 @@ function multiselectById(id) {
     $(id).multiselect();
 }
 
-// Aggregation Framework for Humans
-CodeMirror.defineSimpleMode("afh", {
-    // The start state contains the rules that are initially used
-    start: [
-        { regex: /\/\*/, token: "comment", next: "comment" },
+let codeMirrorExtensionsInitialized = false;
 
-        // The regex matches the token, the token property contains the type
-        { regex: /([-+\/*=<>!\[\]\(\)]+)|(AND|OR)/, token: "operator" },
-        { regex: /(?:[A-Z]+)\b/, token: "keyword" },
-        { regex: /(?:[A-Za-z][A-Za-z0-9_]*)\s*\:/, token: "argument" },
-
-        { regex: /[A-Za-z][A-Za-z_0-9.]+/, token: "variable1" },
-        { regex: /\$(?:[A-Za-z][A-Za-z0-9_\\.]*)/, token: "variable2" },
-        { regex: /'(?:[^@\\]|\\.)*?(?:'|$)/, token: "variable3" },
-
-        { regex: /"(?:[^@\\]|\\.)*?(?:"|$)/, token: "string" },
-        { regex: /0x[a-f\d]+|[-+]?(?:\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/i, token: "number" },
-        { regex: /\/\/.*/, token: "comment" },
-        // A next property will cause the mode to move to a different state
-
-        { regex: /[{};]+/, token: "keyword" },
-    ],
-    // The multi-line comment state.
-    comment: [
-        { regex: /.*?\*\//, token: "comment", next: "start" },
-        { regex: /.*/, token: "comment" }
-    ],
-    // The meta property contains global information about the mode. It
-    // can contain properties like lineComment, which are supported by
-    // all modes, and also directives like dontIndentStates, which are
-    // specific to simple modes.
-    meta: {
-        dontIndentStates: ["comment"],
-        lineComment: "//",
+function initCodeMirrorExtensions() {
+    if (codeMirrorExtensionsInitialized || typeof CodeMirror === "undefined") {
+        return;
     }
-});
 
-CodeMirror.defineMIME("text/x-afh", "afh");
+    if (typeof CodeMirror.defineSimpleMode === "function") {
+        // Aggregation Framework for Humans
+        CodeMirror.defineSimpleMode("afh", {
+            // The start state contains the rules that are initially used
+            start: [
+                { regex: /\/\*/, token: "comment", next: "comment" },
 
-CodeMirror.registerHelper("hint", "afh",        afhScriptHint    );
-CodeMirror.registerHelper("hint", "javascript", mongodbScriptHint);
+                // The regex matches the token, the token property contains the type
+                { regex: /([-+\/*=<>!\[\]\(\)]+)|(AND|OR)/, token: "operator" },
+                { regex: /(?:[A-Z]+)\b/, token: "keyword" },
+                { regex: /(?:[A-Za-z][A-Za-z0-9_]*)\s*\:/, token: "argument" },
+
+                { regex: /[A-Za-z][A-Za-z_0-9.]+/, token: "variable1" },
+                { regex: /\$(?:[A-Za-z][A-Za-z0-9_\\.]*)/, token: "variable2" },
+                { regex: /'(?:[^@\\]|\\.)*?(?:'|$)/, token: "variable3" },
+
+                { regex: /"(?:[^@\\]|\\.)*?(?:"|$)/, token: "string" },
+                { regex: /0x[a-f\d]+|[-+]?(?:\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/i, token: "number" },
+                { regex: /\/\/.*/, token: "comment" },
+                // A next property will cause the mode to move to a different state
+
+                { regex: /[{};]+/, token: "keyword" },
+            ],
+            // The multi-line comment state.
+            comment: [
+                { regex: /.*?\*\//, token: "comment", next: "start" },
+                { regex: /.*/, token: "comment" }
+            ],
+            // The meta property contains global information about the mode. It
+            // can contain properties like lineComment, which are supported by
+            // all modes, and also directives like dontIndentStates, which are
+            // specific to simple modes.
+            meta: {
+                dontIndentStates: ["comment"],
+                lineComment: "//",
+            }
+        });
+
+        CodeMirror.defineMIME("text/x-afh", "afh");
+    }
+
+    if (typeof CodeMirror.registerHelper === "function") {
+        CodeMirror.registerHelper("hint", "afh", afhScriptHint);
+        CodeMirror.registerHelper("hint", "javascript", mongodbScriptHint);
+    }
+
+    codeMirrorExtensionsInitialized = true;
+}
 
 let timeout = null;
 DashboardUtils.LoadCodeEditor = function (elementid, mode, refElement, dontNetObjRef, methodName, isReadOnly) {
     
     if (isReadOnly === undefined) {
         isReadOnly = false;
+    }
+
+    initCodeMirrorExtensions();
+
+    if (typeof CodeMirror === "undefined" || typeof CodeMirror.fromTextArea !== "function") {
+        console.error("CodeMirror is not available. Ensure CodeMirror scripts are loaded before utils.js.");
+        return;
     }
 
     //console.log("CodeMirror init for mode: ", mode);
