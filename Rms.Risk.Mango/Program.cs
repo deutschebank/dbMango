@@ -171,7 +171,7 @@ public class Program
         //if (!app.Environment.IsDevelopment())
         //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
 
-        //app.MapStaticAssets();
+        app.MapStaticAssets();
         app.UseStaticFiles();
         app.MapControllers();
 //        app.MapBlazorHub();

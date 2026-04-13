@@ -243,7 +243,7 @@ internal static class OidcHelper
     {
         var cookieName = settings.Value.Oidc.CookieName;
         if (string.IsNullOrWhiteSpace(cookieName))
-            cookieName = $".{AppDomain.CurrentDomain.FriendlyName}.Cookies.{Random.Shared.GetHexString(8)}";
+            cookieName = $".{AppDomain.CurrentDomain.FriendlyName}.Cookies";
 
         options.Cookie.Name = cookieName;
 
