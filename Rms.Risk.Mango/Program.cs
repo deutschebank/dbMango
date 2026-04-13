@@ -170,7 +170,7 @@ public class Program
         //if (!app.Environment.IsDevelopment())
         //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
 
-        app.MapStaticAssets().ShortCircuit();
+        app.MapStaticAssets();
         app.MapRazorComponents<App>()
             .AddInteractiveServerRenderMode();
 

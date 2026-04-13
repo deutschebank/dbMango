@@ -1,31 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+	<PropertyGroup>
+		<RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Markdig" />
-    <PackageReference Include="Markdown.ColorCode" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Markdig" />
+		<PackageReference Include="Markdown.ColorCode" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Rms.Risk.Mango.Interfaces\Rms.Risk.Mango.Interfaces.csproj" />
-    <ProjectReference Include="..\Rms.Risk.Mango.Language\Rms.Risk.Mango.Language.csproj" />
-    <ProjectReference Include="..\Rms.Risk.Mango.Pivot.Core\Rms.Risk.Mango.Pivot.Core.csproj" />
-    <ProjectReference Include="..\Rms.Risk.Mango.Pivot.UI\Rms.Risk.Mango.Pivot.UI.csproj" />
-    <ProjectReference Include="..\Rms.Service.Bootstrap\Rms.Service.Bootstrap.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Rms.Risk.Mango.Interfaces\Rms.Risk.Mango.Interfaces.csproj" />
+		<ProjectReference Include="..\Rms.Risk.Mango.Language\Rms.Risk.Mango.Language.csproj" />
+		<ProjectReference Include="..\Rms.Risk.Mango.Pivot.Core\Rms.Risk.Mango.Pivot.Core.csproj" />
+		<ProjectReference Include="..\Rms.Risk.Mango.Pivot.UI\Rms.Risk.Mango.Pivot.UI.csproj" />
+		<ProjectReference Include="..\Rms.Service.Bootstrap\Rms.Service.Bootstrap.csproj" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <None Include="README.md" CopyToOutputDirectory="Never" />
-  </ItemGroup>
-
-	<Target Name="CopyStaticWebAssetsRuntimeManifestsToPublish" AfterTargets="Publish">
-		<ItemGroup>
-			<_StaticWebAssetsRuntimeManifests Include="$(TargetDir)*.staticwebassets.runtime.json" />
-		</ItemGroup>
-
-		<Copy SourceFiles="@(_StaticWebAssetsRuntimeManifests)"
-		      DestinationFolder="$(PublishDir)"
-		      SkipUnchangedFiles="true"
-		      Condition="'@(_StaticWebAssetsRuntimeManifests)' != ''" />
-	</Target>
+	<ItemGroup>
+		<None Include="README.md" CopyToOutputDirectory="Never" />
+	</ItemGroup>
 
 </Project>
