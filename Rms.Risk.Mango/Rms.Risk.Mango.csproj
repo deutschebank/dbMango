@@ -17,4 +17,15 @@
     <None Include="README.md" CopyToOutputDirectory="Never" />
   </ItemGroup>
 
+	<Target Name="CopyStaticWebAssetsRuntimeManifestsToPublish" AfterTargets="Publish">
+		<ItemGroup>
+			<_StaticWebAssetsRuntimeManifests Include="$(TargetDir)*.staticwebassets.runtime.json" />
+		</ItemGroup>
+
+		<Copy SourceFiles="@(_StaticWebAssetsRuntimeManifests)"
+		      DestinationFolder="$(PublishDir)"
+		      SkipUnchangedFiles="true"
+		      Condition="'@(_StaticWebAssetsRuntimeManifests)' != ''" />
+	</Target>
+
 </Project>
