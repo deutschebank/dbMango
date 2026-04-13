@@ -13,6 +13,7 @@
 @inject IOptions<DbMangoSettings>     DbMangoSettings
 @inject IDatabaseConfigurationService DatabaseConfigurationService
 @inject IUserSession                  UserSession
+@inject ILogger<Index>                Logger
 
 @*
  *                                dbMango
@@ -147,63 +148,81 @@
         if (!firstRender)
             return;
 
-        DatabasesNames.Clear();
-        foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
+        try
         {
-            if (name.Contains("-placeholder>"))
-                continue;
+           	Logger.LogDebug("Index page loaded. Checking database access for user {User}. Full database list:{databases}",
+	            Session.User.GetUser().Identity?.Name ?? "Unknown", 
+	            string.Join("\n\t", DatabaseConfig.Databases.Keys));
 
-            if (!await IsUserAuthorized(name))
-                NoAccessTo.Add( new (name, DatabaseConfig.Databases[name].Contacts, DatabaseConfig.Databases[name].Comments));
-            else
-                DatabasesNames.Add(name);
+	        foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
+	        {
+		        if (name.Contains("-placeholder>"))
+			        continue;
+
+		        if (!await IsUserAuthorized(name))
+			        NoAccessTo.Add(new(name, DatabaseConfig.Databases[name].Contacts, DatabaseConfig.Databases[name].Comments));
+		        else
+			        DatabasesNames.Add(name);
+	        }
+
+	        Logger.LogInformation("User {User} have access to:{databases}",
+		        Session.User.GetUser().Identity?.Name ?? "Unknown", 
+                string.Join("\n\t", DatabasesNames));
+            Logger.LogDebug("User {User} have no access to:{databases}",
+		        Session.User.GetUser().Identity?.Name ?? "Unknown", 
+                string.Join("\n\t", NoAccessTo));
+
+	        if (string.IsNullOrWhiteSpace(DatabaseStr) || !await IsUserAuthorized(DatabaseStr))
+	        {
+		        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+		        var state = await GetState(cts.Token);
+		        if (state?.Database != null && await IsUserAuthorized(state.Database))
+		        {
+			        DatabaseStr = state.Database;
+			        DatabaseInstanceStr = state.DatabaseInstance;
+		        }
+		        else
+		        {
+			        DatabaseStr = null;
+			        DatabaseInstanceStr = null;
+		        }
+	        }
+
+	        if (string.IsNullOrWhiteSpace(DatabaseStr))
+		        DatabaseStr = Database;
+	        else
+		        Database = DatabaseStr;
+
+	        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+		        DatabaseInstanceStr = DatabaseInstance;
+	        else
+		        DatabaseInstance = DatabaseInstanceStr;
+
+	        if (string.IsNullOrWhiteSpace(Database))
+	        {
+		        KeyValuePair<string, DatabasesConfig.DatabaseConfig>? db = null;
+
+		        foreach (var kvp in DatabaseConfigurationService.Databases)
+		        {
+			        if (!await UserSession.CanAccess(Auth, "ReadAccess", kvp.Key))
+				        continue;
+
+			        db = kvp;
+			        break;
+		        }
+
+		        if (db != null)
+			        Database = db.Value.Key;
+	        }
+
+	        SyncUrl();
+	        await InvokeAsync(StateHasChanged);
         }
-
-        if (string.IsNullOrWhiteSpace(DatabaseStr) || !await IsUserAuthorized(DatabaseStr))
+        catch (Exception ex)
         {
-            var cts   = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var state = await GetState(cts.Token);
-            if (state?.Database != null && await IsUserAuthorized(state.Database))
-            {
-                DatabaseStr = state.Database;
-                DatabaseInstanceStr = state.DatabaseInstance;
-            }
-            else
-            {
-                DatabaseStr = null;
-                DatabaseInstanceStr = null;
-            }
+	        Error = ex;
+	        await InvokeAsync(StateHasChanged);
         }
-
-        if (string.IsNullOrWhiteSpace(DatabaseStr))
-            DatabaseStr = Database; 
-        else
-            Database = DatabaseStr;
-
-        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
-            DatabaseInstanceStr = DatabaseInstance;
-        else
-            DatabaseInstance = DatabaseInstanceStr;
-
-        if ( string.IsNullOrWhiteSpace(Database))
-        {
-            KeyValuePair<string, DatabasesConfig.DatabaseConfig>? db = null;
-
-            foreach (var kvp in DatabaseConfigurationService.Databases)
-            {
-                if (!await UserSession.CanAccess(Auth, "ReadAccess", kvp.Key)) 
-                    continue;
-
-                db = kvp;
-                break;
-            }
-
-            if (db != null)
-                Database = db.Value.Key;
-        }
-
-        SyncUrl();
-        await InvokeAsync(StateHasChanged);
     }
 
     private class IndexState
