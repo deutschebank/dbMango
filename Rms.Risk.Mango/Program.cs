@@ -131,8 +131,10 @@ public class Program
 
         plugin?.ConfigureServices(builder);
 
-        // Required for split-repo/project-reference static web assets
-        builder.WebHost.UseStaticWebAssets();
+        // Required for split-repo/project-reference static web assets in development.
+        // In published/container runs this can interfere with publish-time static asset resolution.
+        if (builder.Environment.IsDevelopment())
+            builder.WebHost.UseStaticWebAssets();
 
         builder.WebHost
                .UseKestrel((_, kestrelServerOptions) => { kestrelServerOptions.ConfigureStandardKestrel(builder, options); });
