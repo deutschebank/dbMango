@@ -1,9 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-  	<IsPackable>true</IsPackable>
+	<IsPackable>true</IsPackable>
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
 
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	  <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <!-- For including symbols (PDBs) -->
     <IncludeSymbols>true</IncludeSymbols>
     <!-- Use 'snupkg' for a separate symbols package (recommended for public sources like nuget.org) -->
