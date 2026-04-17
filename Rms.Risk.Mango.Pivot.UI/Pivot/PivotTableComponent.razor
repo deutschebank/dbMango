@@ -3,8 +3,7 @@
 @using System.Dynamic
 @using System.Reflection
 @using System.Text.RegularExpressions
-@using ChartJs.Blazor
-@using ChartJs.Blazor.LineChart
+@using pax.BlazorChartJs
 @using log4net
 @using Rms.Risk.Mango.Pivot.Core
 @using Rms.Risk.Mango.Pivot.Core.Models
@@ -55,7 +54,7 @@
 
 <div class="@ChartClass">
     <div class="chart-canvas ml-3">
-        <Chart Config="@ChartConfig"/>
+        <ChartComponent ChartJsConfig="@ChartConfig"/>
     </div>
 </div>
 
@@ -312,7 +311,7 @@ else if (_pivotRows is { Length: > 0 }
     private List<GroupedPivot>                    Pivots            => SelectedCollectionNode?.Pivots ?? [];
     private HashSet<string>                       AllDataFields     => SelectedCollectionNode?.DataFields ?? [];
     private HashSet<string>                       AllKeyFields      => SelectedCollectionNode?.KeyFields ?? [];
-    private LineConfig                            ChartConfig       => ChartHelper.ChartConfig;
+    private ChartJsConfig                         ChartConfig       => ChartHelper.ChartConfig;
     private ChartHelperForPivot                   ChartHelper       { get; }      = new();
 
     private string ChartClass => !ChartHelper.IsLineChart(CurrentPivot!, _pivotData!)

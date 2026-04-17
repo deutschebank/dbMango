@@ -1,7 +1,6 @@
 ﻿@using System.Drawing
 @using System.Dynamic
-@using ChartJs.Blazor
-@using ChartJs.Blazor.LineChart
+@using pax.BlazorChartJs
 @using Rms.Risk.Mango.Pivot.Core
 
 @inject IJSRuntime           Js
@@ -52,7 +51,7 @@
 
 <div class="@ChartClass">
     <div class="chart-canvas ml-3">
-        <Chart Config="@ChartConfig"/>
+        <ChartComponent ChartJsConfig="@ChartConfig"/>
     </div>
 </div>
 
@@ -173,7 +172,7 @@
 
     private bool                ShowTotals    => PivotDef?.ShowTotals ?? false;
     private IMinMaxCache?       VisibleTotals => ShowTotals ? _totals : null;
-    private LineConfig          ChartConfig   => ChartHelper.ChartConfig;
+    private ChartJsConfig       ChartConfig   => ChartHelper.ChartConfig;
     private ChartHelperForPivot ChartHelper   { get; }      = new();
 
     private string ChartClass => PivotDef == null || !ChartHelper.IsLineChart(PivotDef, PivotData)

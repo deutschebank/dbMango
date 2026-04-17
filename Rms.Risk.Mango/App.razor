@@ -83,14 +83,7 @@
     <script type="text/javascript" src='@Assets["_content/Rms.Risk.Mango.Pivot.UI/codemirror/5.59.1/addon/dialog/dialog.js"]'></script>
 
 
-    @* <!-- Reference the included moment.js javascript file. --> *@
-    @* <script src="_content/ChartJs.Blazor/moment-with-locales.min.js" type="text/javascript" language="javascript"></script> *@
-
-    <!-- ChartJS script -->
-    <script type="text/javascript" src='@Assets["scripts/Chart.min.js"]'></script>
-    <script type="text/javascript" src='@Assets["_content/ChartJs.Blazor.Fork/ChartJsBlazorInterop.js"]'></script>
-
-    <!-- This is the glue between the Blazor JSChart nuget package and Chart.js -->
+    <!-- Chart.js is loaded by pax.BlazorChartJs via AddChartJs configuration -->
 
     <script type="text/javascript" src='@Assets["scripts/utils.js"]'></script>
 

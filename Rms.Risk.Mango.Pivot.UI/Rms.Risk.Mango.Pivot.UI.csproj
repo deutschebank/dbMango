@@ -32,7 +32,7 @@
   <ItemGroup>
     <PackageReference Include="BlazorDateRangePicker" />
     <PackageReference Include="Blazored.Modal" />
-    <PackageReference Include="ChartJs.Blazor.Fork" />
+    <PackageReference Include="pax.BlazorChartJs" />
     <PackageReference Include="Markdown.ColorCode" />
   </ItemGroup>
 

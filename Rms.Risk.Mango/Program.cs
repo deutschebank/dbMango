@@ -21,6 +21,7 @@ using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Logging;
+using pax.BlazorChartJs;
 using Rms.Risk.Mango.Interfaces;
 using Rms.Risk.Mango.Pivot.Core.MongoDb;
 using Rms.Risk.Mango.Pivot.UI.Services;
@@ -98,6 +99,11 @@ public class Program
         builder.Services
                .TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         builder.Services.AddBlazoredModal();
+        builder.Services.AddChartJs(options =>
+        {
+            const string chartJsVersion = "4.5.1";
+            options.ChartJsLocation = $"/_content/Rms.Risk.Mango.Pivot.UI/js/chart.umd.min.js?v={chartJsVersion}";
+        });
 
         if ( plugin != null )
         {

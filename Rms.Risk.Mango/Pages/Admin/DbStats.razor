@@ -1,11 +1,7 @@
 ﻿@page "/admin/db-stats"
 @page "/admin/db-stats/{DatabaseStr}"
 @page "/admin/db-stats/{DatabaseStr}/{DatabaseInstanceStr}"
-@using ChartJs.Blazor
-@using ChartJs.Blazor.BarChart
-@using ChartJs.Blazor.BarChart.Axes
-@using ChartJs.Blazor.Common.Axes
-@using ChartJs.Blazor.Common.Enums
+@using pax.BlazorChartJs
 @using Rms.Risk.Mango.Pivot.Core.MongoDb
 @using Rms.Risk.Mango.Services.Models
 @attribute [Authorize]
@@ -50,7 +46,7 @@
 
     <div class="chart-display @ChartClass">
         <div class="chart-canvas ml-3">
-            <Chart Config="@_chartConfig"/>
+            <ChartComponent ChartJsConfig="@_chartConfig"/>
         </div>
     </div>
 </AuthorizedOnly>
@@ -107,75 +103,66 @@
     private string _unit = "B";
     private double _divider = 1.0;
 
-    private readonly BarConfig _chartConfig = new()
+    private readonly ChartJsConfig _chartConfig = new()
     {
-        Data =
+        Type = ChartType.bar,
+        Data = new ChartJsData
         {
+            Labels = [],
             Datasets =
-            {
-                new BarDataset<double>
+            [
+                new BarDataset
                 {
                     Label           = "Index used",
                     BackgroundColor = _colors[2],
-                    BorderColor     = _colors[2]
+                    BorderColor     = _colors[2],
+                    Data            = []
                 },
-                new BarDataset<double>
+                new BarDataset
                 {
                     Label           = "Index free",
                     BackgroundColor = _colors[3],
-                    BorderColor     = _colors[3]
+                    BorderColor     = _colors[3],
+                    Data            = []
                 },
-                new BarDataset<double>
+                new BarDataset
                 {
                     Label           = "Storage used",
                     BackgroundColor = _colors[0],
-                    BorderColor     = _colors[0]
+                    BorderColor     = _colors[0],
+                    Data            = []
                 },
-                new BarDataset<double>
+                new BarDataset
                 {
                     Label           = "Storage free",
                     BackgroundColor = _colors[1],
-                    BorderColor     = _colors[1]
+                    BorderColor     = _colors[1],
+                    Data            = []
                 },
-                // new BarDataset<double>
-                // {
-                //     Label           = "Other free",
-                //     BackgroundColor = _colors[4],
-                //     BorderColor     = _colors[4]
-                // }
-            }
+            ]
         },
-        Options = new()
+        Options = new ChartJsOptions
         {
             MaintainAspectRatio = true,
             Responsive          = true,
-            Legend = new()
+            Plugins = new Plugins
             {
-                Display = true,
-                Position = Position.Bottom
+                Legend = new Legend
+                {
+                    Display  = true,
+                    Position = "bottom"
+                }
             },
-            Scales = new()
+            Scales = new ChartJsOptionsScales
             {
-                YAxes = new List<CartesianAxis>
+                X = new LinearAxis
                 {
-                    new BarLinearCartesianAxis
-                    {
-                        Stacked         = true,
-                        // OffsetGridLines = false,
-                        // Offset          = true,
-                        // Display         = AxisDisplay.False
-                    }
+                    Stacked = true
                 },
-                XAxes = new List<CartesianAxis>
+                Y = new LinearAxis
                 {
-                    new BarCategoryAxis
-                    {
-                        Stacked         = true,
-                        // OffsetGridLines = false,
-                        // Offset          = false,
-                        // Display         = AxisDisplay.False,
-                        // BarThickness    = 45
-                    }
+                    Stacked = true,
+                    BeginAtZero = true
                 }
             }
         }
@@ -222,19 +209,13 @@
         }
     }
 
-    private void UpdateChart(
-        DatabaseStatsModel data
-    )
+    private void UpdateChart(DatabaseStatsModel data)
     {
-        _chartConfig.Data.XLabels.Clear();
+        _chartConfig.Data.Labels = data.Raw.Keys
+            .Select(key => key.Split('/')[0])
+            .ToList();
 
-        foreach (var key in data.Raw.Keys)
-        {
-            var parts = key.Split('/');
-            _chartConfig.Data.XLabels.Add(parts[0]); // replica set name
-        }
-
-        var dataMax = data.Raw.Values.Max(x => x.StorageSize+x.IndexSize);
+        var dataMax = data.Raw.Values.Max(x => x.StorageSize + x.IndexSize);
 
         // Decide unit
         if (dataMax > 1024 * 1024 * 1024) // > 1 GB
@@ -248,46 +229,34 @@
             _divider = 1024 * 1024;
         }
 
-        var indexUsed   = (BarDataset<double>)_chartConfig.Data.Datasets[0];
-        var indexFree   = (BarDataset<double>)_chartConfig.Data.Datasets[1];
-        var storageUsed = (BarDataset<double>)_chartConfig.Data.Datasets[2];
-        var storageFree = (BarDataset<double>)_chartConfig.Data.Datasets[3];
-        // var otherFree   = (BarDataset<double>)_chartConfig.Data.Datasets[4];
+        var indexUsed   = (BarDataset)_chartConfig.Data.Datasets[0];
+        var indexFree   = (BarDataset)_chartConfig.Data.Datasets[1];
+        var storageUsed = (BarDataset)_chartConfig.Data.Datasets[2];
+        var storageFree = (BarDataset)_chartConfig.Data.Datasets[3];
 
-        storageUsed.Clear();
-        storageFree.Clear();
-        indexUsed  .Clear();
-        indexFree  .Clear();
-        // otherFree  .Clear();
+        storageUsed.Data = data.Raw.Values.Select(x => (object)((x.StorageSize - x.FreeStorageSize) / _divider)).ToList();
+        storageFree.Data = data.Raw.Values.Select(x => (object)(x.FreeStorageSize / _divider)).ToList();
+        indexUsed.Data   = data.Raw.Values.Select(x => (object)((x.IndexSize - x.IndexFreeStorageSize) / _divider)).ToList();
+        indexFree.Data   = data.Raw.Values.Select(x => (object)(x.IndexFreeStorageSize / _divider)).ToList();
 
-        storageUsed.AddRange(data.Raw.Values.Select(x => (x.StorageSize - x.FreeStorageSize)    / _divider));
-        storageFree.AddRange(data.Raw.Values.Select(x => x.FreeStorageSize                      / _divider));
-        indexUsed  .AddRange(data.Raw.Values.Select(x => (x.IndexSize - x.IndexFreeStorageSize) / _divider));
-        indexFree  .AddRange(data.Raw.Values.Select(x => x.IndexFreeStorageSize                 / _divider));
-        // otherFree.AddRange(data.Raw.Values.Select(x => (x.FsUsedSize - x.StorageSize - x.IndexSize) / _divider));
+        _chartConfig.Options ??= new ChartJsOptions();
+        _chartConfig.Options.Scales ??= new ChartJsOptionsScales();
+        _chartConfig.Options.Scales.Y ??= new LinearAxis();
 
-        _chartConfig.Data.Datasets.Add(storageUsed);
-        _chartConfig.Data.Datasets.Add(storageFree);
-        _chartConfig.Data.Datasets.Add(indexUsed  );
-        _chartConfig.Data.Datasets.Add(indexFree  );
-        // _chartConfig.Data.Datasets.Add(otherFree  );
-
-
-        _chartConfig.Options.Scales.YAxes.Clear();
-        _chartConfig.Options.Scales.YAxes.Add(new BarLinearCartesianAxis
+        if (_chartConfig.Options.Scales.Y is LinearAxis yAxis)
         {
-            Stacked = true,
-            ScaleLabel = new ()
+            yAxis.Stacked = true;
+            yAxis.BeginAtZero = true;
+            yAxis.Min = 0.0;
+            yAxis.Max = dataMax / _divider;
+            yAxis.Title = new Title
             {
-                Display     = true,
-                LabelString = $"Size {_unit}"
-            },
-            Ticks = new ()
-            {
-                Min      = 0.0,
-                Max      = dataMax / _divider,
-            }
-        });
+                Display = true,
+                Text = $"Size {_unit}"
+            };
+        }
+
+        _chartConfig.ReinitializeChart();
     }
 
     private Task Display(DatabaseStatsModel model)
@@ -296,7 +265,7 @@
         Result = model;
 
         UpdateChart(model);
-        
+
         return InvokeAsync(StateHasChanged);
     }
 
