@@ -51,7 +51,7 @@ namespace Rms.Risk.Mango.Controllers
         public async Task<JsonArray> FromScriptToJson()
         {
             string script;
-            using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8))
+            using (StreamReader reader = new(Request.Body, Encoding.UTF8))
             {  
                 script = await reader.ReadToEndAsync();
             }            
@@ -70,7 +70,7 @@ namespace Rms.Risk.Mango.Controllers
         public async Task<string> Format()
         {
             string script;
-            using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8))
+            using (StreamReader reader = new(Request.Body, Encoding.UTF8))
             {  
                 script = await reader.ReadToEndAsync();
             }            

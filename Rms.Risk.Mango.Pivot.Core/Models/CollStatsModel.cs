@@ -23,7 +23,7 @@ public class CollStatsModel
 {
     public bool                              Sharded      { get; set; }
     public bool                              Capped       { get; set; }
-    public CollStatsData                     WiredTiger   { get; set; } = new CollStatsData();
+    public CollStatsData                     WiredTiger   { get; set; } = new();
     public Dictionary<string, CollStatsData> IndexDetails { get; set; } = new();
 
     // New fields added based on the provided JSON structure

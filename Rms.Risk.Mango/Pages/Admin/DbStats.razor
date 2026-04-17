@@ -106,7 +106,7 @@
     private readonly ChartJsConfig _chartConfig = new()
     {
         Type = ChartType.bar,
-        Data = new ChartJsData
+        Data = new()
         {
             Labels = [],
             Datasets =
@@ -141,19 +141,19 @@
                 },
             ]
         },
-        Options = new ChartJsOptions
+        Options = new()
         {
             MaintainAspectRatio = true,
             Responsive          = true,
-            Plugins = new Plugins
+            Plugins = new()
             {
-                Legend = new Legend
+                Legend = new()
                 {
                     Display  = true,
                     Position = "bottom"
                 }
             },
-            Scales = new ChartJsOptionsScales
+            Scales = new()
             {
                 X = new LinearAxis
                 {
@@ -239,8 +239,8 @@
         indexUsed.Data   = data.Raw.Values.Select(x => (object)((x.IndexSize - x.IndexFreeStorageSize) / _divider)).ToList();
         indexFree.Data   = data.Raw.Values.Select(x => (object)(x.IndexFreeStorageSize / _divider)).ToList();
 
-        _chartConfig.Options ??= new ChartJsOptions();
-        _chartConfig.Options.Scales ??= new ChartJsOptionsScales();
+        _chartConfig.Options ??= new();
+        _chartConfig.Options.Scales ??= new();
         _chartConfig.Options.Scales.Y ??= new LinearAxis();
 
         if (_chartConfig.Options.Scales.Y is LinearAxis yAxis)
@@ -249,7 +249,7 @@
             yAxis.BeginAtZero = true;
             yAxis.Min = 0.0;
             yAxis.Max = dataMax / _divider;
-            yAxis.Title = new Title
+            yAxis.Title = new()
             {
                 Display = true,
                 Text = $"Size {_unit}"

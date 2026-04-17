@@ -178,7 +178,7 @@ internal static class ListenerHelper
                     fields.Add(new("", exp));
                 }
             }
-            return new AstExpressionArray(fields);
+            return new(fields);
     }
 
     public static List<AstFunctionArgument> BuildNamedArgumentsList(Parser.Named_args_listContext? context)

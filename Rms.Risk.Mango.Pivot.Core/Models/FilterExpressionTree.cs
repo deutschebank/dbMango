@@ -395,7 +395,7 @@ public static class FilterExpressionTree
                 // skip grouping if only one child
                 {
                     var fieldExpr = (FieldExpression)cond.Children[0];
-                    return [new BsonElement(fieldExpr.Field, ConvertValue(fieldExpr.Field, fieldExpr.Argument))];
+                    return [new(fieldExpr.Field, ConvertValue(fieldExpr.Field, fieldExpr.Argument))];
                 }
             case ExpressionGroup group:
                 var items = cond.Children.Select( cond1 => MakeJsonExpression(cond1, fieldTypes) ).Where( x => x != null ).ToList();
@@ -418,7 +418,7 @@ public static class FilterExpressionTree
         var o = ConvertCondition( op, arg.ToString() ?? "", out var regex );
         var d = new BsonDocument {new( o, regex ?? arg )};
 
-        return [new BsonElement(prop, d)];
+        return [new(prop, d)];
 
         BsonValue ConvertValue(string name, string value)
         {
