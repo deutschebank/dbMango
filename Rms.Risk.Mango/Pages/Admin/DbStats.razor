@@ -33,6 +33,14 @@
     .chart-display {
         width: 90vw;
         height: 90vh;
+        max-width: 90vw;
+        max-height: 90vh;
+        overflow: hidden;
+    }
+
+    .chart-canvas {
+        width: 100%;
+        height: 100%;
     }
 </style>
 
@@ -143,7 +151,7 @@
         },
         Options = new()
         {
-            MaintainAspectRatio = true,
+            MaintainAspectRatio = false,
             Responsive          = true,
             Plugins = new()
             {

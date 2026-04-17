@@ -264,7 +264,7 @@ public class ChartHelperForPivot
     }
 
     private bool GetLineChartColumns(
-        PivotDefinition pivotDef,
+        PivotDefinition? pivotDef,
         IPivotedData pivotData,
         out int xColumn,
         out List<Tuple<string, int>>? yColumn,
@@ -275,7 +275,7 @@ public class ChartHelperForPivot
         yColumn = null;
         dataSetColumns = null;
 
-        if (!pivotDef.MakeLineChart
+        if ( pivotDef is not { MakeLineChart: true }
             || pivotData.Count == 0
             || pivotData.Headers.Count < 1
             || string.IsNullOrWhiteSpace(pivotDef.LineChartXAxis)
