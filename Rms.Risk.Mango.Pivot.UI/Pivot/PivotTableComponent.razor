@@ -111,7 +111,7 @@ else if (_pivotRows is { Length: > 0 }
     public static int PivotMaxReturnedRows = 500_000;
 
     [Parameter]
-    public IPivotedData? PivotData
+    public IPivotedData PivotData
     {
         get => _pivotData;
         set
@@ -119,10 +119,10 @@ else if (_pivotRows is { Length: > 0 }
             if (_pivotData == value)
                 return;
 
-            _pivotData = value;
+            _pivotData = value ?? ArrayBasedPivotData.NoData;
             _totals.Clear();
 
-            if (_pivotData == null)
+            if (_pivotData == ArrayBasedPivotData.NoData)
             {
                 _pivotRows = [];
                 InvokeAsync(StateHasChanged);
@@ -164,17 +164,17 @@ else if (_pivotRows is { Length: > 0 }
     /// Always set PivotData and CurrentPivot at the same time.
     /// </summary>
     [Parameter]
-    public PivotDefinition? CurrentPivot
+    public PivotDefinition CurrentPivot
     {
-        get;
-        set
-        {
-            if (value == null || field == value)
-                return;
-            field = value;
-            CurrentPivotChanged.InvokeAsync(field);
-        }
-    }
+	    get;
+	    set
+	    {
+		    if (value == null || field == value)
+			    return;
+		    field = value;
+		    CurrentPivotChanged.InvokeAsync(field);
+	    }
+    } = new();
 
     [Parameter] public EventCallback<PivotDefinition>                      CurrentPivotChanged      { get; set; }
 
@@ -294,7 +294,7 @@ else if (_pivotRows is { Length: > 0 }
 
 
     private          PivotRow[]                               ? _pivotRows;
-    private          IPivotedData                             ? _pivotData;
+    private          IPivotedData                               _pivotData = ArrayBasedPivotData.NoData;
     private readonly MinMaxCache                                _totals = new();
     private          string                                   ? _prevCollection;
     private          GroupedCollection                        ? _currentCollection;
@@ -314,7 +314,7 @@ else if (_pivotRows is { Length: > 0 }
     private ChartJsConfig                         ChartConfig       => ChartHelper.ChartConfig;
     private ChartHelperForPivot                   ChartHelper       { get; }      = new();
 
-    private string ChartClass => !ChartHelper.IsLineChart(CurrentPivot!, _pivotData!)
+    private string ChartClass => !ChartHelper.IsLineChart(CurrentPivot!, _pivotData)
         ? "d-none"
         : ""
         ;

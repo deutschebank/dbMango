@@ -29,7 +29,7 @@ namespace Rms.Risk.Mango.Pivot.UI.Pivot;
 /// </summary>
 public class ChartHelperForPivot
 {
-    public bool IsLineChart(PivotDefinition pivotDef, IPivotedData pivotData)
+    public bool IsLineChart(PivotDefinition? pivotDef, IPivotedData? pivotData)
         => GetLineChartColumns(pivotDef, pivotData, out _, out _, out _);
 
     public ChartJsConfig ChartConfig { get; } = new()
@@ -265,7 +265,7 @@ public class ChartHelperForPivot
 
     private bool GetLineChartColumns(
         PivotDefinition? pivotDef,
-        IPivotedData pivotData,
+        IPivotedData? pivotData,
         out int xColumn,
         out List<Tuple<string, int>>? yColumn,
         out List<Tuple<string, int>>? dataSetColumns
@@ -276,6 +276,7 @@ public class ChartHelperForPivot
         dataSetColumns = null;
 
         if ( pivotDef is not { MakeLineChart: true }
+            || pivotData == null 
             || pivotData.Count == 0
             || pivotData.Headers.Count < 1
             || string.IsNullOrWhiteSpace(pivotDef.LineChartXAxis)
@@ -311,12 +312,10 @@ public class ChartHelperForPivot
     /// <summary>
     /// Compare pivot rows by multiple columns
     /// </summary>
-    private class RowComparer(IPivotedData pivot, int xCol, List<Tuple<string, int>> dataSetCols) : IComparer<int>
+    // ReSharper disable InconsistentNaming
+    private class RowComparer(IPivotedData _pivot, int _xCol, List<Tuple<string, int>> _dataSetCols) : IComparer<int>
+    // ReSharper restore InconsistentNaming
     {
-        private readonly IPivotedData _pivot = pivot;
-        private readonly int _xCol = xCol;
-        private readonly List<Tuple<string, int>> _dataSetCols = dataSetCols ?? [];
-
         public int Compare(int row1, int row2)
         {
             int c;

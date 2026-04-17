@@ -1,4 +1,6 @@
-﻿@using Rms.Risk.Mango.Pivot.Core
+﻿@using System.Reflection
+@using log4net
+@using Rms.Risk.Mango.Pivot.Core
 @using Rms.Risk.Mango.Pivot.Core.Models
 
 @inject NavigationManager NavigationManager
@@ -113,6 +115,7 @@
 </div>
 
 @code {
+	private static readonly ILog _log = LogManager.GetLogger(MethodBase.GetCurrentMethod()!.DeclaringType!);
 
     [Parameter] public string Class { get; set; } = "";
 
@@ -147,7 +150,7 @@
 
     [Parameter] public FilterExpressionTree.ExpressionGroup                ExtraFilter        { get; set; } = new();
     [Parameter] public EventCallback<FilterExpressionTree.ExpressionGroup> ExtraFilterChanged { get; set; }
-    [Parameter] public IPivotTableDataSource?                              PivotService       { get; set; }
+    [Parameter, EditorRequired] public IPivotTableDataSource               PivotService       { get; set; } = null!;
     [Parameter] public bool                                                LoadFilterDef      { get; set; }
 
     private List<ExtraFilterDefinition.FilterValue> _values          = new();
@@ -261,15 +264,22 @@
 
     private async Task UpdateAvailableSelectorValues(bool force = false)
     {
-        var updated         = false;
-        var filtersToUpdate = FilterDef.Filter.Where(fd => force || fd.Values.Count == 0);
-        foreach (var fd in filtersToUpdate)
+        try
         {
-            updated |= await LoadSelectorValues(fd);
-        }
+            var updated = false;
+            var filtersToUpdate = FilterDef.Filter.Where(fd => force || fd.Values.Count == 0);
+            foreach (var fd in filtersToUpdate)
+            {
+                updated |= await LoadSelectorValues(fd);
+            }
 
-        if ( updated )
-            await InvokeAsync(StateHasChanged);
+            if (updated)
+                await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+	        _log.Warn(ex.Message, ex);
+        }
     }
 
     private async Task<bool> LoadSelectorValues(ExtraFilterDefinition.FilterControl fd)
