@@ -78,7 +78,12 @@
                     <div class="form-group">
                         <FormButton Enabled="@IsReady" Name="Find" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
                     </div>
-                </div>
+	                    <AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
+		                    <div class="form-group">
+			                    <FormButton Enabled="@CanDelete" Name="Delete" Icon="icon-trash-sm" OnClick="Delete" IsPrimary="false" Hint="Delete all selected documents."/>
+		                    </div>
+	                    </AuthorizedOnly>
+                    </div>
                 <div>See <a href="/doc/afh?tab=Expressions" target="_blank">documentation</a>...</div>
             </div>
         </div>
@@ -174,8 +179,12 @@
             if (UserSession.Collection == value)
                 return;
             UserSession.Collection = value;
+            ResultBson.Clear();
+            ResultPivot = new([]);
+            Result = "";
             ShowDropdown = false;
             Text = "";
+
             SyncUrl();
             InvokeAsync(StateHasChanged);
         }
@@ -207,6 +216,7 @@
     }
 
     private bool IsReady => !_running && !string.IsNullOrWhiteSpace(Database) && !string.IsNullOrWhiteSpace(DatabaseInstance) && !string.IsNullOrWhiteSpace(SelectedCollection);
+    private bool CanDelete => IsReady && ResultBson.Count > 0;
 
     private string Timeout      { get; set; } = "20";
     private string FetchSize    { get; set; } = "100";
@@ -219,7 +229,7 @@
 
     private EditContext?   _editContext;
     private EditContext    EditContext => _editContext!;
-    
+
     private          bool                    _running            = false;
     private readonly CancellationTokenSource _globalCancellation = new();
 
@@ -297,7 +307,8 @@
 
     enum ActionType
     {
-        Find
+        Find,
+        Delete
     }
 
     private async Task Run(ActionType actionType)
@@ -333,7 +344,8 @@
 
             var res = actionType switch
             {
-                ActionType.Find => await RunFind(json, limit, cts.Token),
+                ActionType.Find   => await RunFind(json, limit, cts.Token),
+                ActionType.Delete => await RunDelete(json, limit, cts.Token),
                 _ => throw new ArgumentOutOfRangeException(nameof(actionType), actionType, null)
             };
 
@@ -391,6 +403,8 @@
 
     private Task Run() => Run(ActionType.Find);
 
+    private Task Delete() => Run(ActionType.Delete);
+
     private Task Display(Exception e)
     {
         ShowAsJson = true;
@@ -433,6 +447,75 @@
             list.Add(BsonDocument.Parse(@$"{{""Result"": ""No data fetched from {SelectedCollection}""}}"));
 
         return (pd, list);
+    }
+
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunDelete(string text, int limit, CancellationToken token)
+    {
+        BsonDocument filter;
+        if (string.IsNullOrWhiteSpace(text))
+            filter = [];
+        else
+        {
+            // BsonArray.Parse doesn't exist on the driver; wrap the JSON array into a document
+            // and use BsonDocument.Parse, then extract the array.
+            var wrapper = BsonDocument.Parse("{\"_arr\":" + text + "}");
+            var arr = wrapper["_arr"].AsBsonArray;
+            if (arr.Count != 1)
+                throw new ApplicationException($"Expected only $match stage. Got Count={arr.Count} elements");
+
+            var first = arr[0].AsBsonDocument;
+            if (!first.Contains("$match"))
+                throw new ApplicationException("Expected first element to contain a '$match' stage");
+
+            filter = first["$match"].AsBsonDocument;
+        }
+
+        // Build the delete command document
+        var command = new BsonDocument
+        {
+            ["delete"] = SelectedCollection,
+            ["deletes"] = new BsonArray
+            {
+                new BsonDocument
+                {
+                    ["q"] = filter,
+					["limit"] = 0 // 0 means delete all matching documents
+                }
+            }
+        };
+
+        // Ask for execution ticket/permission
+        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+        if (string.IsNullOrWhiteSpace(ticket))
+            return (ArrayBasedPivotData.NoData, []);
+
+        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, 
+	        $"Delete from {SelectedCollection}", 
+	        "Are you sure to delete all documents matching the filter?");
+
+        if (r.Cancelled)
+            return (ArrayBasedPivotData.NoData, []);
+
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
+
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
+        var res = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
+
+        var list = new List<BsonDocument>();
+        var deleted = 0;
+        try
+        {
+            deleted = res["n"].ToInt32();
+        }
+        catch
+        {
+            // fallback if different response shape
+            try { deleted = res["deletedCount"].ToInt32(); } catch { deleted = 0; }
+        }
+
+        list.Add(new BsonDocument { ["Result"] = $"Deleted {deleted} documents" });
+
+        return (ArrayBasedPivotData.NoData, list);
     }
 
     private void SyncUrl()
