@@ -406,8 +406,7 @@ public static class JsonSchemaExtractor
             var hasDominantCluster = dominantCount >= 3
                                      && (dominantRatio >= 0.25 || dominantCount == totalCount);
 
-            var hasDynamicKeySignal = totalCount >= 6
-                                      || requiredRatio < 0.95
+            var hasDynamicKeySignal = requiredRatio < 0.95
                                       || avgPresenceRatio < 0.95
                                       || dominantCount == totalCount;
 

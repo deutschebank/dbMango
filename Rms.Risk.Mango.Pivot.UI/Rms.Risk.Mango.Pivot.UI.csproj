@@ -34,6 +34,7 @@
     <PackageReference Include="Blazored.Modal" />
     <PackageReference Include="pax.BlazorChartJs" />
     <PackageReference Include="Markdown.ColorCode" />
+    <PackageReference Include="NJsonSchema" />
   </ItemGroup>
 
   <ItemGroup>

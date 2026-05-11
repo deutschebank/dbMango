@@ -593,7 +593,21 @@
                 UserSession.Database, 
                 [new WriteAccessRequirement()]);
 
-            var res = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, enableWrite.Succeeded);
+            BsonDocument? schema = null;
+            if (enableWrite.Succeeded)
+            {
+	            try
+	            {
+		            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+		            schema = await SchemaLoader.LoadSchema(UserSession.Collection, cts.Token);
+	            }
+	            catch
+	            {
+		            schema = null;
+	            }
+            }
+
+            var res = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, schema, enableWrite.Succeeded);
             if (res == null)
                 return true;
 

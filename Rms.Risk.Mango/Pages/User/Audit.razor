@@ -5,7 +5,7 @@
 @using Rms.Risk.Mango.Services.Audit
 
 @inject NavigationManager     NavigationManager
-@inject IUserSession           UserSession
+@inject IUserSession          UserSession
 @inject IJSRuntime            JsRuntime
 
 @*
@@ -288,7 +288,7 @@
             //     UserSession.Database, 
             //     [new ReadAccessRequirement()]);
 
-            _ = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, false);
+	        _ = await Find.ShowBsonDialog(Modal, id.ToString()!, bson);
         }
         catch (Exception e)
         {

@@ -4,9 +4,10 @@
 @attribute [Authorize]
 
 @inject NavigationManager     NavigationManager
-@inject IUserSession           UserSession
+@inject IUserSession          UserSession
 @inject IJSRuntime            JsRuntime
 @inject IAuthorizationService Auth
+@inject ISchemaLoader         SchemaLoader
 
 @*
  *                                dbMango
@@ -380,7 +381,18 @@
                 UserSession.Database, 
                 [new WriteAccessRequirement()]);
 
-            var res = await ShowBsonDialog(Modal, id.ToString()!, bson, enableWrite.Succeeded);
+            BsonDocument? schema;
+            try
+            {
+	            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+	            schema = await SchemaLoader.LoadSchema(UserSession.Collection, cts.Token);
+            }
+            catch
+            {
+	            schema = null;
+            }
+
+            var res = await ShowBsonDialog(Modal, id.ToString()!, bson, schema, enableWrite.Succeeded);
             if (res == null)
                 return true;
 
@@ -499,12 +511,21 @@
     }
 
 
-    public static async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(IModalService service, string header, BsonDocument bson, bool enableWrite)
+    public static async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(
+	    IModalService service,
+	    string header,
+	    BsonDocument bson,
+	    BsonDocument? schema = null,
+	    bool enableWrite     = false,
+	    bool showSchemaForm  = false
+    )
     {
-        var parameters = new ModalParameters
+		var parameters = new ModalParameters
         {
-            { "Text",        bson.ToJson(new() { Indent = true }) },
-            { "EnableWrite", enableWrite }
+            { "Text",           bson.ToJson(new() { Indent = true }) },
+            { "EnableWrite",    enableWrite },
+            { "ShowSchemaForm", showSchemaForm },
+            { "Schema",         schema}
         };
 
         var options = new ModalOptions
