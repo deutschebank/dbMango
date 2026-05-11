@@ -1,4 +1,5 @@
 ﻿using MongoDB.Bson;
+using MongoDB.Driver;
 using Rms.Risk.Mango.Interfaces;
 
 namespace Rms.Risk.Mango.Services;
@@ -40,19 +41,61 @@ public class SchemaLoader(
             }
         }
 
+        var schema = 
+            await LoadSchemaFromMeta(collection, effectiveToken)
+            ?? await InferSchema(collection, effectiveToken);
+
+        if ( schema == null)
+            return null;
+
+        lock (_cacheLock)
+        {
+            _cache[cacheKey] = new CacheEntry(schema, DateTimeOffset.UtcNow.Add(_cacheTtl));
+        }
+
+        return schema;
+
+    }
+
+    private async Task<BsonDocument?> LoadSchemaFromMeta(string collection, CancellationToken token)
+    {
+        try
+        {
+            var metaCollection = collection + "-Meta";
+
+            var admin = _userSession.MongoDbAdmin;
+
+            var collections = await admin.ListCollections(token);
+            if (!collections.Contains(metaCollection))
+                return null;
+
+            var metaService = _userSession.GetCustomMongoDbService(_userSession.Database, _userSession.DatabaseInstance, metaCollection);
+
+            var filter = Builders<BsonDocument>.Filter.Eq("_id", "Schema");
+
+            await foreach (var doc in metaService.FindAsync(filter, allowRetries: false, projection: null, limit: 1, token: token))
+            {
+                return doc;
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to load schema from meta collection '{meta}' for collection '{collectionName}'", collection + "-Meta", collection);
+            return null;
+        }
+    }
+
+    private async Task<BsonDocument?> InferSchema(string collection, CancellationToken token)
+    {
+        BsonDocument schema;
         try
         {
             _userSession.Collection = collection; // Ensure the collection is set for schema inference
-            var schema = await JsonSchemaExtractor.InferJsonSchema(
+            schema = await JsonSchemaExtractor.InferJsonSchema(
                 _userSession.MongoDb,
-                token: effectiveToken);
-
-            lock (_cacheLock)
-            {
-                _cache[cacheKey] = new CacheEntry(schema, DateTimeOffset.UtcNow.Add(_cacheTtl));
-            }
-
-            return schema;
+                token: token);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -60,6 +103,8 @@ public class SchemaLoader(
             _logger.LogError(ex, "Failed to load schema for collection '{collectionName}': {message}", _userSession.Collection, ex.Message);
             return null;
         }
+
+        return schema;
     }
 
     private string GetCacheKey() =>
