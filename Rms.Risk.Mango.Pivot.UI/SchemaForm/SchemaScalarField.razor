@@ -1,0 +1,229 @@
+<div class="form-group @Class">
+    @if (IsBoolean)
+    {
+        <FormItemCheckBox Name="@Name" Enabled="@(!ReadOnly)" @bind-Value="BoolValue" LabelOn="true" LabelOff="false" />
+    }
+    else if (IsDate)
+    {
+        <FormItemDate Name="@Name" StartDate="@DateValue" StartDateChanged="@OnDateChanged" Enabled="@(!ReadOnly)" SelectDateRange="false" />
+    }
+    else if (EnumValues.Count > 0)
+    {
+        <FormItemSelect Name="@Name" Enabled="@(!ReadOnly)" @bind-Value="SelectedEnum" Values="@EnumValues" GetText="@SchemaFormValueConverter.ToDisplayString" />
+    }
+    else if (ShowObjectIdGenerate)
+    {
+        <div class="input-group mr-sm-2">
+            @if (!string.IsNullOrWhiteSpace(Name))
+            {
+                <div class="flex-stack-horizontal form-mw">
+                    <label class="input-group-text w-100">@Name</label>
+                </div>
+            }
+            <input class="form-control" type="text" disabled="@ReadOnly" value="@TextValue" @onchange="OnTextChanged" />
+            @if (!ReadOnly)
+            {
+                <div class="input-group-append">
+                    <button type="button" class="btn btn-outline-secondary" title="Generate ObjectId" @onclick="GenerateObjectId">
+                        <span class="ui-icon-font icon-wrench-outline-sm"></span>
+                    </button>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <FormItemText Name="@Name" Enabled="@(!ReadOnly)" InputType="@InputType" @bind-Value="TextValue" />
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="schema-validation-error">@Error</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Name { get; set; } = string.Empty;
+    [Parameter] public string Class { get; set; } = string.Empty;
+    [Parameter] public BsonDocument Schema { get; set; } = [];
+    [Parameter] public BsonValue? Value { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool ShowObjectIdGenerate { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback<BsonValue?> ValueChanged { get; set; }
+
+    private List<BsonValue> EnumValues { get; } = [];
+    private bool IsBoolean { get; set; }
+    private string InputType { get; set; } = "text";
+    private bool IsDate { get; set; }
+    private DateOnly? DateValue { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        EnumValues.Clear();
+        if (Schema.TryGetValue("enum", out var enumValue) && enumValue is BsonArray enumArray)
+        {
+            foreach (var item in enumArray.Where(x => x != null))
+            {
+                if (item != null)
+                    EnumValues.Add(item);
+            }
+        }
+
+        IsBoolean = SchemaFormSchemaParser.GetTypes(Schema).Contains("boolean");
+
+        var types = SchemaFormSchemaParser.GetTypes(Schema);
+        InputType = types.Contains("integer") || types.Contains("number") ? "number" : "text";
+
+        // detect date/datetime either by schema format or by actual value type / parseable string
+        IsDate = false;
+        if (Schema.TryGetValue("format", out var formatVal) && formatVal.IsString && string.Equals(formatVal.AsString, "date-time", StringComparison.OrdinalIgnoreCase))
+        {
+            IsDate = true;
+        }
+
+        if (!IsDate)
+        {
+            if (Value is not null && Value.BsonType == BsonType.DateTime)
+                IsDate = true;
+            else if (Value is not null && Value.IsString)
+            {
+                var s = Value.AsString;
+                if (!string.IsNullOrWhiteSpace(s))
+                {
+                    if (DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out _) ||
+                        DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+                    {
+                        IsDate = true;
+                    }
+                }
+            }
+        }
+
+        // prepare DateValue for date control
+        if (IsDate)
+        {
+            DateValue = ConvertToDateOnly(Value);
+        }
+    }
+
+    private DateOnly? ConvertToDateOnly(BsonValue? v)
+    {
+        if (v is null || v.IsBsonNull)
+            return null;
+
+        if (v.BsonType == BsonType.DateTime)
+        {
+            var dt = v.ToUniversalTime();
+            return DateOnly.FromDateTime(dt.Date);
+        }
+
+        if (v.IsString)
+        {
+            var s = v.AsString;
+            if (DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var dt))
+            {
+                return DateOnly.FromDateTime(dt.Date);
+            }
+        }
+
+        return null;
+    }
+
+    private Task OnDateChanged(DateOnly? d)
+    {
+        if (ReadOnly)
+            return Task.CompletedTask;
+
+        DateValue = d;
+        if (d is null)
+        {
+            Value = null;
+            return ValueChanged.InvokeAsync(Value);
+        }
+
+        var dt = new DateTime(d.Value.Year, d.Value.Month, d.Value.Day, 0, 0, 0, DateTimeKind.Utc);
+        var bson = new BsonDateTime(dt);
+        Value = bson;
+        return ValueChanged.InvokeAsync(Value);
+    }
+
+    private string TextValue
+    {
+        get => SchemaFormValueConverter.ToDisplayString(Value);
+        set
+        {
+            var converted = SchemaFormValueConverter.ParseScalarValue(Schema, Name, value, Value);
+            if (AreEqual(Value, converted))
+            {
+                return;
+            }
+
+            Value = converted;
+            _ = ValueChanged.InvokeAsync(converted);
+        }
+    }
+
+    private bool BoolValue
+    {
+        get => Value is not null && Value.IsBoolean && Value.AsBoolean;
+        set
+        {
+            if (Value is BsonBoolean b && b.Value == value)
+            {
+                return;
+            }
+
+            Value = value;
+            _ = ValueChanged.InvokeAsync(Value);
+        }
+    }
+
+    private BsonValue SelectedEnum
+    {
+        get => Value ?? BsonNull.Value;
+        set
+        {
+            if (Value == value)
+            {
+                return;
+            }
+
+            Value = value;
+            _ = ValueChanged.InvokeAsync(Value);
+        }
+    }
+
+    private Task OnTextChanged(ChangeEventArgs args)
+    {
+        TextValue = args.Value?.ToString() ?? string.Empty;
+        return Task.CompletedTask;
+    }
+
+    private Task GenerateObjectId()
+    {
+        if (ReadOnly)
+        {
+            return Task.CompletedTask;
+        }
+
+        var generated = ObjectId.GenerateNewId();
+        Value = generated;
+        return ValueChanged.InvokeAsync(generated);
+    }
+
+    private static bool AreEqual(BsonValue? left, BsonValue? right)
+    {
+        if (left is null && right is null)
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        return left.Equals(right);
+    }
+}

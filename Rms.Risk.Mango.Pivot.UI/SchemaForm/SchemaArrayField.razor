@@ -1,0 +1,238 @@
+<div class="schema-array-field">
+    <SchemaCollapsibleSection Title="@Name" Collapsed="@Collapsed">
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="schema-validation-error mb-2">@Error</div>
+        }
+
+        @for (var i = 0; i < Items.Count; i++)
+        {
+            var index = i;
+            var item = Items[index];
+            var itemPath = $"{Path}[{index}]";
+
+            <div class="schema-array-item mb-2">
+                <div class="schema-array-item-header">
+                    <span>Item @index</span>
+                    @if (!ReadOnly)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveAt(index)">
+                            Remove
+                        </button>
+                    }
+                </div>
+
+                @if (IsItemObject)
+                {
+                    <SchemaDocumentForm Schema="ItemSchema"
+                                        Document="GetObjectItem(index)"
+                                        Mode="Mode"
+                                        Collapsed="Collapsed"
+                                        Path="@itemPath"
+                                        IsRoot="false"
+                                        DocumentChanged="(doc) => UpdateObjectItem(index, doc)" />
+                }
+                else if (IsItemArray)
+                {
+                    <SchemaArrayField Name="Items"
+                                      Schema="ItemSchema"
+                                      Value="GetArrayItem(index)"
+                                      Mode="Mode"
+                                      Path="@itemPath"
+                                      Collapsed="Collapsed"
+                                      ReadOnly="ReadOnly"
+                                      Errors="Errors"
+                                      ValueChanged="(arr) => UpdateArrayItem(index, arr)" />
+                }
+                else
+                {
+                    <SchemaScalarField Name="Items"
+                                       Schema="ItemSchema"
+                                       Value="item"
+                                       ReadOnly="ReadOnly"
+                                       Error="@GetError(itemPath)"
+                                       ValueChanged="(val) => UpdateScalarItem(index, val)" />
+                }
+            </div>
+        }
+
+        @if (!ReadOnly)
+        {
+            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="AddItem">Add item</button>
+        }
+    </SchemaCollapsibleSection>
+</div>
+
+@code {
+    [Parameter] public string Name { get; set; } = string.Empty;
+    [Parameter] public string Path { get; set; } = "$";
+    [Parameter] public BsonDocument Schema { get; set; } = [];
+    [Parameter] public BsonArray? Value { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Collapsed { get; set; } = true;
+    [Parameter] public SchemaFormMode Mode { get; set; }
+    [Parameter] public Dictionary<string, string> Errors { get; set; } = new(StringComparer.Ordinal);
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public EventCallback<BsonArray?> ValueChanged { get; set; }
+
+    private BsonArray Items => Value ?? [];
+
+    private BsonDocument ItemSchema =>
+        Schema.TryGetValue("items", out var items) && items is BsonDocument doc
+            ? doc
+            : new BsonDocument("type", "string");
+
+    private bool IsItemObject => SchemaFormSchemaParser.GetTypes(ItemSchema).Contains("object");
+    private bool IsItemArray => SchemaFormSchemaParser.GetTypes(ItemSchema).Contains("array");
+
+    private Task AddItem()
+    {
+        if (ReadOnly)
+        {
+            return Task.CompletedTask;
+        }
+
+        var arr = CloneArray();
+        arr.Add(CreateDefaultValue(ItemSchema));
+        Value = arr;
+        return ValueChanged.InvokeAsync(arr);
+    }
+
+    private Task RemoveAt(int index)
+    {
+        if (ReadOnly)
+        {
+            return Task.CompletedTask;
+        }
+
+        var arr = CloneArray();
+        if (index < 0 || index >= arr.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        arr.RemoveAt(index);
+        Value = arr;
+        return ValueChanged.InvokeAsync(arr);
+    }
+
+    private Task UpdateScalarItem(int index, BsonValue? newValue)
+    {
+        var arr = CloneArray();
+        if (index < 0 || index >= arr.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        arr[index] = newValue ?? BsonNull.Value;
+        Value = arr;
+        return ValueChanged.InvokeAsync(arr);
+    }
+
+    private Task UpdateObjectItem(int index, BsonDocument doc)
+    {
+        var arr = CloneArray();
+        if (index < 0 || index >= arr.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        arr[index] = doc;
+        Value = arr;
+        return ValueChanged.InvokeAsync(arr);
+    }
+
+    private Task UpdateArrayItem(int index, BsonArray? nested)
+    {
+        var arr = CloneArray();
+        if (index < 0 || index >= arr.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        arr[index] = nested ?? new BsonArray();
+        Value = arr;
+        return ValueChanged.InvokeAsync(arr);
+    }
+
+    private BsonDocument GetObjectItem(int index)
+    {
+        if (index < 0 || index >= Items.Count)
+        {
+            return [];
+        }
+
+        if (Items[index] is BsonDocument doc)
+        {
+            return doc;
+        }
+
+        var created = new BsonDocument();
+        _ = UpdateObjectItem(index, created);
+        return created;
+    }
+
+    private BsonArray GetArrayItem(int index)
+    {
+        if (index < 0 || index >= Items.Count)
+        {
+            return [];
+        }
+
+        if (Items[index] is BsonArray arr)
+        {
+            return arr;
+        }
+
+        var created = new BsonArray();
+        _ = UpdateArrayItem(index, created);
+        return created;
+    }
+
+    private BsonArray CloneArray()
+    {
+        return Value is null ? [] : new BsonArray(Value.Select(CloneValue));
+    }
+
+    private static BsonValue CloneValue(BsonValue value)
+    {
+        return value.DeepClone();
+    }
+
+    private string? GetError(string path)
+    {
+        return Errors.TryGetValue(path, out var error) ? error : null;
+    }
+
+    private static BsonValue CreateDefaultValue(BsonDocument schema)
+    {
+        var types = SchemaFormSchemaParser.GetTypes(schema);
+
+        if (types.Contains("object"))
+        {
+            return new BsonDocument();
+        }
+
+        if (types.Contains("array"))
+        {
+            return new BsonArray();
+        }
+
+        if (types.Contains("boolean"))
+        {
+            return false;
+        }
+
+        if (types.Contains("integer"))
+        {
+            return 0;
+        }
+
+        if (types.Contains("number"))
+        {
+            return 0.0;
+        }
+
+        return string.Empty;
+    }
+}

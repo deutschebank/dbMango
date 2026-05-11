@@ -1,0 +1,48 @@
+.schema-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0.75rem;
+    grid-auto-flow: dense; /* allow compact packing */
+}
+
+.schema-field-half {
+    grid-column: span 1;
+    min-width: 0; /* allow children to shrink and avoid forcing single column */
+}
+
+.schema-field-full {
+    grid-column: 1 / -1;
+}
+
+/* Ensure direct children can shrink inside grid cells (fixes layout when inputs are long) */
+.schema-form-grid > * {
+    min-width: 0;
+}
+
+.schema-validation-error {
+    color: #c62828;
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+}
+
+.schema-array-item {
+    border: 1px solid #d9d9d9;
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+}
+
+.schema-array-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.schema-collapsible-header {
+    padding: 0;
+    text-decoration: none;
+}
+
+.schema-collapsible-body {
+    margin-top: 0.25rem;
+}

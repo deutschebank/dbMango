@@ -99,10 +99,10 @@ public class Program
         builder.Services
                .TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         builder.Services.AddBlazoredModal();
-        builder.Services.AddChartJs(options =>
+        builder.Services.AddChartJs(opt =>
         {
             const string chartJsVersion = "4.5.1";
-            options.ChartJsLocation = $"/_content/Rms.Risk.Mango.Pivot.UI/js/chart.umd.min.js?v={chartJsVersion}";
+            opt.ChartJsLocation = $"/_content/Rms.Risk.Mango.Pivot.UI/js/chart.umd.min.js?v={chartJsVersion}";
         });
 
         if ( plugin != null )
@@ -132,6 +132,7 @@ public class Program
            .AddScoped<IUserSession                    , UserSession>()
            .AddScoped<IConnectedUser                  , ConnectedUser>()
            .AddScoped<IPatchService                   , PatchService>()
+           .AddScoped<ISchemaLoader                   , SchemaLoader>()
            .AddSingleton<IConnectedUserList           , ConnectedUserList>()
             ;
 

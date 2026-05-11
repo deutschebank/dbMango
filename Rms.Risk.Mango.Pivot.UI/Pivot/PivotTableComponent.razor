@@ -245,10 +245,11 @@ else if (_pivotRows is { Length: > 0 }
     [Parameter] public EventCallback<TimeSpan> LastRefreshElapsedChanged { get; set; }
 
     [Parameter] public Func<string, string, PivotDefinition?>? GetPivotDefinition                     { get; set; } //by default DefaultGetPivotDefinition;
-    [Parameter] public Func<string, string, Task<Tuple<string,PivotDefinition>?>> GetCustomDrilldown  { get; set; }= (_,_) => Task.FromResult<Tuple<string,PivotDefinition>?>(null);
+    [Parameter] public Func<string, string, Task<Tuple<string,PivotDefinition>?>> GetCustomDrilldown  { get; set; } = (_,_) => Task.FromResult<Tuple<string,PivotDefinition>?>(null);
     [Parameter] public Func<string /*columnName*/, PivotColumnDescriptor?> GetColumnDescriptor        { get; set; } = _ => null;
     [Parameter] public Func<string /*columnName*/, PivotFieldDescriptor?> GetFieldDescriptor          { get; set; } = _ => null;
-    [Parameter] public Func<DynamicObject, string, Task<bool>> HandleCellClick                        { get; set; } =(_,_) => Task.FromResult(false);
+    [Parameter] public Func<DynamicObject, string, Task<bool>> HandleCellClick                        { get; set; } = (_,_) => Task.FromResult(false);
+    [Parameter] public Func<string, Task<BsonDocument?>> GetSchema                                    { get; set; } = _ => Task.FromResult<BsonDocument?>(null);
     [Parameter] public Func<
         GroupedPivot /*pivot*/,
         FilterExpressionTree.ExpressionGroup? /*userFilter*/,
@@ -360,7 +361,8 @@ else if (_pivotRows is { Length: > 0 }
                 },
                 ShowException      = ex => ModalDialogUtils.ShowExceptionDialog(Modal, "Pivot", ex),
                 GetPivotDefinition = GetPivotDefinition ?? DefaultGetPivotDefinition,
-                GetCustomDrilldown = GetCustomDrilldown
+                GetCustomDrilldown = GetCustomDrilldown,
+				GetSchema          = GetSchema
             };
 
             await InvokeAsync(StateHasChanged);
@@ -388,9 +390,6 @@ else if (_pivotRows is { Length: > 0 }
 
         if ( IsReadOnly || _drilldownSupport == null)
             return true;
-
-        if (CurrentPivot == null)
-            return false;
 
         var displayToRealName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if ( CurrentPivot.RenameColumn?.Count > 0 && PivotData is ArrayBasedPivotData { HeadersMap: { } } apd)
@@ -444,12 +443,50 @@ else if (_pivotRows is { Length: > 0 }
         var filter = ExtraFilter;
         var doc    = await PivotService.GetDocumentAsync(_currentCollection!.CollectionNameWithPrefix, fields, filter);
 
-        await ModalDialogUtils.ShowTextDialog(
+        /* await ModalDialogUtils.ShowTextDialog(
             Modal,
             "Pivot",
             doc,
             "Press F11 to enter fullscreen mode. Use ESC to exit it."
-            );
+            ); */
+
+        await ShowBsonDialog(Modal, "Pivot", doc, false);
+    }
+
+    private async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(IModalService service, string header, string text, bool enableWrite)
+    {
+        var schema = _drilldownSupport == null
+                ? null
+                : await _drilldownSupport.GetSchema(header)
+            ;
+		return await ShowBsonDialog(service, header, text, enableWrite, schema);
+    }
+
+    public static async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(IModalService service, string header, string text, bool enableWrite, BsonDocument? schema)
+    {
+	    var parameters = new ModalParameters
+	    {
+		    { "Text",        text        },
+		    { "EnableWrite", enableWrite },
+		    { "Schema",      schema      }
+	    };
+
+	    var options = new ModalOptions
+	    {
+		    HideCloseButton = true,
+		    DisableBackgroundCancel = true
+	    };
+
+	    var form = service.Show<MessageBoxJsonComponent>(header, parameters, options);
+	    var res = await form.Result;
+	    if (res.Cancelled)
+		    return null;
+
+	    var v = (MessageBoxJsonComponent.ResultType?)res.Data;
+	    if (v == null)
+		    return null;
+
+	    return (v.ShouldUpdate, v.Json);
     }
 
     private bool IsRefreshEnabled =>

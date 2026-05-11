@@ -1,0 +1,37 @@
+<div class="schema-collapsible mb-2">
+    <button type="button" class="btn btn-link schema-collapsible-header" @onclick="Toggle">
+        <span class="ui-icon-font @(IsExpanded ? "icon-caret-down" : "icon-caret-right")"></span>
+        <span class="ml-1">@Title</span>
+    </button>
+
+    @if (IsExpanded)
+    {
+        <div class="schema-collapsible-body">
+            @ChildContent
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public bool Collapsed { get; set; } = true;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool IsExpanded { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized)
+        {
+            IsExpanded = !Collapsed;
+            _initialized = true;
+        }
+    }
+
+    private bool _initialized;
+
+    private void Toggle()
+    {
+        IsExpanded = !IsExpanded;
+    }
+}

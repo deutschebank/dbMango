@@ -8,6 +8,7 @@
 @inject IUserSession UserSession
 @inject IJSRuntime                  JsRuntime
 @inject NavigationManager           NavigationManager
+@inject ISchemaLoader               SchemaLoader
 
 @*
  *                                dbMango
@@ -289,6 +290,16 @@ else
             _state.SelectedPivotForCollection[Collection] = PivotName;
 
         await InvokeAsync(async () => await JsRuntime.SaveToLocalStorage("pivot", _state));
+    }
+
+    private Task<BsonDocument?> LoadSchema()
+    {
+	    if (string.IsNullOrWhiteSpace(Collection))
+		    return Task.FromResult<BsonDocument?>(null);
+
+	    var collection = MongoDbOnlyProxyDataSource.ParseCollectionName(Collection);
+
+	    return SchemaLoader.LoadSchema(collection.Name);
     }
 
 }

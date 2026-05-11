@@ -32,7 +32,7 @@ public class MongoCollectionStatsService : IMongoCollectionStatsService
 
     public MongoCollectionStatsService()
     {
-        _collectionsCache ??= new(LoadCollStats, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(1));
+        _collectionsCache ??= new(LoadCollStatsInternal, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(1));
     }
 
     public async Task<Dictionary<string, CollectionStats>> LoadCollStats(IUserSession user, Func<CollectionStats, CancellationToken, Task> callback, CancellationToken token)
@@ -46,9 +46,9 @@ public class MongoCollectionStatsService : IMongoCollectionStatsService
         return await _collectionsCache!.Get($"{user.Database}/{user.DatabaseInstance}", args, token);
     }
 
-    private static async Task<Dictionary<string, CollectionStats>> LoadCollStats(string database, Args args, CancellationToken token)
+    private static async Task<Dictionary<string, CollectionStats>> LoadCollStatsInternal(string database, Args args, CancellationToken token)
     {
-        var collections = await args.Admin.ListCollections(token); // make a copy to avoid modifying the original list during iteration
+        var collections = (await args.Admin.ListCollections(token)).ToList(); // make a copy to avoid modifying the original list during iteration
 
         var stats = new Dictionary<string, CollectionStats>();
         foreach (var name in collections)

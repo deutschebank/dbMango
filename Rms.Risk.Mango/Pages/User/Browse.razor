@@ -9,6 +9,7 @@
 @inject IUserSession           UserSession
 @inject IJSRuntime            JsRuntime
 @inject IAuthorizationService Auth
+@inject ISchemaLoader         SchemaLoader
 
 @*
  *                                dbMango
@@ -76,7 +77,8 @@
             <div class="flex-stack-vertical">
                 <div class="flex-stack-horizontal">
                     <div class="form-group">
-                        <FormButton Enabled="@IsReady" Name="Find" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
+	                    <FormButton Enabled="@IsReady" Name="Find" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
+                        <FormButton Enabled="@IsReady" Name="Schema" Icon="icon-sliders-horizontal" OnClick="ShowSchema" IsPrimary="true" />
                     </div>
 	                    <AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
 		                    <div class="form-group">
@@ -399,6 +401,49 @@
             // Ignore errors during saving state
             // This is not critical, and we can continue without saving
         }
+    }
+
+    private async Task ShowSchema()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedCollection))
+        {
+            Result = "No collection selected.";
+            ShowAsJson = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _running = true;
+        await InvokeAsync(StateHasChanged);
+
+        string jsonSchema;
+        try
+        {
+            var schema = await SchemaLoader.LoadSchema(SelectedCollection);
+            jsonSchema = schema.ToJson(new()
+                {
+                    Indent = true
+                });
+        }
+        catch (Exception e)
+        {
+            _running = false;
+            await InvokeAsync(StateHasChanged);
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error loading schema", e);
+            return;
+		}
+        finally
+        {
+	        _running = false;
+	        await InvokeAsync(StateHasChanged);
+        }
+
+        await PivotTableComponent.ShowBsonDialog(
+			Modal,
+			$"Schema for {SelectedCollection}",
+			jsonSchema,
+			false,
+			null);
     }
 
     private Task Run() => Run(ActionType.Find);

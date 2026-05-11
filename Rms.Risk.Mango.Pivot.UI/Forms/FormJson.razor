@@ -18,8 +18,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *@
-<FormMarkdown Text="@Json" Class="@Class" />
+<div>
+	<style>
+        .md-text{
+            font-size: 10pt;
+        }
 
+        code {
+            color: greenyellow !important;
+        }
+
+        pre {
+            color: greenyellow !important;
+            background-color: #1d2a3b;
+            overflow: unset !important;
+        }
+    </style>
+    
+	<div class="md-text @Class">
+		@Json
+	</div>
+</div>
 @code {
 
     [Parameter]
@@ -43,14 +62,14 @@
                     WriteIndented = true
                 })
             };
-            Json = $"```json\n{json}\n```";
+            Json = new MarkupString(JsonHtmlFormatter.ToHtml(json));
             StateHasChanged();
         }
     } = "";
 
     [Parameter] public string  Class  { get; set; } = "";
 
-    private string Json { get; set; } = "";
+    private MarkupString Json { get; set; } = new("");
 
 
 }

@@ -1,4 +1,9 @@
-﻿@inject IJSRuntime JsRuntime
+﻿@using Rms.Risk.Mango.Pivot.UI.SchemaForm
+@using System.Text.Encodings.Web
+
+@inject IJSRuntime JsRuntime
+@using Markdig
+@using Markdown.ColorCode
 
 @*
  *                                dbMango
@@ -31,36 +36,72 @@
 <div class="m-3">
     <p>View or edit Json document</p>
     <div>
-        <TextEditorComponent Class="text-area" @bind-Text="Text" MimeType="application/json" />
+		@if (Schema == null)
+		{
+			if (EnableWrite)
+			{
+				<TextEditorComponent Class="text-area" @bind-Text="Text" MimeType="application/json"/>
+			}
+			else
+			{
+				if (Text.Length > 500_000)
+				{
+					<div><pre>@HtmlEncoder.Default.Encode(Text)</pre></div>
+				}
+				else
+				{
+					<FormJson Value="Text" Class="text-area"/>
+				}
+			}
+		}
+		else
+		{
+			<SchemaDocumentForm Class="text-area" Schema="Schema" Document="Doc" Mode="@(EnableWrite ? SchemaFormMode.Edit : SchemaFormMode.ReadOnly)"/>
+		}
 
-        <div class="form-row modal-footer w-100 p-0">
-            <FormButton Name="" OnClick="OnCopy" Icon="icon-duplicate-document" />
-            @if (EnableWrite)
-            {
-                <FormButton Name=""       OnClick="OnPaste"  Icon="icon-paste" />
-                <FormButton Name="Update" OnClick="OnUpdate" Icon="icon-document-upload-sm" />
-                <FormButton Name="Delete" OnClick="OnDelete" Icon="icon-trash-sm" />
-            }
-            <FormButton Name="Cancel" IsPrimary="true" OnClick="@(() => BlazoredModal.CancelAsync())"/>
-        </div>
+		<div class="form-row modal-footer w-100 p-0">
+		    <FormButton Name="" OnClick="OnCopy" Icon="icon-duplicate-document"/>
+		    @if (EnableWrite)
+		    {
+			    <FormButton Name="" OnClick="OnPaste" Icon="icon-paste"/>
+			    <FormButton Name="Update" OnClick="OnUpdate" Icon="icon-document-upload-sm"/>
+			    <FormButton Name="Delete" OnClick="OnDelete" Icon="icon-trash-sm"/>
+		    }
+		    <FormButton Name="Cancel" IsPrimary="true" OnClick="@(() => BlazoredModal.CancelAsync())"/>
+	    </div>
     </div>
 </div>
 
 @code
 {
-    public class ResultType
-    {
-        public bool   ShouldUpdate { get; init; }
-        public string Json         { get; init; } = "";
-    }
+	public class ResultType
+	{
+		public bool   ShouldUpdate { get; init; }
+		public string Json         { get; init; } = "";
+	}
 
-    [CascadingParameter]        BlazoredModalInstance BlazoredModal { get; set; } = null!;
-    [CascadingParameter] public IModalService         Modal         { get; set; } = null!;
+	[CascadingParameter]        BlazoredModalInstance BlazoredModal { get; set; } = null!;
+	[CascadingParameter] public IModalService         Modal         { get; set; } = null!;
 
-    [Parameter] public string Text        { get; set; } = "";
-    [Parameter] public bool   EnableWrite { get; set; }
+	[Parameter] public string Text          { get; set; } = "";
+	[Parameter] public bool   EnableWrite   { get; set; }
+	[Parameter] public BsonDocument? Schema { get; set; }
 
-    private async Task OnUpdate()
+	private BsonDocument Doc { get; set; } = null!;
+
+	private readonly MarkdownPipeline _htmlPipeline = new MarkdownPipelineBuilder()
+			//.UseAdvancedExtensions()
+			.UseColorCode()
+			.Build()
+		;
+
+	protected override void OnParametersSet()
+	{
+		base.OnParametersSet();
+		Doc = !string.IsNullOrWhiteSpace(Text) && Schema != null ? BsonDocument.Parse(Text) : new BsonDocument();
+	}
+
+	private async Task OnUpdate()
     {
         if (!EnableWrite)
             await BlazoredModal.CancelAsync();

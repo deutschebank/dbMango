@@ -18,6 +18,7 @@
  */
 ﻿using System.Reflection;
 using log4net;
+using MongoDB.Bson;
 
 namespace Rms.Risk.Mango.Pivot.Core.Models;
 
@@ -37,6 +38,7 @@ public class DrilldownSupport(List<GroupedCollection> _collections)
     public Func<Exception, Task>                      ShowException       { get; set; } = _ => Task.CompletedTask;
     public Func<string, string, PivotDefinition?>     GetPivotDefinition  { get; set; } = (_,_) => null;
     public Func<string, string, Task<Tuple<string,PivotDefinition>?>> GetCustomDrilldown  { get; set; } = (_,_) => Task.FromResult<Tuple<string,PivotDefinition>?>(null);
+    public Func<string, Task<BsonDocument?>>          GetSchema           { get; set; } = (_) => Task.FromResult<BsonDocument?>(null);
 
     private GroupedCollection GetCollection(string name) => _collections.FirstOrDefault( x => x.CollectionNameWithPrefix == name ) ?? throw new ApplicationException($"Collection=\"{name}\" is not found");
 
