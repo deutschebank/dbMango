@@ -144,7 +144,8 @@ else if (_pivotRows is { Length: > 0 }
 
             try
             {
-                ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, x => _pivotRows[0].GetFormat(x));
+                if ( _initialized )
+					ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, x => _pivotRows[0].GetFormat(x));
             }
             catch (Exception)
             {
@@ -166,14 +167,14 @@ else if (_pivotRows is { Length: > 0 }
     [Parameter]
     public PivotDefinition CurrentPivot
     {
-	    get;
-	    set
-	    {
-		    if (value == null || field == value)
-			    return;
-		    field = value;
-		    CurrentPivotChanged.InvokeAsync(field);
-	    }
+        get;
+        set
+        {
+            if (value == null || field == value)
+                return;
+            field = value;
+            CurrentPivotChanged.InvokeAsync(field);
+        }
     } = new();
 
     [Parameter] public EventCallback<PivotDefinition>                      CurrentPivotChanged      { get; set; }
@@ -306,6 +307,7 @@ else if (_pivotRows is { Length: > 0 }
     private          List<dynamic>                              _filteredRows  = [];
     private readonly DelayedExecution                           _delayedUpdate = new(TimeSpan.FromMilliseconds(1500));
     private          Dictionary<string, int>                    _shadowHeaders = [];
+    private          bool                                       _initialized;
 
     private bool                                  ShowTotals        => SelectedPivotNode?.Pivot.ShowTotals ?? false;
     private IMinMaxCache?                         VisibleTotals     => ShowTotals ? _totals : null;
@@ -345,6 +347,8 @@ else if (_pivotRows is { Length: > 0 }
 
         if (!firstRender || IsReadOnly)
             return;
+
+        _initialized = true;
 
         try
         {
@@ -1017,7 +1021,8 @@ else if (_pivotRows is { Length: > 0 }
             if (token.IsCancellationRequested)
                 return Task.CompletedTask;
 
-            ChartHelper.UpdateLineChart(CurrentPivot!, filteredPivot, x => _pivotRows![0].GetFormat(x));
+            if ( _initialized )
+				ChartHelper.UpdateLineChart(CurrentPivot!, filteredPivot, x => _pivotRows![0].GetFormat(x));
         }
         catch (Exception)
         {

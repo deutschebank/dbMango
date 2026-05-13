@@ -120,7 +120,7 @@
 
             _totals.Update(field);
 
-            if (PivotDef != null)
+            if (PivotDef != null && _initialized)
             {
                 try
                 {
@@ -132,7 +132,8 @@
                 }
             }
 
-            InvokeAsync(StateHasChanged);
+            if (_initialized)
+				InvokeAsync(StateHasChanged);
         }
     } = new ArrayBasedPivotData([]);
 
@@ -169,6 +170,7 @@
     private          List<dynamic>                              _filteredRows  = [];
     private readonly DelayedExecution                           _delayedUpdate = new(TimeSpan.FromMilliseconds(1500));
     private          Dictionary<string, int>                    _shadowHeaders = [];
+    private          bool                                       _initialized;
 
     private bool                ShowTotals    => PivotDef?.ShowTotals ?? false;
     private IMinMaxCache?       VisibleTotals => ShowTotals ? _totals : null;
@@ -196,6 +198,13 @@
             else 
                 return string.Empty;
         }
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+	    if (firstRender)
+		    _initialized = true;
+	    return base.OnAfterRenderAsync(firstRender);
     }
 
     private async Task<bool> OnCellClick(DynamicObject row, string fieldName)
@@ -336,7 +345,8 @@
             if (token.IsCancellationRequested)
                 return Task.CompletedTask;
 
-            ChartHelper.UpdateLineChart(PivotDef, filteredPivot, x => _pivotRows[0].GetFormat(x));
+            if ( _initialized )
+				ChartHelper.UpdateLineChart(PivotDef, filteredPivot, x => _pivotRows[0].GetFormat(x));
         }
         catch (Exception)
         {
