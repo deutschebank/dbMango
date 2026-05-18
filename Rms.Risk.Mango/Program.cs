@@ -144,7 +144,16 @@ public class Program
             builder.WebHost.UseStaticWebAssets();
 
         builder.WebHost
-               .UseKestrel((_, kestrelServerOptions) => { kestrelServerOptions.ConfigureStandardKestrel(builder, options); });
+               .UseKestrel((c, kestrelServerOptions) =>
+               {
+                   kestrelServerOptions.ConfigureStandardKestrel(builder, options);
+
+                   var cert = CertificateHelper.LoadCertificate<Program>();
+                   if (cert != null)
+                   {
+                       MongoDbHelper.ClientCertificate = cert;
+                   }
+               });
 
         AfhHelpers.Init();
 
