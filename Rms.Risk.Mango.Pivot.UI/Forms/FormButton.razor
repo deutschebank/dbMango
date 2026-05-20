@@ -31,10 +31,24 @@
     [Parameter] public bool          Enabled   { get; set; } = true;
     [Parameter] public bool          IsPrimary { get; set; }
     [Parameter] public string        Icon      { get; set; } = "";
-    [Parameter] public string        Name      { get; set; } = "OK";
+    [Parameter] public string        Name      { get; set; } = "";
     [Parameter] public string        Hint      { get; set; } = "";
     [Parameter] public string        Class     { get; set; } = "mr-1";
     [Parameter] public EventCallback OnClick   { get; set; }
 
     private string ButtonClass => IsPrimary ? $"btn-primary {Class}" : $"btn-secondary {Class}";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+	    base.OnAfterRender(firstRender);
+	    if (!firstRender)
+		    return;
+
+        if ( string.IsNullOrWhiteSpace(Icon) && string.IsNullOrWhiteSpace(Name))
+        {
+            Name = "OK";
+            StateHasChanged();
+		}
+    }
+
 }
