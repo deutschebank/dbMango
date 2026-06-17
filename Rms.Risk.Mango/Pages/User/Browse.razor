@@ -77,8 +77,9 @@
             <div class="flex-stack-vertical">
                 <div class="flex-stack-horizontal">
                     <div class="form-group">
-	                    <FormButton Enabled="@IsReady" Name="Find" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
-                        <FormButton Enabled="@IsReady" Name="Schema" Icon="icon-sliders-horizontal" OnClick="ShowSchema" IsPrimary="true" />
+	                    <FormButton Enabled="@IsReady" Name="Find"       Icon="icon-search-sm"          OnClick="Run"                    IsPrimary="true"  />
+                        <FormButton Enabled="@IsReady" Name="Schema"     Icon="icon-sliders-horizontal" OnClick="ShowSchema"             IsPrimary="false" />
+                        <FormButton Enabled="@IsReady" Name="Properties" Icon="icon-wrench-sm"          OnClick="ShowCollectionControls" IsPrimary="false" />
                     </div>
 	                    <AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
 		                    <div class="form-group">
@@ -444,6 +445,31 @@
 			jsonSchema,
 			false,
 			null);
+    }
+
+    private async Task ShowCollectionControls()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedCollection))
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Properties", "No collection selected.");
+            return;
+        }
+
+        var parameters = new ModalParameters
+        {
+            { nameof(CollectionControl.DatabaseStr),         Database },
+            { nameof(CollectionControl.DatabaseInstanceStr), DatabaseInstance },
+            { nameof(CollectionControl.CollectionName),      SelectedCollection }
+        };
+
+        var options = new ModalOptions
+        {
+            HideCloseButton = false,
+            DisableBackgroundCancel = false
+        };
+
+        var form = Modal.Show<CollectionControl>($"Collection controls: {SelectedCollection}", parameters, options);
+        await form.Result;
     }
 
     private Task Run() => Run(ActionType.Find);
