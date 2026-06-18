@@ -141,6 +141,8 @@
 </div>
 
 @code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
     [Parameter] public string? DatabaseStr         { get; set; }
     [Parameter] public string? DatabaseInstanceStr { get; set; }
     [Parameter] public string? CollectionName      { get; set; }
@@ -438,6 +440,10 @@
         if (!CanSaveIndex || string.IsNullOrWhiteSpace(CollectionName))
             return;
 
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
         try
         {
             Error = null;
@@ -449,7 +455,7 @@
 
             if (_isCreatingNewIndex)
             {
-                await CreateIndex(edited);
+                await CreateIndex(edited, ticket);
             }
             else
             {
@@ -464,8 +470,8 @@
 
                     if (!noChange)
                     {
-                        await DropIndex(oldName);
-                        await CreateIndex(edited);
+                        await DropIndex(oldName, ticket);
+                        await CreateIndex(edited, ticket);
                     }
                 }
             }
@@ -486,10 +492,14 @@
         if (!CanDeleteIndex || string.IsNullOrWhiteSpace(CollectionName))
             return;
 
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
         try
         {
             Error = null;
-            await DropIndex(_selectedIndexName);
+            await DropIndex(_selectedIndexName, ticket);
             _selectedIndexName = "";
             _isCreatingNewIndex = false;
             await Reload();
@@ -501,7 +511,7 @@
         }
     }
 
-    private Task CreateIndex(BsonDocument edited)
+    private Task CreateIndex(BsonDocument edited, string ticket)
     {
         var command = new BsonDocument
         {
@@ -509,11 +519,11 @@
             { "indexes", new BsonArray { edited } },
             { "comment", $"Created by {UserSession.User.GetEmail()}" }
         };
-
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
         return CurrentAdmin.RunCommand(command);
     }
 
-    private Task DropIndex(string indexName)
+    private Task DropIndex(string indexName, string ticket)
     {
         var command = new BsonDocument
         {
@@ -522,6 +532,7 @@
             { "comment", $"Deleted by {UserSession.User.GetEmail()}" }
         };
 
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
         return CurrentAdmin.RunCommand(command);
     }
 
@@ -636,4 +647,8 @@
 
         return 0;
     }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
 }
