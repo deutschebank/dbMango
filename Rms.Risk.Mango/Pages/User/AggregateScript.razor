@@ -170,8 +170,18 @@
         }
     }
 
-    private string Timeout    { get; set; } = "20";
-    private string FetchSize  { get; set; } = "10";
+    private class AfhPageState
+    {
+        public string Timeout    { get; set; } = "20";
+        public string FetchSize  { get; set; } = "10";
+        public int    Rows       { get; set; } = 35;
+        public string Text       { get; set; } = "";
+    }
+
+    private AfhPageState _state = new();
+
+    private string Timeout    { get => _state.Timeout;   set => _state.Timeout = value; }
+    private string FetchSize  { get => _state.FetchSize; set => _state.FetchSize = value; }
     private bool   IsReady    { get; set; } = true;
 
     private string InputActivePage
@@ -201,15 +211,15 @@
 
     private int Rows
     {
-        get;
+        get => _state.Rows;
         set
         {
-            if (field == value)
+            if (_state.Rows == value)
                 return;
-            field = value;
+            _state.Rows = value;
             InvokeAsync(StateHasChanged);
         }
-    } = 35;
+    }
 
     private string RowsPerPageStr
     {
@@ -221,7 +231,7 @@
         }
     }
 
-    private string              Text             { get; set; } = "";
+    private string              Text             { get => _state.Text; set => _state.Text = value; }
     private string              TextJson         { get; set; } = "";
     private string              Result           { get; set; } = "{}";
     private List<BsonDocument>  ResultBson       { get; set; } = [];
@@ -271,7 +281,14 @@
             var text = await JsRuntime.LoadFromLocalStorage("AggregationForHumans");
             if (!string.IsNullOrWhiteSpace(text))
             {
-                Text = text;
+                try
+                {
+                    _state = JsonUtils.FromJson<AfhPageState>(text) ?? new AfhPageState();
+                }
+                catch (Exception)
+                {
+                    Text = text;
+                }
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -313,7 +330,7 @@
             var pipelineJson = GetCombinedPipelineJson();
             await UpdatePipelineJson();
 
-            await JsRuntime.SaveToLocalStorage("AggregationForHumans", Text, cts.Token);
+            await JsRuntime.SaveToLocalStorage("AggregationForHumans", _state, cts.Token);
 
             UserSession.Collection = GetSelectedCollection();
 
