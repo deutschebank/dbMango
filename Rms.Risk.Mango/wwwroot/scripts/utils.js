@@ -235,6 +235,12 @@ DashboardUtils.LoadCodeEditor = function (elementid, mode, refElement, dontNetOb
     //save reference to element
     refElement.codeMirrorLink = codemirrorEditor;
 
+    if (Object.prototype.hasOwnProperty.call(refElement, "pendingCodeMirrorValue")) {
+        DashboardUtils.CodeEditor_SetValue(refElement, refElement.pendingCodeMirrorValue);
+        delete refElement.pendingCodeMirrorValue;
+        codemirrorEditor.refresh();
+    }
+
     //setup code callback
     if (dontNetObjRef) {
         codemirrorEditor.on("change",
@@ -264,13 +270,29 @@ DashboardUtils.CodeEditor_SetCaret = function (codemirrorEditor, row, col) {
 }
 
 DashboardUtils.CodeEditor_SetValue = function (codemirrorEditor, value) {
+    if (!codemirrorEditor) {
+        return;
+    }
+
+    if (!codemirrorEditor.codeMirrorLink) {
+        codemirrorEditor.pendingCodeMirrorValue = value;
+        return;
+    }
+
+    var existing = codemirrorEditor.codeMirrorLink.getDoc().getValue();
+    if (existing == value)
+        return;
+
+    codemirrorEditor.codeMirrorLink.getDoc().setValue(value);
+    codemirrorEditor.codeMirrorLink.refresh();
+};
+
+DashboardUtils.CodeEditor_Refresh = function (codemirrorEditor) {
     if (!codemirrorEditor || !codemirrorEditor.codeMirrorLink) {
         return;
     }
-    var existing = codemirrorEditor.codeMirrorLink.getDoc().getValue(value);
-    if (existing == value)
-        return;
-    codemirrorEditor.codeMirrorLink.getDoc().setValue(value);
+
+    codemirrorEditor.codeMirrorLink.refresh();
 };
 
 DashboardUtils.CodeEditor_GetValue = function (codemirrorEditor) {

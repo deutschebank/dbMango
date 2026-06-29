@@ -72,7 +72,7 @@
         <div class="form-row">
             <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)"  @bind-Value="Timeout"   InputType="number"   Icon="icon-clock-sm"/>
             <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number"   Icon="icon-download-selected-sm" />
-            <FormItemSelect   Enabled="@IsReady" Class="mr-2" Name="Rows"           @bind-Value="Rows"      Values="@_rowValues" Icon="icon-number-outline"  />
+            <FormItemText   Class="mr-2" Name="Rows per page" @bind-Value="RowsPerPageStr" InputType="number" Icon="icon-download-selected-sm" />
             <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Show as Json"   @bind-Value="ShowAsJson"                     Icon="icon-tos-sm" />
             <div class="flex-stack-vertical">
                 <div class="flex-stack-horizontal">
@@ -158,6 +158,16 @@
         }
     } = 35;
 
+    private string RowsPerPageStr
+    {
+        get => Rows.ToString();
+        set
+        {
+            if (int.TryParse(value, out var newValue))
+                Rows = newValue;
+        }
+    }
+
     private List<string> History
     {
         get 
@@ -236,6 +246,22 @@
     private          bool                    _running            = false;
     private readonly CancellationTokenSource _globalCancellation = new();
 
+    private CellClickHelper _cellClickHelper = null!;
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        _cellClickHelper = new(
+            auth        : Auth,
+            schemaLoader: SchemaLoader,
+            userSession : UserSession,
+            modal       : Modal,
+            invokeAsync : InvokeAsync,
+            showError   : ShowError
+        );
+
+    }
+    
     protected override void OnInitialized()
     {
         _editContext = new (this);
@@ -600,155 +626,14 @@
         JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
-    private async Task<bool> OnCellClick(DynamicObject row, string columnName)
+    private Task<bool> OnCellClick(DynamicObject row, string columnName)
+        => _cellClickHelper.OnCellClick(SelectedCollection, ResultBson, row, columnName);
+
+    private async Task ShowError(BsonValue id, string text)
     {
-        try
-        {
-            var id = TableControl.GetDynamicMember(row, "_id");
-            if (id == null)
-                return true;
-
-            var bson = ResultBson.FirstOrDefault(x => x["_id"].ToString() == id.ToString());
-            if (bson == null)
-                return true;
-
-            var oldId = bson["_id"];
-
-            var enableWrite = await Auth.AuthorizeAsync(
-                UserSession.User.GetUser(), 
-                UserSession.Database, 
-                [new WriteAccessRequirement()]);
-
-            BsonDocument? schema = null;
-            if (enableWrite.Succeeded)
-            {
-	            try
-	            {
-		            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-		            schema = await SchemaLoader.LoadSchema(UserSession.Collection, cts.Token);
-	            }
-	            catch
-	            {
-		            schema = null;
-	            }
-            }
-
-            var res = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, schema, enableWrite.Succeeded);
-            if (res == null)
-                return true;
-
-            if (enableWrite.Succeeded)
-            {
-                if (res.Value.ShouldUpdate)
-                {
-                    bson = BsonDocument.Parse(res.Value.Json);
-                    await OnUpdate(oldId, bson);
-                }
-                else
-                    await OnDelete(oldId);
-            }
-        }
-        catch (Exception e)
-        {
-            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", e);
-        }
-        return true;
+        Result = text;
+        ShowAsJson = true;
+        await ModalDialogUtils.ShowInfoDialog(Modal, $"Id: {id}", "Failure");
+        await InvokeAsync(StateHasChanged);
     }
-
-    private async Task OnDelete(BsonValue id)
-    {
-        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
-        if (string.IsNullOrWhiteSpace(ticket))
-            return;
-
-        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, $"Delete {id}", "Are you sure to delete document?");
-        if (r.Cancelled)
-            return;
-
-        var command = BsonDocument.Parse($@"{{
-     ""delete"": ""{SelectedCollection}"",
-     ""deletes"": [{{
-        ""q"": {{  }},
-        ""limit"": 1
-     }}]
-}}");
-
-        var idDoc = new BsonDocument
-            {
-                ["_id"] = id
-            };
-
-        command["deletes"][0]["q"] = idDoc;
-
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
-        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
-
-        var res      = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
-        var deleted = res["n"].ToInt32();
-        if (deleted != 1)
-        {
-            Result = 
-                res.ToJson(new() { Indent = true }) +
-                "\n------------------------------------------------------------------\n"+
-                command.ToJson(new() { Indent = true });
-            ShowAsJson = true;
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Delete {id}", "Failure");
-            await InvokeAsync(StateHasChanged);
-        }
-        else
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Delete {id}", "Success");
-    }
-
-    private async Task OnUpdate(BsonValue id, BsonDocument newBson)
-    {
-        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
-        if (string.IsNullOrWhiteSpace(ticket))
-            return;
-
-        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, $"Update {id}", "Are you sure to update document?");
-        if (r.Cancelled)
-            return;
-
-        var command = BsonDocument.Parse($@"{{
-    update: ""{SelectedCollection}"",
-    updates: [
-       {{
-         q: {{ }},
-         u: {{ }},
-         upsert: false,
-         multi: false,
-       }}
-    ],
-    ordered: false,
-    bypassDocumentValidation: false
-}}");
-
-        var idDoc = new BsonDocument
-        {
-            ["_id"] = id
-        };
-
-        command["updates"][0]["q"] = idDoc;
-        command["updates"][0]["u"] = newBson;
-
-        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
-
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
-        var res = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
-
-        var modified = res["nModified"].ToInt32();
-        if (modified != 1)
-        {
-            Result = 
-                res.ToJson(new() { Indent = true }) +
-                "\n------------------------------------------------------------------\n"+
-                command.ToJson(new() { Indent = true });
-            ShowAsJson = true;
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Failure");
-            await InvokeAsync(StateHasChanged);
-        }
-        else
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Success");
-    }
-
 }

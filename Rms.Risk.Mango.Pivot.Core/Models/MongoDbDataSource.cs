@@ -1065,7 +1065,7 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
                 documents.Add(doc);
 
             var res = doc.ToDictionary();
-            var id  = res["_id"] as Dictionary<string, object>;
+            var id  = res.GetValueOrDefault("_id", null) as Dictionary<string, object>;
 
             // for map/reduce results
             var value = ( res.TryGetValue("value", out var re)

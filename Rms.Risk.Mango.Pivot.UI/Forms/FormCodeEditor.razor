@@ -119,36 +119,49 @@
 
 
     private ElementReference                       _scriptEditorReference;
-    private DotNetObjectReference<FormCodeEditor>? _objRef      = null;
-    private bool                                   _initialized = false;
-    private bool                                   _noUpdate    = false;
+    private DotNetObjectReference<FormCodeEditor>? _objRef          = null;
+    private bool                                   _initialized     = false;
+    private bool                                   _refreshRequired = false;
+    private bool                                   _noUpdate        = false;
 
     public Task InsertAtCursor(string text) 
         => JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_InsertTextAtCursor", _scriptEditorReference, text).AsTask();
 
+    public Task Refresh()
+        => JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_Refresh", _scriptEditorReference).AsTask();
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
+        if (firstRender)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+
+            await JsRuntime.InvokeVoidAsync( "DashboardUtils.LoadCodeEditor",
+                                                _id,
+                                                MediaType,
+                                                _scriptEditorReference,
+                                                _objRef,
+                                                "UpdateScriptField",
+                                                Readonly );
+            _initialized = true;
+            _refreshRequired = true;
+
+            await InvokeAsync(StateHasChanged);
+
+            var sw = Stopwatch.StartNew();
+
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, Text);
+
+            sw.Stop();
             return;
+        }
 
-        _objRef = DotNetObjectReference.Create(this);
-
-        await JsRuntime.InvokeVoidAsync( "DashboardUtils.LoadCodeEditor",
-                                            _id,
-                                            MediaType,
-                                            _scriptEditorReference,
-                                            _objRef,
-                                            "UpdateScriptField",
-                                            Readonly );
-        _initialized = true;
-
-        await InvokeAsync(StateHasChanged);
-
-        var sw = Stopwatch.StartNew();
-
-        await JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, Text);
-
-        sw.Stop();
+        if (_refreshRequired)
+        {
+            _refreshRequired = false;
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_Refresh", _scriptEditorReference);
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, Text);
+        }
     }
     private async void SetReadonlyMode()
     {

@@ -77,7 +77,7 @@ else if (_pivotRows is { Length: > 0 }
             Pivot results are limited to returning a maximum of @PivotMaxReturnedRows rows
         </div>
     }
-    <TableControl Class="table table-hover table-striped table-forge fit-content" 
+    <TableControl @key="_tableVersion" Class="table table-hover table-striped table-forge fit-content" 
                   Items="@_pivotRows" 
                   PageSize="@Rows" 
                   @bind-FilteredItems="FilteredRows"
@@ -110,52 +110,58 @@ else if (_pivotRows is { Length: > 0 }
 
     public static int PivotMaxReturnedRows = 500_000;
 
-    [Parameter]
-    public IPivotedData PivotData
-    {
-        get => _pivotData;
-        set
-        {
-            if (_pivotData == value)
-                return;
+	[Parameter]
+	public IPivotedData PivotData
+	{
+		get => _pivotData;
+		set
+		{
+			if (ReferenceEquals(_pivotData, value)
+				&& _pivotData.Count == (value?.Count ?? 0)
+				&& _pivotData.Headers.SequenceEqual(value?.Headers ?? []))
+				return;
 
-            _pivotData = value ?? ArrayBasedPivotData.NoData;
-            _totals.Clear();
+			_pivotData  = value ?? ArrayBasedPivotData.NoData;
+			_tableVersion++;
+			SortMode    = TableControl.SortModeType.NoSort;
+			SortColumn  = null;
+			_filteredRows = [];
+			_totals.Clear();
 
-            if (_pivotData == ArrayBasedPivotData.NoData)
-            {
-                _pivotRows = [];
-                InvokeAsync(StateHasChanged);
-                return;
-            }
+			if (_pivotData == ArrayBasedPivotData.NoData)
+			{
+				_pivotRows = [];
+				InvokeAsync(StateHasChanged);
+				return;
+			}
 
-            _shadowHeaders = _pivotData.GetColumnPositions();
+			_shadowHeaders = _pivotData.GetColumnPositions();
 
-            _descriptorsCache.Clear();
-            _fieldDescriptorsCache.Clear();
+			_descriptorsCache.Clear();
+			_fieldDescriptorsCache.Clear();
 
-            _pivotRows = Enumerable
-                .Range(0, _pivotData.Count )
-                .Select(x => new PivotRow(_pivotData, x, _shadowHeaders, GetColumnDescriptorInternal, GetFieldDescriptorInternal))
-                .ToArray()
-                ;
+			_pivotRows = Enumerable
+				.Range(0, _pivotData.Count )
+				.Select(x => new PivotRow(_pivotData, x, _shadowHeaders, GetColumnDescriptorInternal, GetFieldDescriptorInternal))
+				.ToArray()
+				;
 
-            _totals.Update(_pivotData!);
+			_totals.Update(_pivotData!);
 
-            try
-            {
-                if ( _initialized )
+			try
+			{
+				if ( _initialized )
 					ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, x => _pivotRows[0].GetFormat(x));
-            }
-            catch (Exception)
-            {
-                // ignore
-            }
+			}
+			catch (Exception)
+			{
+				// ignore
+			}
 
-            PivotDataChanged.InvokeAsync(_pivotData);
-            InvokeAsync(StateHasChanged);
-        }
-    }
+			PivotDataChanged.InvokeAsync(_pivotData);
+			InvokeAsync(StateHasChanged);
+		}
+	}
 
     [Parameter] public EventCallback<IPivotedData> PivotDataChanged      { get; set; }
 
@@ -308,6 +314,7 @@ else if (_pivotRows is { Length: > 0 }
     private readonly DelayedExecution                           _delayedUpdate = new(TimeSpan.FromMilliseconds(1500));
     private          Dictionary<string, int>                    _shadowHeaders = [];
     private          bool                                       _initialized;
+    private          int                                        _tableVersion;
 
     private bool                                  ShowTotals        => SelectedPivotNode?.Pivot.ShowTotals ?? false;
     private IMinMaxCache?                         VisibleTotals     => ShowTotals ? _totals : null;
@@ -392,7 +399,7 @@ else if (_pivotRows is { Length: > 0 }
             await ModalDialogUtils.ShowExceptionDialog(Modal, $"Error drilling down into {fieldName}", e);
         }
 
-        if ( IsReadOnly || _drilldownSupport == null)
+        if ( IsReadOnly || _drilldownSupport == null || PivotService == null)
             return true;
 
         var displayToRealName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -404,7 +411,7 @@ else if (_pivotRows is { Length: > 0 }
         }
 
         var res = await _drilldownSupport.Drilldown(
-            PivotService!,
+            PivotService,
             SelectedCollectionNode!.CollectionNameWithPrefix,
             fieldName,
             displayToRealName,
