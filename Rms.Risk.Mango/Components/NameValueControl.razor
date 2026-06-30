@@ -90,18 +90,19 @@
     }
 </div>
 <div class="pt-1 w-100">
-    <TableControl Class="table table-hover table-striped table-forge table-forge-numbered table-forge-top-align" Items="@Value.ToList()" PageSize="10" Filterable="false">
+    <TableControl Class="table table-hover table-striped table-forge table-forge-numbered table-forge-top-align" Items="@Value.ToPivotData()" PageSize="10" Filterable="false">
         <TableColumnControl Name="Name" Field="Name" Class="column-name">
             <Template Context="data">
+                @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
                 @if (PossibleNames?.Count > 0)
                 {
-                    <FormAutocompleteTextBox Value="@data.Row.Name" ValueChanged="@(x => SetName(data.Row, x))" Suggestions="@PossibleNames" />
+                    <FormAutocompleteTextBox Value="@row.Name" ValueChanged="@(x => SetName(row, x))" Suggestions="@PossibleNames" />
                 }
                 else
                 {
                     <input class="input-group-text w-100"
-                        value="@data.Row.Name"
-                        @onchange="@(async e => await SetName(e, data.Row))"
+                        value="@row.Name"
+                        @onchange="@(async e => await SetName(e, row))"
                         style="text-align: left;"/>
                 }
             </Template>
@@ -109,19 +110,20 @@
 
         <TableColumnControl Name="Value" Field="Value" Class="column-value">
             <Template Context="data">
+                @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
                 <div class="d-flex">
                     <textarea class="w-100 form-control textarea-animate"
-                        onfocus="this.rows = @CalculateSize(data.Row.Value);"
+                        onfocus="this.rows = @CalculateSize(row.Value);"
                         onfocusout="this.style.height = 'auto'; this.rows = 1"
                         oninput="this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';"
                         onkeypress="return event.keyCode !== 13 || @Multiline.ToString().ToLower();"
-                        value="@data.Row.Value"
-                        @onchange="@(async e => await SetValue(e, data.Row))"
+                        value="@row.Value"
+                        @onchange="@(async e => await SetValue(e, row))"
                         style="text-align: left;"
                         rows="1" cols="60"
                         >
                     </textarea>
-                    @if (CalculateSize(data.Row.Value) > 1)
+                    @if (CalculateSize(row.Value) > 1)
                     {
                         <i class="fas fa-angle-double-down expand-icon"></i>
                     }
@@ -131,23 +133,24 @@
 
         <TableColumnControl Name="" Field="Name">
             <Template Context="data">
+                @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
                 <div class="flex-stack-horizontal">
-                    <button type="button" class="btn btn-secondary" @onclick="@(() => Delete(data.Row))" title="Delete row">
+                    <button type="button" class="btn btn-secondary" @onclick="@(() => Delete(row))" title="Delete row">
                         <span class="ui-icon-font icon-trash-sm"></span>
                     </button>
                     @{
-                        var upDisabled = IsUpDisabled(data.Row);
-                        var downDisabled = IsDownDisabled(data.Row);
+                        var upDisabled = IsUpDisabled(row);
+                        var downDisabled = IsDownDisabled(row);
                     }
-                    <button type="button" class="btn btn-secondary" disabled="@upDisabled" @onclick="@(() => Up(data.Row))" title="Move row up">
+                    <button type="button" class="btn btn-secondary" disabled="@upDisabled" @onclick="@(() => Up(row))" title="Move row up">
                         <span class="ui-icon-font icon-arrow-up-sm"></span>
                     </button>
-                    <button type="button" class="btn btn-secondary" disabled="@downDisabled" @onclick="@(() => Down(data.Row))" title="Move row down">
+                    <button type="button" class="btn btn-secondary" disabled="@downDisabled" @onclick="@(() => Down(row))" title="Move row down">
                         <span class="ui-icon-font icon-arrow-down-sm"></span>
                     </button>
                     @if (EnableEncryption)
                     {
-                        <button type="button" class="btn btn-secondary" @onclick="@(() => Encrypt(data.Row))" disabled="@(() => IsEncryptDisabled(data.Row))" title="Encrypt data file (irreversible!)">
+                        <button type="button" class="btn btn-secondary" @onclick="@(() => Encrypt(row))" disabled="@(() => IsEncryptDisabled(row))" title="Encrypt data file (irreversible!)">
                             <span class="ui-icon-font icon-lock-sm"></span>
                         </button>
                     }

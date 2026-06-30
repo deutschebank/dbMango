@@ -54,12 +54,13 @@
             </div>
         }
 
-        <TableControl Class="table table-hover table-striped table-forge table-forge-numered table-forge-top-align" Items="@(Value.Cast<dynamic>().ToList())" PageSize="10" Filterable="false">
+        <TableControl Class="table table-hover table-striped table-forge table-forge-numered table-forge-top-align" Items="@Value.ToPivotData()" PageSize="10" Filterable="false">
             <TableColumnControl Name="Name" Field="Name" Class="column-name">
                 <Template Context="data">
+                    @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
                     <input class="input-group-text w-100"
-                    value="@(((NameValuePair)data.Row).Name)"
-                    @onchange="@(e => SetNameInternal(e, (NameValuePair)data.Row))"
+                    value="@row.Name"
+                    @onchange="@(e => SetNameInternal(e, row))"
                     style="text-align: left;"
                     readonly="@IsDisabled"/>
                 </Template>
@@ -67,11 +68,12 @@
 
             <TableColumnControl Name="Value" Field="Value" Class="column-value">
                 <Template Context="data">
+                    @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
                     <div class="d-flex">
                         <textarea class="w-100 form-control"
                         onkeypress="return event.keyCode !== 13 || @Multiline.ToString().ToLower();"
-                        value="@GetValue((NameValuePair)data.Row)"
-                        @onchange="@(e => SetValueInternal(e, (NameValuePair)data.Row))"
+                        value="@GetValue(row)"
+                        @onchange="@(e => SetValueInternal(e, row))"
                         cols="60" rows="1"
                         readonly="@IsDisabled">
                         </textarea>
@@ -82,18 +84,19 @@
             {
                 <TableColumnControl Name="" Field="Name">
                     <Template Context="data">
+                        @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
                         <div class="flex-stack-horizontal">
-                            <button type="button" class="btn btn-secondary" disabled="@IsDisabled" @onclick="@(() => Delete(data.Row))" title="Delete row">
+                            <button type="button" class="btn btn-secondary" disabled="@IsDisabled" @onclick="@(() => Delete(row))" title="Delete row">
                                 <span class="ui-icon-font icon-trash-sm"></span>
                             </button>
                             @{
-                                var upDisabled = IsUpDisabled(data.Row);
-                                var downDisabled = IsDownDisabled(data.Row);
+                                var upDisabled = IsUpDisabled(row);
+                                var downDisabled = IsDownDisabled(row);
                             }
-                            <button type="button" class="btn btn-secondary" disabled="@upDisabled" @onclick="@(() => Up(data.Row))" title="Move row up">
+                            <button type="button" class="btn btn-secondary" disabled="@upDisabled" @onclick="@(() => Up(row))" title="Move row up">
                                 <span class="ui-icon-font icon-arrow-up-sm"></span>
                             </button>
-                            <button type="button" class="btn btn-secondary" disabled="@downDisabled" @onclick="@(() => Down(data.Row))" title="Move row down">
+                            <button type="button" class="btn btn-secondary" disabled="@downDisabled" @onclick="@(() => Down(row))" title="Move row down">
                                 <span class="ui-icon-font icon-arrow-down-sm"></span>
                             </button>
                         </div>

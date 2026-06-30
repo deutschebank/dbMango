@@ -530,8 +530,8 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private Task<bool> OnCellClick(DynamicObject row, string columnName)
-        => _cellClickHelper.OnCellClick(GetSelectedCollection(), ResultBson, row, columnName);
+    private Task<bool> OnCellClick(IPivotedData data, int row, string columnName)
+        => _cellClickHelper.OnCellClick(GetSelectedCollection(), ResultBson, data, row, columnName);
 
     private async Task ShowError(BsonValue id, string text)
     {

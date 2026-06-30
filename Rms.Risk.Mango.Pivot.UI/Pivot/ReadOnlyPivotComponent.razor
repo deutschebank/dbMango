@@ -1,7 +1,7 @@
 ﻿@using System.Drawing
 @using Rms.Risk.Mango.Pivot.Core
 
-@if (_pivotRows is { Length: > 0 })
+@if (PivotData is { Count: > 0 })
 
 @*
  *                                dbMango
@@ -24,18 +24,18 @@
 {
 
     <TableControl Class="table table-hover table-striped table-forge fit-content"
-                  Items="@_pivotRows"
+                  Items="@PivotData"
                   PageSize="@Rows"
-                  CellStyle="PivotTableComponent.GetCellStyle"
+                  CellStyle="GetCellStyle"
                   GetCellClassCallback="GetCellClassCallback"
                   Totals="@VisibleTotals"
                   @bind-SortMode="SortMode"
                   @bind-CurrentSortColumn="SortColumn">
-        @foreach (var field in _pivotRows[0].GetDynamicMemberNames())
+        @foreach (var field in PivotData!.Headers)
         {
-            <TableColumnControl Name="@field" Field="@field" Format="@_pivotRows[0].GetFormat(field)" ShowTotals="@_pivotRows[0].ShouldShowTotals(field)" Class="@ColumnClass">
+            <TableColumnControl Name="@field" Field="@field" Format="@GetFormat(field)" ShowTotals="@ShouldShowTotals(field)" Class="@ColumnClass">
                 <Template>
-                        @TableControl.ConvertToString(TableControl.GetLambdaForValue(field)(context.Row), _pivotRows[0].GetFormat(field))
+                        @TableControl.ConvertToString(TableControl.GetValue(context.Data, field, context.Row), GetFormat(field))
                 </Template>
             </TableColumnControl>
         }
@@ -58,7 +58,6 @@
 
             if (field == null)
             {
-                _pivotRows = [];
                 InvokeAsync(StateHasChanged);
                 return;
             }
@@ -66,12 +65,6 @@
             _shadowHeaders = field.GetColumnPositions();
 
             _descriptorsCache.Clear();
-
-            _pivotRows = Enumerable
-                        .Range(0, field.Count)
-                        .Select(x => new PivotRow(field, x, _shadowHeaders, GetColumnDescriptorInternal, GetFieldDescriptorInternal))
-                        .ToArray()
-                ;
 
             _totals.Update(field);
 
@@ -83,7 +76,6 @@
     [Parameter] public bool ShowTotals { get; set; }
 
 
-    private PivotRow[]              _pivotRows = [];
     private MinMaxCache             _totals = new();
     private Dictionary<string, int> _shadowHeaders = [];
 
@@ -120,9 +112,9 @@
     //a combination of long columns with and without spaces. Wrapping looks weird here, so we want to turn off wrapping if we can
     //detect any column which has a long name without spaces
 
-            if ( _pivotRows != null &&
-                (_pivotRows[0].GetDynamicMemberNames().Count() <= 16
-                    || _pivotRows[0].GetDynamicMemberNames().Any( n => n.Length >= 10 && !n.Contains( " " ) )
+            if ( PivotData is { Count: > 0 } &&
+                (PivotData.Headers.Count <= 16
+                    || PivotData.Headers.Any( n => n.Length >= 10 && !n.Contains( " " ) )
                     )
                 )
             {
@@ -133,7 +125,28 @@
         }
     }
 
+    public string GetCellStyle(IPivotedData data, int row, TableColumnControl col)
+    {
+        if ( string.IsNullOrWhiteSpace(col.Field) )
+            return "";
 
-    private PivotFieldDescriptor? GetFieldDescriptorInternal( string columnName )                  => null;
-    private string                GetCellClassCallback( dynamic      row, TableColumnControl col ) => "";
+        var desc = GetColumnDescriptorInternal(col.Field);
+
+        // for some reason comparison with 0x00000 and Color.Black are not working
+        if ( desc.Background is { R: 0, G: 0, B: 0 })
+            return "";
+
+        return $"background-color:#{desc.Background.A:x2}{desc.Background.R:x2}{desc.Background.G:x2}{desc.Background.B:x2}";
+    }
+
+    private string GetFormat(string column) => GetColumnDescriptorInternal(column)?.Format ?? "";
+
+    private bool ShouldShowTotals(string column)
+    {
+        var colDesc = GetColumnDescriptorInternal(column);
+        return colDesc?.ShowTotals ?? true;
+    }
+
+    private PivotFieldDescriptor? GetFieldDescriptorInternal( string columnName )                       => null;
+    private string                GetCellClassCallback( IPivotedData data, int row, TableColumnControl col ) => "";
 }

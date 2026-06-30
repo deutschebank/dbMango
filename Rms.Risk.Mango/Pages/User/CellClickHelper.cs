@@ -3,12 +3,11 @@ using Microsoft.AspNetCore.Authorization;
 using MongoDB.Bson;
 using Rms.Risk.Mango.Interfaces;
 using Rms.Risk.Mango.Pages.Admin;
+using Rms.Risk.Mango.Pivot.Core;
 using Rms.Risk.Mango.Pivot.UI.Controls;
 using Rms.Risk.Mango.Services;
 using Rms.Risk.Mango.Services.Security;
 using System.Collections;
-using System.Dynamic;
-using Rms.Risk.Mango.Pivot.UI.Pivot;
 
 namespace Rms.Risk.Mango.Pages.User;
 
@@ -23,7 +22,7 @@ public class CellClickHelper(
 {
     public string Timeout { get; set; } = "20";
 
-    public async Task<bool> OnCellClick(string collection, List<BsonDocument>  resultBson, DynamicObject row, string columnName)
+    public async Task<bool> OnCellClick(string collection, List<BsonDocument>  resultBson, IPivotedData data, int row, string columnName)
     {
         try
         {
@@ -32,16 +31,13 @@ public class CellClickHelper(
             BsonDocument? schema = null;
             BsonValue? oldId = null;
 
-            var id = TableControl.GetDynamicMember(row, "_id");
+            var id = TableControl.GetValue(data, "_id", row);
             var r = id == null ? null : resultBson.FirstOrDefault(x => x["_id"].ToString() == id.ToString());
             var title = ToBsonValue(id).ToString() ?? "Document";
 
             if (r == null)
             {
-                if (row is not PivotRow pivotRow)
-                    return true;
-
-                bson = PivotRowToBson(pivotRow);
+                bson = PivotRowToBson(data, row);
             }
             else
             {
@@ -92,13 +88,13 @@ public class CellClickHelper(
         return true;
     }
 
-    private static BsonDocument PivotRowToBson(PivotRow pivotRow)
+    private static BsonDocument PivotRowToBson(IPivotedData data, int row)
     {
         var bson = new BsonDocument();
 
-        foreach (var (header, col) in pivotRow.PivotData.Headers.Select((h, i) => (h, i)))
+        foreach (var (header, col) in data.Headers.Select((h, i) => (h, i)))
         {
-            var value = pivotRow.PivotData.Get(col, pivotRow.Row);
+            var value = data.Get(col, row);
             bson[header] = ToBsonValue(value);
         }
 

@@ -81,11 +81,12 @@
                     </div>
                     <div class="col col-md-auto mt-4">
                         <div>Databases you don't have access to:</div>
-                        <TableControl Items="@NoAccessTo" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
+                        <TableControl Items="@NoAccessTo.ToPivotData()" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
                             <TableColumnControl Field="Name" Name="Database name">
                                 <Template Context="ctx">
-                                    <div title="@GetTooltip(ctx.Row)">
-                                        @ctx.Row.Name
+                                    @{ var rec = TableControl.Source<NoAccessToRec>(ctx.Data, ctx.Row)!; }
+                                    <div title="@GetTooltip(rec)">
+                                        @rec.Name
                                     </div>
                                 </Template>
                             </TableColumnControl>
@@ -353,9 +354,9 @@
     private void NavigateToAfh()    => NavigationManager.NavigateTo("/user/afh");
     private void NavigateToShell()  => NavigationManager.NavigateTo("/admin/shell");
 
-    private string GetTooltip(dynamic arg2Row)
+    private string GetTooltip(NoAccessToRec rec)
     {
-        if (arg2Row is not NoAccessToRec rec || string.IsNullOrWhiteSpace(rec.Name))
+        if (string.IsNullOrWhiteSpace(rec.Name))
             return string.Empty;
 
         return GetAccessGroupDesc(rec.Name);

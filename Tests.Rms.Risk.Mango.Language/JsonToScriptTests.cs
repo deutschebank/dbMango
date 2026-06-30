@@ -655,6 +655,75 @@ FROM "TestCollection" PIPELINE {
 
         """;
 
+    private const string MatchGteFilterStage = 
+        """
+        [{
+          "$match" : {
+            "from" : {
+              "$gte" : { "$date" : "2026-06-23T08:59:53.617Z" }
+            }
+          }
+        }, {
+          "$project" : {
+            "metric" : 1,
+            "attrsKey" : 1,
+            "aa" : {
+              "$objectToArray" : "$attrs"
+            }
+          }
+        }, {
+          "$unwind" : {
+            "path" : "$aa"
+          }
+        }, {
+          "$project" : {
+            "metric" : 1,
+            "k" : "$aa.k"
+          }
+        }, {
+          "$group" : {
+            "_id" : "$metric",
+            "attrs" : {
+              "$addToSet" : "$k"
+            }
+          }
+        }, {
+          "$project" : {
+            "metric" : "$_id",
+            "attrs" : {
+              "$sortArray" : {
+                "input" : "$attrs",
+                "sortBy" : 1
+              }
+            }
+          }
+        }]
+        """;
+    private const string MatchGteFilterScript = 
+        """
+        FROM "metrics_raw" PIPELINE {
+          WHERE
+            from >= date( "2026-06-24T00:00:00Z" )
+          PROJECT 
+            metric,
+            attrsKey,
+            $objectToArray(attrs) AS aa
+          UNWIND aa
+          
+          PROJECT 
+            metric,
+            $aa.k AS k
+            
+          GROUP BY
+            metric
+            LET
+              addToSet( k ) AS attrs
+          PROJECT
+          	sortArray(input: attrs, sortBy: 1) AS attrs
+        }
+        
+        """;
+
     private static void TestPipeline(string pipeline, string expectedScript)
     {
         var ast = LanguageParser.ParseAggregationJsonToAST("TestCollection", pipeline);
@@ -694,5 +763,6 @@ FROM "TestCollection" PIPELINE {
     [Test] public void Facet()                        => TestPipeline(FacetStage, FacetScript);
     [Test] public void MatchHackExists()              => TestPipeline(MatchHackExistsStage, MatchHackExistsScript);
     [Test] public void MatchExtraFilter()             => TestPipeline(MatchExtraFilterStage, MatchExtraFilterScript);
+     public void MatchGteFilter()               => TestPipeline(MatchGteFilterStage, MatchGteFilterScript);
 
 }

@@ -1,8 +1,4 @@
-﻿@page "/doc/users"
-@attribute [Authorize]
-@inject IConnectedUserList ConnectedUserList
-
-@*
+/* 
  *                                dbMango
  *
  * Copyright 2025 Deutsche Bank AG
@@ -19,11 +15,20 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *@
+ */
+namespace Rms.Risk.Mango.Pivot.Core;
 
-<h3>Active users</h3>
-
-<TableControl Items="@ConnectedUserList.Users.ToPivotData()" Class="table table-hover table-striped fit-content" PagerSize="35">
-    <TableColumnControl Name="Connected Since (UTC)" Field="ConnectedAtUtc" />
-    <TableColumnControl Name="User ID" Field="Name" />
-</TableControl>
+/// <summary>
+/// Implemented by <see cref="IPivotedData"/> sources that are backed by a collection of
+/// strongly typed objects. Allows callers (e.g. table templates and callbacks) to recover
+/// the original source object for a given row without resorting to <c>dynamic</c>.
+/// </summary>
+public interface ISourceRowProvider
+{
+    /// <summary>
+    /// Get the original source object that produced the supplied row, or <c>null</c> when the
+    /// row is out of range or no backing object exists.
+    /// </summary>
+    /// <param name="row">Zero based row index.</param>
+    object? GetSourceRow(int row);
+}

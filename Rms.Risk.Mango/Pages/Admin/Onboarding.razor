@@ -30,10 +30,10 @@
 <AuthorizedOnly Policy="AdminAccess" Resource="@Settings.Value.OnboardingDatabaseName">
 
     <div class="flex-stack-vertical">
-        <TableControl Items="@_configs" 
+        <TableControl Items="@_configs.ToPivotData()" 
                       Class="table table-hover table-striped table-forge table-forge-striped fit-content" 
                       Selectable="true" 
-                      RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
+                      RowClass="@((data, row) => TableControl.Source<DisplayRecord>(data, row)!.Name == _selectedRecord.Name ? "table-active" : "")"
                       SelectionChanged="@OnSelectionChanged"
             >
             <TableColumnControl Name="Name"     Field="Name" />
@@ -78,9 +78,9 @@
         return Refresh();
     }
 
-    private void OnSelectionChanged((dynamic Row, string Col) data)
+    private void OnSelectionChanged((int Row, string Col) data)
     {
-        _selectedRecord = (DisplayRecord)data.Row;
+        _selectedRecord = _configs[data.Row];
         InvokeAsync(StateHasChanged);
     }
 

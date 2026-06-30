@@ -132,20 +132,20 @@ else
                 {
 
                     <div class="fit-content">
-                        <TableControl Items="@_patches"
+                        <TableControl Items="@_patches.ToPivotData()"
                                       Class="table table-hover table-striped table-forge table-forge-striped fit-content"
                                       Selectable="true"
-                                      RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
+                                      RowClass="@((data, row) => TableControl.Source<PatchRecord>(data, row)!.Name == _selectedRecord.Name ? "table-active" : "")"
                                       SelectionChanged="@OnSelectionChanged">
                             <TableColumnControl Name="Active" Field="Active" Class="column-active">
                                 <Template>
-                                    <FormItemCheckBox Value="@(((PatchRecord)context.Row).Active)" Enabled="false" LabelOn="" LabelOff="" />
+                                    <FormItemCheckBox Value="@(TableControl.Source<PatchRecord>(context.Data, context.Row)!.Active)" Enabled="false" LabelOn="" LabelOff="" />
                                 </Template>
                             </TableColumnControl>
                             <TableColumnControl Name="Name" Field="Name" />
                             <TableColumnControl Name="Databases" Field="DatabasesToApply" Class="column-active">
                                 <Template>
-                                    @(string.Join(", ", ((PatchRecord)context.Row).DatabasesToApply.Where(x => x.IsSelected).Select(x => x.DatabaseName)))
+                                    @(string.Join(", ", TableControl.Source<PatchRecord>(context.Data, context.Row)!.DatabasesToApply.Where(x => x.IsSelected).Select(x => x.DatabaseName)))
                                 </Template>
                             </TableColumnControl>
                             <TableColumnControl Name="Comments" Field="Comments" />
@@ -173,16 +173,17 @@ else
                     </div>
                     <div class="col">
                         <TableControl Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3"
-                                      Items="@_selectedRecord.DatabasesToApply"
+                                      Items="@_selectedRecord.DatabasesToApply.ToPivotData()"
                                       PageSize="10" 
                                       Filterable="false">
-            
+
                             <TableColumnControl Name="Database" Field="DatabaseName" Class="min-w" />
                             <TableColumnControl Name="Instance" Field="InstanceName" Class="min-w"/>
 
                             <TableColumnControl Name="Apply" Field="IsSelected" Class="column-cb align-right" Sortable="false" Filterable="false">
                                 <Template Context="ctx">
-                                    <FormToggleButton Enabled="true" Class="btn-toggle" GetIcon="@GetCheckMarkIcon" Arg="@((DatabaseRec)ctx.Row)" OnClick="@(() => OnToggleClicked((DatabaseRec)ctx.Row))" />
+                                    @{ var dbRec = TableControl.Source<DatabaseRec>(ctx.Data, ctx.Row)!; }
+                                    <FormToggleButton Enabled="true" Class="btn-toggle" GetIcon="@GetCheckMarkIcon" Arg="@dbRec" OnClick="@(() => OnToggleClicked(dbRec))" />
                                 </Template>
                             </TableColumnControl>
                         </TableControl>
@@ -559,9 +560,9 @@ else
         }
     }
 
-    private void OnSelectionChanged((dynamic Row, string Col) data)
+    private void OnSelectionChanged((int Row, string Col) data)
     {
-        _selectedRecord = (PatchRecord)data.Row;
+        _selectedRecord = _patches[data.Row];
         SyncUrl();
 
         InvokeAsync(StateHasChanged);

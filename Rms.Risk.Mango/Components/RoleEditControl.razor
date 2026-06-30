@@ -59,15 +59,15 @@
 
                 <div class="form-row fit-content mb-3">
                     <TableControl   Class="table table-hover table-striped table-forge table-forge-striped mr-3" 
-                                    Items="@Value.Privileges" 
+                                    Items="@Value.Privileges.ToPivotData()" 
                                     PageSize="25"
                                     Selectable="true"
                                     SelectionChanged="@SelectedPrivilegeChanged"
                                     Filterable="true">
-            
+
                         <TableColumnControl Name="Db" Field="Db" Class="column-name">
                             <Template Context="ctx">
-                                @if (ctx.Row is PrivilegeModel privilege)
+                                @if (TableControl.Source<PrivilegeModel>(ctx.Data, ctx.Row) is { } privilege)
                                 {
                                     if (privilege.Resource.AnyResource)
                                     {
@@ -95,7 +95,7 @@
 
                         <TableColumnControl Name="Collection" Field="Collection" Class="column-name" >
                             <Template Context="ctx">
-                                @if (ctx.Row is PrivilegeModel privilege)
+                                @if (TableControl.Source<PrivilegeModel>(ctx.Data, ctx.Row) is { } privilege)
                                 {
                                     @privilege.Resource.Collection
                                 }
@@ -104,7 +104,7 @@
 
                         <TableColumnControl Name="Actions" Field="" >
                             <Template Context="ctx">
-                                @foreach (var action in ((PrivilegeModel)ctx.Row).Actions)
+                                @foreach (var action in TableControl.Source<PrivilegeModel>(ctx.Data, ctx.Row)!.Actions)
                                 {
                                     <span class="badge badge-secondary mr-1">@action</span>
                                 }
@@ -134,15 +134,15 @@
 
                 <div class="form-row fit-content">
                     <TableControl   Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3" 
-                                    Items="@SelectableActions" 
+                                    Items="@SelectableActions.ToPivotData()" 
                                     PageSize="25" 
                                     Filterable="true">
-            
+
                         <TableColumnControl Name="Name" Field="Name" Class="column-name"/>
 
                         <TableColumnControl Name="IsSelected" Field="IsSelected" Class="column-cb">
                             <Template Context="ctx">
-                                <FormItemCheckBox @bind-Value="@(((SelectableString)ctx.Row).IsSelected)" Enabled="@IsEnabled" LabelOn="" LabelOff=""/>
+                                <FormItemCheckBox @bind-Value="@(TableControl.Source<SelectableString>(ctx.Data, ctx.Row)!.IsSelected)" Enabled="@IsEnabled" LabelOn="" LabelOff=""/>
                             </Template>
                         </TableColumnControl>
                     </TableControl>
@@ -272,12 +272,12 @@
         }
     }
 
-    private async Task SelectedPrivilegeChanged((dynamic row, string col) arg)
+    private async Task SelectedPrivilegeChanged((int row, string col) arg)
     {
-        if (arg.row is not PrivilegeModel privilege)
+        if (arg.row < 0 || arg.row >= Value.Privileges.Count)
             return;
 
-        SelectedPrivilege = privilege;
+        SelectedPrivilege = Value.Privileges[arg.row];
         await InvokeAsync(StateHasChanged);
     }
 

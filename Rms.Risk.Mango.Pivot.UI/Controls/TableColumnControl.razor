@@ -73,7 +73,7 @@
     [Parameter] public string                                                    Name                 { get; set; } = "Column";
     [Parameter] public string?                                                   Field                { get; set; }
     [Parameter] public string?                                                   Class                { get; set; }
-    [Parameter] public RenderFragment<(dynamic Row, TableColumnControl Column)>? Template             { get; set; }
+    [Parameter] public RenderFragment<(int Row, TableColumnControl Column, Rms.Risk.Mango.Pivot.Core.IPivotedData Data)>? Template { get; set; }
     [Parameter] public string?                                                   Format               { get; set; }
     [Parameter] public string                                                    NegativeValueClass   { get; set; } = "t-neg";
     [Parameter] public string                                                    ZeroValueClass       { get; set; } = "t-zero";

@@ -70,7 +70,7 @@
     </EditForm>
 
     <div class="flex-stack-vertical">
-        <TableControl Items="@SelectedJob.Status" Class="table table-hover table-striped table-forge table-forge-striped">
+        <TableControl Items="@SelectedJob.Status.ToPivotData()" Class="table table-hover table-striped table-forge table-forge-striped">
             <TableColumnControl Name="Collection" Field="DestinationCollection" />
             <TableColumnControl Name="Count"      Field="Count"         Format="N0" />
             <TableColumnControl Name="Cleared"    Field="Cleared"       Format="N0" />

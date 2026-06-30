@@ -626,8 +626,8 @@
         JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
-    private Task<bool> OnCellClick(DynamicObject row, string columnName)
-        => _cellClickHelper.OnCellClick(SelectedCollection, ResultBson, row, columnName);
+    private Task<bool> OnCellClick(IPivotedData data, int row, string columnName)
+        => _cellClickHelper.OnCellClick(SelectedCollection, ResultBson, data, row, columnName);
 
     private async Task ShowError(BsonValue id, string text)
     {

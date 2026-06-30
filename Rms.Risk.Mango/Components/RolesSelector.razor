@@ -41,16 +41,17 @@
 </style>
 
 <TableControl   Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3" 
-                Items="@AllRoles" 
+                Items="@AllRoles.ToPivotData()" 
                 PageSize="25" 
                 Filterable="false">
-            
+
     <TableColumnControl Name="Role" Field="Role" Class="min-w"/>
     <TableColumnControl Name="Db"   Field="Db"   Class="min-w"/>
 
     <TableColumnControl Name="Selected" Field="IsSelected" Class="column-cb align-right" Sortable="false" Filterable="false">
         <Template Context="ctx">
-            <FormToggleButton Enabled="@IsEnabled" Class="btn-toggle" GetIcon="@GetIcon" Arg="@((RoleInDbModel)ctx.Row)" OnClick="@(() => OnToggleClicked((RoleInDbModel)ctx.Row))" />
+            @{ var role = TableControl.Source<RoleInDbModel>(ctx.Data, ctx.Row)!; }
+            <FormToggleButton Enabled="@IsEnabled" Class="btn-toggle" GetIcon="@GetIcon" Arg="@role" OnClick="@(() => OnToggleClicked(role))" />
         </Template>
     </TableColumnControl>
 </TableControl>

@@ -32,7 +32,7 @@
             <FormJson Value="@(Parameters?.CommandJson)" Class="cmd-json" />
         </div>
         <div class="form-row">
-            <TableControl Items="@GetParsedResult()" PageSize="35">
+            <TableControl Items="@GetParsedResult().ToPivotData()" PageSize="35">
                 <TableColumnControl Field="Name" Name="Database Name" />
                 <TableColumnControl Field="Size" Name="Size on disk" Format="N0" />
                 <TableColumnControl Field="IsEmpty" Name="Empty" />
@@ -73,7 +73,7 @@
         }
     }
 
-    private IReadOnlyCollection<dynamic> GetParsedResult()
+    private IReadOnlyCollection<ResultItem> GetParsedResult()
     {
         var list = new List<ResultItem>();
         if (Result == null)

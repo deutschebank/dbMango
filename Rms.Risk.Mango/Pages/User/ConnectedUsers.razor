@@ -25,7 +25,7 @@
 
 <h3>Active users</h3>  
 
-<TableControl Class="table table-hover table-striped table-forge fit-content" Items="@ConnectedUserList.Users" PageSize="35">  
+<TableControl Class="table table-hover table-striped table-forge fit-content" Items="@ConnectedUserList.Users.ToPivotData()" PageSize="35">  
     <TableColumnControl Name="Id"                 Field="Id"             Class="mr-2"/>  
     <TableColumnControl Name="Name"               Field="Name"           Class="mr-2" />  
     <TableColumnControl Name="Active since (UTC)" Field="ConnectedAtUtc" Class="mr-2" />  
