@@ -660,7 +660,10 @@ FROM "TestCollection" PIPELINE {
         [{
           "$match" : {
             "from" : {
-              "$gte" : { "$date" : "2026-06-23T08:59:53.617Z" }
+              "$gte" : { "$date" : "2026-06-23T00:00:00.000Z" }
+              },
+            "to" : {
+              "$gte" : { "$date" : "2026-06-24T23:59:59.999Z" }
             }
           }
         }, {
@@ -701,25 +704,28 @@ FROM "TestCollection" PIPELINE {
         """;
     private const string MatchGteFilterScript = 
         """
-        FROM "metrics_raw" PIPELINE {
+        FROM "TestCollection" PIPELINE {
           WHERE
-            from >= date( "2026-06-24T00:00:00Z" )
-          PROJECT 
+            from >= date( "2026-06-23T00:00:00.000Z" )
+            AND to >= date( "2026-06-24T23:59:59.999Z" )
+          PROJECT
             metric,
             attrsKey,
-            $objectToArray(attrs) AS aa
+            objectToArray( attrs ) AS aa
           UNWIND aa
-          
-          PROJECT 
+          PROJECT
             metric,
-            $aa.k AS k
-            
+            $aa.k AS "k"
           GROUP BY
             metric
             LET
-              addToSet( k ) AS attrs
+              addToSet( 'k' ) AS attrs
           PROJECT
-          	sortArray(input: attrs, sortBy: 1) AS attrs
+            _id AS metric,
+            sortArray( 
+              input: attrs, 
+              sortBy: 1
+            ) AS attrs
         }
         
         """;
@@ -763,6 +769,6 @@ FROM "TestCollection" PIPELINE {
     [Test] public void Facet()                        => TestPipeline(FacetStage, FacetScript);
     [Test] public void MatchHackExists()              => TestPipeline(MatchHackExistsStage, MatchHackExistsScript);
     [Test] public void MatchExtraFilter()             => TestPipeline(MatchExtraFilterStage, MatchExtraFilterScript);
-     public void MatchGteFilter()               => TestPipeline(MatchGteFilterStage, MatchGteFilterScript);
+    [Test] public void MatchGteFilter()               => TestPipeline(MatchGteFilterStage, MatchGteFilterScript);
 
 }
