@@ -342,7 +342,7 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
         var filter = "";
 
         if ( cobs.Length > 0 )
-            filter = $"{{ $match : {{ \"COB\" : ISODate(\"{cobs[^1]}\") }} }}, ";
+            filter = $"{{ $match : {{ \"COB\" : {{ \"$date\" : \"{cobs[^1]}\" }} }} }}, ";
 
         var json = "["+filter+"{ $sample: { size: 16 } }]";
         var pipeline = MongoDB.Bson.Serialization.BsonSerializer.Deserialize<BsonArray>(json).Select(p => p.AsBsonDocument).ToList();

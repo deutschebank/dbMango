@@ -162,7 +162,7 @@ public class DrilldownSupport(List<GroupedCollection> _collections)
                 if ( fieldTypes.TryGetValue( keyColumn, out var desc ) )
                 {
                     if ( desc.Type == typeof(DateTime) && v?.GetType() == typeof(DateTime) )
-                        val = isSql ? $"'{v:yyyy-MM-dd}'" : $"ISODate(\"{v:yyyy-MM-ddTHH:mm:ss.fff}Z\")";
+                        val = isSql ? $"'{v:yyyy-MM-dd}'" : $"{{ \"$date\" : \"{v:yyyy-MM-ddTHH:mm:ss.fff}Z\" }}";
                     else if ( desc.Type != typeof(string) )
                         val = val.Trim('\"');
                 }

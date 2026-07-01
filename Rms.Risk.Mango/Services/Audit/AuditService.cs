@@ -86,8 +86,8 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
 
         var filter = $@"{{
     ""$and"" : [
-        {{ ts : {{ ""$gte"" : ISODate(""{startDate:yyyy-MM-dd}T00:00:00"") }} }},
-        {{ ts : {{ ""$lte"" : ISODate(""{endDate:yyyy-MM-dd}T23:59:59"") }} }}
+        {{ ts : {{ ""$gte"" : {{ ""$date"" : ""{startDate:yyyy-MM-dd}T00:00:00Z"" }} }} }},
+        {{ ts : {{ ""$lte"" : {{ ""$date"" : ""{endDate:yyyy-MM-dd}T23:59:59Z"" }} }} }}
     ]
 }}";
 
