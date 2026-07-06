@@ -117,14 +117,229 @@ function mongodbScriptHint(editor, options) {
     return suggestCommand(cur, token, DashboardUtils.MongoDbCommands);
 };
 
-function afhScriptHint(editor, options) {
-    // Find the token at the cursor
-    var
-        cur = editor.getCursor(),
-        token = editor.getTokenAt(cur)
-        ;
+// Cache for AFH editor analysis results per editor instance
+let afhAnalysisCache = new WeakMap();
+let afhAnalysisTimeout = null;
 
-    return suggestCommand(cur, token, DashboardUtils.AfhCommands);
+// Debounce delay for AFH analysis requests (ms)
+const AFH_ANALYSIS_DEBOUNCE_MS = 300;
+
+/**
+ * Fetch analysis from the AFH editor analysis service via JSInterop.
+ * Caches result per editor instance.
+ * Uses direct .NET method invocation through Blazor JSInterop.
+ */
+async function fetchAfhAnalysis(editor) {
+    try {
+        const script = editor.getValue();
+        const cursor = editor.getCursor();
+
+        // JSInterop call to .NET analysis service
+        // Format: DotNet.invokeMethodAsync(assemblyName, 'ClassName.MethodName', ...args)
+        const analysis = await DotNet.invokeMethodAsync(
+            'Rms.Risk.Mango',
+            'AfhEditorAnalysisService.AnalyzeScript',
+            script,
+            cursor.line,
+            cursor.ch
+        );
+
+        if (analysis) {
+            afhAnalysisCache.set(editor, analysis);
+            return analysis;
+        }
+
+        return null;
+    } catch (err) {
+        console.error('Error fetching AFH analysis:', err);
+        return null;
+    }
+}
+
+function createAfhSuggestion(text, displayText, detail) {
+    return {
+        text: text,
+        displayText: displayText,
+        detail: detail,
+        render: function(element, _self, _data) {
+            const row = document.createElement("div");
+            row.style.display = "grid";
+            row.style.gridTemplateColumns = "180px minmax(220px, 1fr)";
+            row.style.columnGap = "10px";
+            row.style.alignItems = "center";
+            row.style.width = "100%";
+
+            const leftCell = document.createElement("span");
+            leftCell.textContent = displayText;
+            leftCell.style.fontWeight = "600";
+            leftCell.style.overflow = "hidden";
+            leftCell.style.textOverflow = "ellipsis";
+            leftCell.style.whiteSpace = "nowrap";
+
+            const rightCell = document.createElement("span");
+            rightCell.textContent = detail || "";
+            rightCell.style.opacity = "0.75";
+            rightCell.style.color = "#9aa0a6";
+            rightCell.style.overflow = "hidden";
+            rightCell.style.textOverflow = "ellipsis";
+            rightCell.style.whiteSpace = "nowrap";
+
+            row.appendChild(leftCell);
+            row.appendChild(rightCell);
+            element.appendChild(row);
+        }
+    };
+}
+
+function getAfhPrefix(token) {
+    if (!token || !token.string) {
+        return "";
+    }
+    return token.string.toLowerCase().replace(/^['"]/, "");
+}
+
+function getPreviousNonWhitespaceChar(editor, cur, token) {
+    let line = cur.line;
+    let ch = (token && typeof token.start === "number") ? token.start - 1 : cur.ch - 1;
+
+    while (line >= 0) {
+        const text = editor.getLine(line) || "";
+        while (ch >= 0) {
+            const c = text[ch];
+            if (!/\s/.test(c)) {
+                return c;
+            }
+            ch--;
+        }
+
+        line--;
+        if (line >= 0) {
+            ch = (editor.getLine(line) || "").length - 1;
+        }
+    }
+
+    return null;
+}
+
+function shouldSuggestStageKeywords(editor, cur, token, analysis) {
+    if (analysis && analysis.currentStage && analysis.currentStage.isInsideJsonBlock) {
+        return false;
+    }
+
+    const previous = getPreviousNonWhitespaceChar(editor, cur, token);
+    if (previous === "," || previous === ":" || previous === "=" || previous === "(" || previous === "[" || previous === ".") {
+        return false;
+    }
+
+    return true;
+}
+
+function collectExistingAfhIdentifiers(editor, prefix) {
+    const text = editor.getValue() || "";
+    const keywordSet = new Set(DashboardUtils.AfhCommands.map(x => x.toUpperCase()));
+    const identifiers = new Set();
+
+    const matches = text.match(/\b[A-Za-z_][A-Za-z0-9_.]*\b/g) || [];
+    matches.forEach(word => {
+        const upper = word.toUpperCase();
+        if (keywordSet.has(upper)) {
+            return;
+        }
+
+        if (prefix && !word.toLowerCase().startsWith(prefix)) {
+            return;
+        }
+
+        identifiers.add(word);
+    });
+
+    return Array.from(identifiers).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Enhanced AFH hinting with context-aware completions.
+ */
+function afhScriptHint(editor, options) {
+    var cur = editor.getCursor();
+    var token = editor.getTokenAt(cur);
+    var prefix = getAfhPrefix(token);
+
+    // Try to use cached analysis
+    var analysis = afhAnalysisCache.get(editor);
+
+    // Fallback to simple keyword completion if analysis not available
+    if (!analysis) {
+        return suggestCommand(cur, token, DashboardUtils.AfhCommands);
+    }
+
+    const allowStageSuggestions = shouldSuggestStageKeywords(editor, cur, token, analysis);
+    const stageKeywordSet = new Set(["WHERE", "BUCKET", "FACET", "ADD", "PROJECT", "GROUP", "SORT", "JOIN", "UNWIND", "REPLACE", "DO"]);
+
+    let suggestions = [];
+
+    if (analysis.completions && analysis.completions.length > 0) {
+        suggestions = analysis.completions
+            .filter(x => {
+                const display = (x.displayText || "").toLowerCase();
+                if (prefix && !display.startsWith(prefix)) {
+                    return false;
+                }
+
+                const isStage = (x.type && x.type.toLowerCase() === "stage") || stageKeywordSet.has((x.displayText || "").toUpperCase());
+                if (!allowStageSuggestions && isStage) {
+                    return false;
+                }
+
+                return true;
+            })
+            .map(x => createAfhSuggestion(x.insertText || x.displayText, x.displayText, x.detail));
+    }
+
+    // Add existing identifiers (variables/fields/functions) when typing inside a stage expression
+    const existingIdentifiers = collectExistingAfhIdentifiers(editor, prefix);
+    existingIdentifiers.forEach(identifier => {
+        suggestions.push(createAfhSuggestion(identifier, identifier, "existing field/identifier"));
+    });
+
+    // De-duplicate by display text
+    const seen = new Set();
+    suggestions = suggestions.filter(item => {
+        const key = (item.displayText || item.text || "").toLowerCase();
+        if (seen.has(key)) {
+            return false;
+        }
+
+        seen.add(key);
+        return true;
+    });
+
+    // If no suggestions left, fallback to command list
+    if (suggestions.length === 0) {
+        suggestions = DashboardUtils.AfhCommands
+            .filter(x => !prefix || x.toLowerCase().startsWith(prefix))
+            .map(x => createAfhSuggestion(x, x, null));
+    }
+
+    var hint = {
+        list: suggestions,
+        from: CodeMirror.Pos(cur.line, token.start),
+        to: CodeMirror.Pos(cur.line, token.end)
+    };
+
+    console.log('AFH analysis:', hint);
+
+    return hint;
+}
+
+/**
+ * Update AFH analysis cache when editor content changes.
+ * Debounced to avoid excessive API calls.
+ */
+function updateAfhAnalysisCache(editor) {
+    clearTimeout(afhAnalysisTimeout);
+    afhAnalysisTimeout = setTimeout(() => {
+        fetchAfhAnalysis(editor);
+    }, AFH_ANALYSIS_DEBOUNCE_MS);
 };
 
 
@@ -252,7 +467,34 @@ DashboardUtils.LoadCodeEditor = function (elementid, mode, refElement, dontNetOb
 //                    console.log('Input Value');
                 }, 1000);
 
+                // For AFH mode, also update analysis cache
+                if (mode === "text/x-afh") {
+                    updateAfhAnalysisCache(editor);
+                }
             });
+
+        // Initial analysis fetch for AFH mode
+        if (mode === "text/x-afh") {
+            setTimeout(() => {
+                fetchAfhAnalysis(codemirrorEditor);
+            }, 500);
+
+            // Trigger autocomplete while typing so AFH hint provider is invoked continuously
+            codemirrorEditor.on("inputRead", function (cm, changeObj) {
+                if (!changeObj || !changeObj.text || changeObj.text.length === 0) {
+                    return;
+                }
+
+                const typed = changeObj.text[0];
+                if (!typed || !/^[A-Za-z_$]$/.test(typed)) {
+                    return;
+                }
+
+                if (typeof cm.showHint === "function") {
+                    cm.showHint({ completeSingle: false });
+                }
+            });
+        }
     }
 
     //codemirrorEditor.refresh();
