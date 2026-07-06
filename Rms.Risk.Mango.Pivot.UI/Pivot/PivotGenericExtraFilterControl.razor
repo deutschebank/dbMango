@@ -98,13 +98,12 @@
                     case ExtraFilterDefinition.ControlTypeDatePicker:
 
                         <CobPicker @bind-UseCobRange="_values[filter.Position].MultipleSelected"
-                                   CobStr="@_values[filter.Position].RangeStart"
-                                   CobStrChanged="@(x=> SelectStart(x, filter.Position))"
-                                   CobEndStr="@_values[filter.Position].RangeEnd"
-                                   CobEndStrChanged="@(x=> SelectEnd(x, filter.Position))"
+                                   Cob="_cobStartDates.TryGetValue(filter.Position, out var startDate) ? startDate : null"
+                                   CobChanged="@(x => OnCobStartChanged(x, filter.Position))"
+                                   CobRangeEnd="_cobEndDates.TryGetValue(filter.Position, out var endDate) ? endDate : null"
+                                   CobRangeEndChanged="@(x => OnCobEndChanged(x, filter.Position))"
                                    SupportsCobRanges="@filter.Filter.AllowMultiselect"
-                                   DaysEnabledFunction="@((x) => IsDateAvailable(x, filter.Filter.Values, filter.Filter.Format))"
-                                   Format="@filter.Filter.Format"
+                                   DaysEnabledFunction="@((dateOnly) => IsDateAvailable(dateOnly, filter.Filter.Values, filter.Filter.Format))"
                                    />
 
                         break;
@@ -156,6 +155,8 @@
     private List<ExtraFilterDefinition.FilterValue> _values          = new();
     private Dictionary<string, string>              _queryParameters = new();
     private string _extraFilterJson = "";
+    private Dictionary<int, DateOnly?> _cobStartDates = new();
+    private Dictionary<int, DateOnly?> _cobEndDates = new();
 
     protected override void OnInitialized()
     {
@@ -233,6 +234,17 @@
             _values = FilterDef.ParseQueryParameters(_queryParameters);
         else
             _values = FilterDef.ParseExtraFilter(ExtraFilter);
+
+        // Initialize date dictionaries from RangeStart/RangeEnd strings
+        _cobStartDates.Clear();
+        _cobEndDates.Clear();
+        for (int i = 0; i < _values.Count; i++)
+        {
+            var val = _values[i];
+            _cobStartDates[i] = ParseDateOnlyFromString(val.RangeStart);
+            _cobEndDates[i] = ParseDateOnlyFromString(val.RangeEnd);
+        }
+
         await UpdateExtraFilter(); // Changed to await to ensure async execution
         await InvokeAsync(StateHasChanged);
     }
@@ -338,12 +350,12 @@
         }
     }
 
-    private bool IsDateAvailable(DateTimeOffset dateTimeOffset, List<string> filterValues, string format)
+    private bool IsDateAvailable(DateOnly date, List<string> filterValues, string format)
     {
         if ( filterValues.Count == 0)
             return true;
         var fmt = string.IsNullOrWhiteSpace(format) ? "yyyy-MM-dd" : format;
-        var dateStr = dateTimeOffset.ToString(fmt);
+        var dateStr = date.ToString(fmt);
         return filterValues.Contains(dateStr);
     }
 
@@ -359,6 +371,28 @@
         return UpdateExtraFilter(); 
     }
 
+    private Task OnCobStartChanged(DateOnly? date, int pos)
+    {
+        _cobStartDates[pos] = date;
+        _values[pos].RangeStart = date?.ToString("yyyy-MM-dd");
+        return UpdateExtraFilter();
+    }
+
+    private Task OnCobEndChanged(DateOnly? date, int pos)
+    {
+        _cobEndDates[pos] = date;
+        _values[pos].RangeEnd = date?.ToString("yyyy-MM-dd");
+        return UpdateExtraFilter();
+    }
+
+    private DateOnly? ParseDateOnlyFromString(string? dateStr)
+    {
+        if (string.IsNullOrWhiteSpace(dateStr))
+            return null;
+        if (DateOnly.TryParseExact(dateStr, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var result))
+            return result;
+        return null;
+    }
 
     private Task SelectStart(string? x, int pos)
     {
