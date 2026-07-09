@@ -52,6 +52,29 @@
         width: 100%;
         height: 100%;
     }
+
+    .collection-control .index-list-full-height {
+        height: 100%;
+        margin-bottom: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .collection-control .index-list-full-height .input-group {
+        height: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .collection-control .index-list-full-height .form-control {
+        height: 100%;
+        min-height: 0;
+    }
+
+    .collection-control .index-list-full-height .list-body {
+        max-height: none;
+        height: 100%;
+    }
 </style>
 
 @if (Error != null)
@@ -94,33 +117,40 @@
         </div>
 
         <div class="card p-3">
-            <div class="d-flex align-items-start flex-wrap mb-2">
-                <FormItemSelect Class="mr-2"
-                                Name="Index"
-                                @bind-Value="SelectedIndexName"
-                                Values="@_indexNames"
-                                Enabled="@(!_loading && _indexNames.Count > 0)"
-                                Icon="icon-document-blank-sm" />
-                <FormButton Class="mr-2" Name="New"    Icon="icon-plus-sm"  OnClick="NewIndex"    Enabled="@CanEditIndexes" />
-                <FormButton Class="mr-2" Name="Save"   Icon="icon-save-sm"  OnClick="SaveIndex"   Enabled="@CanSaveIndex" />
-                <FormButton Class="mr-2" Name="Delete" Icon="icon-trash-sm" OnClick="DeleteIndex" Enabled="@CanDeleteIndex" />
-                <FormButton Name="Refresh" Icon="icon-refresh-sm" OnClick="Reload" Enabled="@(!_loading)" />
-            </div>
-
-            @if (!CanEditIndexes)
-            {
-                <div class="alert alert-info mb-2">
-                    Index editor is in read-only mode. Admin access is required.
+            <div class="row align-items-stretch">
+                <div class="col-12 col-lg-4 mb-3 mb-lg-0 d-flex">
+                    <FormItemList T="string"
+                                  Class="index-list-full-height w-100"
+                                  Name="Index"
+                                  @bind-Value="SelectedIndexName"
+                                  Values="@_indexNames"
+                                  Enabled="@(!_loading && _indexNames.Count > 0)"
+                                  Icon="icon-document-blank-sm" />
                 </div>
-            }
+                <div class="col-12 col-lg-8">
+                    <div class="d-flex align-items-start flex-wrap mb-2">
+                        <FormButton Class="mr-2" Name="New"    Icon="icon-plus-sm"  OnClick="NewIndex"    Enabled="@CanEditIndexes" />
+                        <FormButton Class="mr-2" Name="Save"   Icon="icon-save-sm"  OnClick="SaveIndex"   Enabled="@CanSaveIndex" />
+                        <FormButton Class="mr-2" Name="Delete" Icon="icon-trash-sm" OnClick="DeleteIndex" Enabled="@CanDeleteIndex" />
+                        <FormButton Name="Refresh" Icon="icon-refresh-sm" OnClick="Reload" Enabled="@(!_loading)" />
+                    </div>
 
-            <IndexEditComponent Collection="@(CollectionName ?? "")"
-                                Json="@_indexJson"
-                                JsonChanged="@OnIndexJsonChanged"
-                                IsValid="@_isIndexValid"
-                                IsValidChanged="@OnIndexValidChanged"
-                                Enabled="@CanEditIndexes"
-                                HideIndexParams="false" />
+                    @if (!CanEditIndexes)
+                    {
+                        <div class="alert alert-info mb-2">
+                            Index editor is in read-only mode. Admin access is required.
+                        </div>
+                    }
+
+                    <IndexEditComponent Collection="@(CollectionName ?? "")"
+                                        Json="@_indexJson"
+                                        JsonChanged="@OnIndexJsonChanged"
+                                        IsValid="@_isIndexValid"
+                                        IsValidChanged="@OnIndexValidChanged"
+                                        Enabled="@CanEditIndexes"
+                                        HideIndexParams="false" />
+                </div>
+            </div>
         </div>
     </div>
 

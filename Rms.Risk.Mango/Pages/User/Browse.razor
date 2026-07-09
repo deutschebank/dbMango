@@ -142,8 +142,6 @@
     [SupplyParameterFromQuery(Name = "q")]
     public string Text { get; set; } = "";
 
-    private static readonly List<int> _rowValues = Enumerable.Range(0, 8).Select(x => x * 5 + 25).ToList();
-
     private Dictionary<string, List<string>> AllHistory { get; set; } = [];
 
     private int Rows
@@ -243,7 +241,7 @@
     private EditContext?   _editContext;
     private EditContext    EditContext => _editContext!;
 
-    private          bool                    _running            = false;
+    private          bool                    _running;
     private readonly CancellationTokenSource _globalCancellation = new();
 
     private CellClickHelper _cellClickHelper = null!;
@@ -374,7 +372,7 @@
             var res = actionType switch
             {
                 ActionType.Find   => await RunFind(json, limit, cts.Token),
-                ActionType.Delete => await RunDelete(json, limit, cts.Token),
+                ActionType.Delete => await RunDelete(json, cts.Token),
                 _ => throw new ArgumentOutOfRangeException(nameof(actionType), actionType, null)
             };
 
@@ -546,7 +544,7 @@
         return (pd, list);
     }
 
-    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunDelete(string text, int limit, CancellationToken token)
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunDelete(string text, CancellationToken token)
     {
         BsonDocument filter;
         if (string.IsNullOrWhiteSpace(text))
@@ -595,11 +593,10 @@
 
         Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
 
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
-        var res = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
+        var res = await UserSession.MongoDbAdmin.RunCommand(command, token);
 
         var list = new List<BsonDocument>();
-        var deleted = 0;
+        int deleted;
         try
         {
             deleted = res["n"].ToInt32();
