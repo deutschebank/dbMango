@@ -314,8 +314,13 @@
 
     private async Task UpdatePage(int page)
     {
+        var newTotalPages = (int)Math.Ceiling((FilteredRowIndices?.Count ?? 0) / (decimal)PageSize);
+
+        if (_currentPage == page && _totalPages == newTotalPages)
+            return;
+
         _currentPage = page;
-        _totalPages = (int)Math.Ceiling((FilteredRowIndices?.Count ?? 0) / (decimal)PageSize);
+        _totalPages = newTotalPages;
 
         var sideWidth = (int)Math.Floor((PagerSize - 1) / 2d);
         _startPage    = _currentPage - sideWidth >= 1 ? _currentPage - sideWidth : 1;
@@ -505,15 +510,19 @@
                 _ => throw new ArgumentOutOfRangeException()
             };
 
-            FilteredRowIndices = [..fa];
+            var newIndexes = fa.ToList();
+            if (!FilteredRowIndices.SequenceEqual(newIndexes))
+            {
+                FilteredRowIndices = newIndexes;
 
-            try
-            {
-                await InvokeAsync(() => FilteredRowIndicesChanged.InvokeAsync(FilteredRowIndices));
-            }
-            catch (Exception)
-            {
-                // ignore
+                try
+                {
+                    await InvokeAsync(() => FilteredRowIndicesChanged.InvokeAsync(FilteredRowIndices));
+                }
+                catch (Exception)
+                {
+                    // ignore
+                }
             }
 
             await UpdatePage(_currentPage);
