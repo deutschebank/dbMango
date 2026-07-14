@@ -309,6 +309,7 @@
                 return;
 
             await ApplyColumnFilterAndSort();
+            await InvokeAsync(StateHasChanged);
         }
     }
 
