@@ -4,14 +4,17 @@
 	<IsPackable>true</IsPackable>
     <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
     <StaticWebAssetBasePath>_content/$(AssemblyName)</StaticWebAssetBasePath>
+	  
+	<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
-	  <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <!-- For including symbols (PDBs) -->
-    <IncludeSymbols>true</IncludeSymbols>
-    <!-- Use 'snupkg' for a separate symbols package (recommended for public sources like nuget.org) -->
-    <!-- Or use 'symbols.nupkg' for older symbol server compatibility / embedding in main package -->
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <!-- Ensure PDBs are generated -->
+	<IncludeSource>true</IncludeSource>
+	<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<RepositoryType>git</RepositoryType>
+	<RepositoryUrl></RepositoryUrl>
+	<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>    
+
+	<IncludeSymbols>true</IncludeSymbols>
+	<SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <DebugType>portable</DebugType>
     <PublishSymbols>true</PublishSymbols>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -32,6 +35,10 @@
   <ItemGroup>
     <PackageReference Include="BlazorDateRangePicker" />
     <PackageReference Include="Blazored.Modal" />
+    <PackageReference Include="Microsoft.SourceLink.Bitbucket.Git">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="pax.BlazorChartJs" />
     <PackageReference Include="Markdown.ColorCode" />
     <PackageReference Include="NJsonSchema" />
