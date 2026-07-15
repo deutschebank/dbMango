@@ -221,8 +221,6 @@ public static class PivotMetaCache
         List<PivotDefinition>  ? pivotDefinitions = null;
         HashSet<string>        ? allKeyFields     = null;
         HashSet<string>        ? allDataFields    = null;
-        string[]               ? departments      = null;
-        DateTime[]             ? cobs             = null;
         PivotColumnDescriptor[]? descriptors      = null;
 
         var collection = new GroupedCollection
@@ -234,8 +232,6 @@ public static class PivotMetaCache
 
         await Task.WhenAll(
             LoadPivotDefinitions(),
-            LoadCobs(),
-            LoadDepartments(),
             LoadKeyFields(),
             LoadDataFields(),
             LoadColumnDescriptors()
@@ -250,10 +246,6 @@ public static class PivotMetaCache
             collection.KeyFields = allKeyFields;
         if ( allDataFields != null )
             collection.DataFields = allDataFields;
-        if ( departments != null )
-            collection.Departments = departments;
-        if ( cobs != null )
-            collection.Cobs = cobs;
         if ( descriptors != null )
             collection.ColumnDescriptors = descriptors;
         if ( fieldTypes.Count > 0 )
@@ -268,16 +260,6 @@ public static class PivotMetaCache
             pivotDefinitions = await pivotService.GetPivotsAsync(collection.CollectionNameWithoutPrefix, pivotType, userName, token);
         }
 
-        async Task LoadDepartments()
-        {
-            if ( collection.Departments.Length > 0 )
-                return;
-            departments = (await pivotService.GetDepartmentsAsync(collection.CollectionNameWithoutPrefix, token))
-               .Concat([Any])
-               .ToArray()
-                ;
-        }
-
         async Task LoadKeyFields()
         {
             if ( collection.KeyFields.Count > 0 )
@@ -290,13 +272,6 @@ public static class PivotMetaCache
             if ( collection.DataFields.Count > 0 )
                 return;
             allDataFields = [..await pivotService.GetDataFieldsAsync(collection.CollectionNameWithoutPrefix, token)];
-        }
-
-        async Task LoadCobs()
-        {
-            if ( collection.Cobs.Length > 0 )
-                return;
-            cobs = (await pivotService.GetCobDatesAsync(collection.CollectionNameWithoutPrefix, token: token)).Select(DateTime.Parse).ToArray();
         }
 
         async Task LoadColumnDescriptors()

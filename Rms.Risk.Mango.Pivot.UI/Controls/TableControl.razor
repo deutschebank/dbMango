@@ -244,10 +244,10 @@
     [Parameter] public Func<IPivotedData, int, TableColumnControl, string>? GetCellClassCallback { get; set; }
 
     [Parameter]
-    public List<int> FilteredRowIndices { get; set; } = [];
+    public List<int>? FilteredRowIndices { get; set; }
 
     [Parameter]
-    public EventCallback<List<int>> FilteredRowIndicesChanged { get; set; }
+    public EventCallback<List<int>?> FilteredRowIndicesChanged { get; set; }
 
     [Parameter]
     public string? CurrentSortColumn
@@ -294,7 +294,11 @@
 
     //Column the table is currently sorted by.
 
-    protected IEnumerable<int> DisplayedRows => FilteredRowIndices?.Skip((_currentPage - 1) * PageSize).Take(PageSize) ?? [];
+    private IEnumerable<int> AllRowIndices => Enumerable.Range(0, Items?.Count ?? 0);
+
+    protected IEnumerable<int> DisplayedRows => (FilteredRowIndices ?? AllRowIndices)
+        .Skip((_currentPage - 1) * PageSize)
+        .Take(PageSize);
 
     private int  _totalPages;
     private int  _currentPage = 1;
@@ -315,7 +319,8 @@
 
     private async Task UpdatePage(int page)
     {
-        var newTotalPages = (int)Math.Ceiling((FilteredRowIndices?.Count ?? 0) / (decimal)PageSize);
+        var totalRows = FilteredRowIndices?.Count ?? Items?.Count ?? 0;
+        var newTotalPages = (int)Math.Ceiling(totalRows / (decimal)PageSize);
 
         if (_currentPage == page && _totalPages == newTotalPages)
             return;
@@ -429,6 +434,7 @@
         _currentPage = 1;
 
         await ApplyColumnFilterAndSort();
+        await InvokeAsync(StateHasChanged);
     }
 
     public async Task SetColumnSort(string columnName)
@@ -463,70 +469,108 @@
         await ApplyColumnFilterAndSort();
     }
 
+    private object? _lastItemsSource;
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        if (!ReferenceEquals(_lastItemsSource, Items))
+        {
+            _lastItemsSource = Items;
+            ResetStateForNewItems();
+        }
+    }
+
+    private void ResetStateForNewItems()
+    {
+        SelectedRow    = null;
+        SelectedColumn = null;
+
+        ActiveFilters?.Clear();
+        ActiveFiltersExactMatch?.Clear();
+
+        CurrentSortColumn = null;
+
+        _currentPage = 1;
+        _startPage   = 1;
+        _itemCount   = Items?.Count ?? 0;
+        _totalPages  = PageSize > 0
+            ? Math.Max(1, (int)Math.Ceiling(_itemCount / (double)PageSize))
+            : 1;
+        _endPage = Math.Min(PagerSize, _totalPages);
+
+        FilteredRowIndices = null;
+    }
+
+    private List<int>? GetFilteredRowIndexes()
+    {
+        var data = Items;
+
+        if (ActiveFilters.Count == 0 && SortMode == SortModeType.NoSort)
+            return null;
+
+        IEnumerable<int> fa = Enumerable.Range(0, data.Count);
+
+        var columnPositions = data.GetColumnPositions();
+
+        //create data filtering linq
+        foreach (var (column, value) in ActiveFilters)
+        {
+            var exactMatch = ActiveFiltersExactMatch[column];
+            var tableColumnDef = Columns.FirstOrDefault(c => c.Field == column);
+            var hasColumn = columnPositions.TryGetValue(column, out var colPos);
+
+            fa = fa.Where(row =>
+            {
+                var colOriginalValue = hasColumn ? data.Get(colPos, row) : null;
+
+                var colValue = ConvertToString(colOriginalValue, tableColumnDef?.Format);
+
+                if (colValue != null)
+                {
+                    var res = exactMatch
+                        ? value.Any(v => colValue.Equals(v))
+                        : value.Any(v => colValue.Contains(v, StringComparison.OrdinalIgnoreCase));
+                    return res;
+                }
+                return false;
+            });
+        }
+
+        var sortColumn = CurrentSortColumn;
+
+        //add data sorting on top
+        fa = SortMode switch
+        {
+            SortModeType.NoSort             => fa,
+            SortModeType.Ascending          => fa.OrderBy(x => x, new GridComparer(row => GetValue(data, sortColumn, row))),
+            SortModeType.Descending         => fa.OrderByDescending(x => x, new GridComparer(row => GetValue(data, sortColumn, row))),
+            SortModeType.AscendingAbsolute  => fa.OrderBy(x => x, new GridComparer(row => GetAbsValue(data, sortColumn, row))),
+            SortModeType.DescendingAbsolute => fa.OrderByDescending(x => x, new GridComparer(row => GetAbsValue(data, sortColumn, row))),
+            _                               => throw new ArgumentOutOfRangeException()
+        };
+
+        var newIndexes = fa.ToList();
+        return newIndexes;
+    }
+
     private async Task ApplyColumnFilterAndSort()
     {
         await _applyColumnFilterAndSortLock.WaitAsync();
         try
         {
-            var data = Items;
+            var newIndexes = GetFilteredRowIndexes();
+            var hasChanged = (FilteredRowIndices is null) != (newIndexes is null)
+                || (FilteredRowIndices is not null && newIndexes is not null && !FilteredRowIndices.SequenceEqual(newIndexes));
 
-            IEnumerable<int> fa = Enumerable.Range(0, data.Count);
-
-            var columnPositions = data.GetColumnPositions();
-
-            //create data filtering linq
-            foreach (var (column, value) in ActiveFilters)
-            {
-                var exactMatch = ActiveFiltersExactMatch[column];
-                var tableColumnDef = Columns.FirstOrDefault(c => c.Field == column);
-                var hasColumn = columnPositions.TryGetValue(column, out var colPos);
-
-                fa = fa.Where(row =>
-                {
-                    var colOriginalValue = hasColumn ? data.Get(colPos, row) : null;
-
-                    var colValue = ConvertToString(colOriginalValue, tableColumnDef?.Format);
-
-                    if (colValue != null)
-                    {
-                        var res = exactMatch
-                            ? value.Any(v => colValue.Equals(v))
-                            : value.Any(v => colValue.Contains(v, StringComparison.OrdinalIgnoreCase));
-                        return res;
-                    }
-                    return false;
-                });
-            }
-
-            var sortColumn = CurrentSortColumn;
-
-            //add data sorting on top
-            fa = SortMode switch
-            {
-                SortModeType.NoSort             => fa,
-                SortModeType.Ascending          => fa.OrderBy          (x => x, new GridComparer(row => GetValue(data, sortColumn, row))),
-                SortModeType.Descending         => fa.OrderByDescending(x => x, new GridComparer(row => GetValue(data, sortColumn, row))),
-                SortModeType.AscendingAbsolute  => fa.OrderBy          (x => x, new GridComparer(row => GetAbsValue(data, sortColumn, row))),
-                SortModeType.DescendingAbsolute => fa.OrderByDescending(x => x, new GridComparer(row => GetAbsValue(data, sortColumn, row))),
-                _ => throw new ArgumentOutOfRangeException()
-            };
-
-            var newIndexes = fa.ToList();
-            if (!FilteredRowIndices.SequenceEqual(newIndexes))
+            if (hasChanged)
             {
                 FilteredRowIndices = newIndexes;
-
-                try
-                {
-                    await InvokeAsync(() => FilteredRowIndicesChanged.InvokeAsync(FilteredRowIndices));
-                }
-                catch (Exception)
-                {
-                    // ignore
-                }
+                await FilteredRowIndicesChanged.InvokeAsync(FilteredRowIndices);
             }
 
-            await UpdatePage(_currentPage);
+            await UpdatePage(0);
         }
         finally
         {
@@ -758,7 +802,7 @@
         str.Append(string.Join(",", Columns.Select(col => Shield(col.Name ?? ""))));
         str.AppendLine();
 
-        foreach (var row in FilteredRowIndices)
+        foreach (var row in FilteredRowIndices ?? AllRowIndices)
         {
             str.Append(string.Join(",", Columns.Select(col =>
             {

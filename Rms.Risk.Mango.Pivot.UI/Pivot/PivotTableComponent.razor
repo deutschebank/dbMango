@@ -124,7 +124,7 @@ else if (_pivotData is { Count: > 0 }
 			_tableVersion++;
 			SortMode    = TableControl.SortModeType.NoSort;
 			SortColumn  = null;
-			_filteredRows = [];
+			_filteredRows = null;
 			_totals.Clear();
 
 			if (_pivotData == ArrayBasedPivotData.NoData)
@@ -301,7 +301,7 @@ else if (_pivotData is { Count: > 0 }
     private          bool                                       _pivotRefreshing;
     private          PivotColumnDescriptor[]                  ? _descriptors;
     private          Dictionary<string, PivotFieldDescriptor> ? _fieldTypes;
-    private          List<int>                                  _filteredRows  = [];
+    private          List<int>?                                 _filteredRows  = null;
     private readonly DelayedExecution                           _delayedUpdate = new(TimeSpan.FromMilliseconds(1500));
     private          Dictionary<string, int>                    _shadowHeaders = [];
     private          bool                                       _initialized;
@@ -636,7 +636,7 @@ else if (_pivotData is { Count: > 0 }
 
         PivotData = data;
         _totals.Clear();
-        _filteredRows = [];
+        _filteredRows = null;
 
         if (addToNavigation)
         {
@@ -982,15 +982,29 @@ else if (_pivotData is { Count: > 0 }
     }
 
 	// ReSharper disable once UnusedMember.Local
-	private List<int> FilteredRows
+	private List<int>? FilteredRows
 	{
 		get => _filteredRows;
 		set
 		{
 			_filteredRows = value;
-			_totals.Update(_pivotData!, _filteredRows.ToArray());
 
-			if (_filteredRows.Count == 0 || !(CurrentPivot?.MakeLineChart ?? false))
+			if (_filteredRows == null)
+				_totals.Update(_pivotData!);
+			else
+				_totals.Update(_pivotData!, _filteredRows);
+
+			if (!(CurrentPivot?.MakeLineChart ?? false))
+				return;
+
+			if (_filteredRows == null)
+			{
+				if (_initialized)
+					ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, GetFormat);
+				return;
+			}
+
+			if (_filteredRows.Count == 0)
 				return;
 
 			_delayedUpdate.Run(UpdateFilteredChart, "UpdateFilteredChart");
@@ -1002,7 +1016,7 @@ else if (_pivotData is { Count: > 0 }
 		try
 		{
 
-			if (token.IsCancellationRequested)
+			if (token.IsCancellationRequested || _filteredRows == null || _filteredRows.Count == 0)
 				return Task.CompletedTask;
 
 			var filteredPivot = new PivotFilteredView(_pivotData, _filteredRows);
@@ -1097,7 +1111,7 @@ else if (_pivotData is { Count: > 0 }
 		var sum    = 0.0;
 		var target = mm.AbsTotal * CurrentPivot!.HighlightTopPercent / 100.0;
 
-		foreach ( var r in FilteredRows )
+		foreach ( var r in _filteredRows ?? Enumerable.Range(0, data.Count) )
 		{
 			var val = GetCellValue(data, r, colName);
 			if ( double.IsNaN(val) )

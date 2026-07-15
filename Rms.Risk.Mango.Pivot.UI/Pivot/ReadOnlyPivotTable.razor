@@ -159,7 +159,7 @@
     private readonly MinMaxCache                                _totals = new();
     private          PivotColumnDescriptor[]                  ? _descriptors;
     private          Dictionary<string, PivotFieldDescriptor> ? _fieldTypes;
-    private          List<int>                                  _filteredRows  = [];
+    private          List<int>?                                 _filteredRows  = null;
     private readonly DelayedExecution                           _delayedUpdate = new(TimeSpan.FromMilliseconds(1500));
     private          Dictionary<string, int>                    _shadowHeaders = [];
     private          bool                                       _initialized;
@@ -309,15 +309,29 @@
     }
 
 	// ReSharper disable once UnusedMember.Local
-	private List<int> FilteredRows
+	private List<int>? FilteredRows
 	{
 		get => _filteredRows;
 		set
 		{
 			_filteredRows = value;
-			_totals.Update(PivotData, _filteredRows.ToArray());
 
-			if (_filteredRows.Count == 0 || PivotDef is not { MakeLineChart: true })
+			if (_filteredRows == null)
+				_totals.Update(PivotData);
+			else
+				_totals.Update(PivotData, _filteredRows);
+
+			if (PivotDef is not { MakeLineChart: true })
+				return;
+
+			if (_filteredRows == null)
+			{
+				if (_initialized)
+					ChartHelper.UpdateLineChart(PivotDef, PivotData, GetFormat);
+				return;
+			}
+
+			if (_filteredRows.Count == 0)
 				return;
 
 			_delayedUpdate.Run(UpdateFilteredChart, "UpdateFilteredChart");
@@ -329,7 +343,7 @@
 		try
 		{
 
-			if (PivotDef == null || token.IsCancellationRequested)
+			if (PivotDef == null || token.IsCancellationRequested || _filteredRows == null || _filteredRows.Count == 0)
 				return Task.CompletedTask;
 
 			var filteredPivot = new PivotFilteredView(PivotData, _filteredRows);
@@ -424,7 +438,7 @@
 		var sum    = 0.0;
 		var target = mm.AbsTotal * ( PivotDef?.HighlightTopPercent ?? 0.0 ) / 100.0;
 
-		foreach ( var r in FilteredRows )
+		foreach ( var r in _filteredRows ?? Enumerable.Range(0, data.Count) )
 		{
 			var val = GetCellValue(data, r, colName);
 			if ( double.IsNaN(val) )
