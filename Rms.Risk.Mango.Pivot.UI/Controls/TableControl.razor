@@ -467,6 +467,7 @@
         }
 
         await ApplyColumnFilterAndSort();
+        await InvokeAsync(StateHasChanged);
     }
 
     private object? _lastItemsSource;
