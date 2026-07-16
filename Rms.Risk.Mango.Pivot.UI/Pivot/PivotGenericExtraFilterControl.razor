@@ -274,7 +274,7 @@
         return ExtraFilterChanged.InvokeAsync(ExtraFilter);
     }
 
-    private async Task UpdateAvailableSelectorValues(bool force = false)
+    private async Task UpdateAvailableSelectorValues(bool force = false, CancellationToken token = default)
     {
         try
         {
@@ -282,7 +282,7 @@
             var filtersToUpdate = FilterDef.Filter.Where(fd => force || fd.Values.Count == 0);
             foreach (var fd in filtersToUpdate)
             {
-                updated |= await LoadSelectorValues(fd);
+                updated |= await LoadSelectorValues(fd, token);
             }
 
             if (updated)
@@ -294,7 +294,7 @@
         }
     }
 
-    private async Task<bool> LoadSelectorValues(ExtraFilterDefinition.FilterControl fd)
+    private async Task<bool> LoadSelectorValues(ExtraFilterDefinition.FilterControl fd, CancellationToken token)
     {
         var collection = fd.SelectorCollection;
         if (string.IsNullOrWhiteSpace(collection) || collection == ExtraFilterDefinition.CurrentCollectionSignature)
@@ -309,6 +309,31 @@
         )
         {
             return false;
+        }
+
+        if (fd.SelectorQuery.StartsWith("[") && fd.SelectorQuery.EndsWith("]"))
+        {
+            // Handle special case for predefined selector queries
+            if (fd.SelectorQuery == "[COB]")
+            {
+                fd.Values.Clear();
+                var cobDates = await ((IPivotTableDataSourceMetaProvider)PivotService).GetCobDatesAsync(collection, token: token);
+                fd.Values.AddRange(cobDates);
+                fd.Values.Sort();
+                return true;
+            }
+            if (fd.SelectorQuery == "[Department]")
+            {
+                fd.Values.Clear();
+                var departments = await ((IPivotTableDataSourceMetaProvider)PivotService).GetDepartmentsAsync(collection, token: token);
+                fd.Values.AddRange(departments);
+                fd.Values.Sort();
+                return true;
+            }
+            else
+            {
+                throw new ApplicationException($"Unknown special selector query '{fd.SelectorQuery}' for field '{fd.FieldName}' in collection '{collection}'.");
+            }
         }
 
         try

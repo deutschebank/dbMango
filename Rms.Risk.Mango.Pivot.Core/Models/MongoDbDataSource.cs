@@ -608,24 +608,39 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
 
     private async Task<string[]> InternalGetCobDatesAsync(string collectionName, CancellationToken token = default)
     {
-        var coll        = GetCollectionWithRetries<BsonDocument>(collectionName);
-        var emptyFilter = new FilterDefinitionBuilder<BsonDocument>().Empty;
+        var coll = GetCollectionWithRetries<BsonDocument>(collectionName);
 
-        // using DateTime? in case we have a document without COB
-        // in this case Null can't be converted to DateTime and MongoDB driver throws an exception
-        var fields = await GetFieldMapping(collectionName, token);
-        var docs = (await coll.DistinctAsync<DateTime?>( fields.MapField( "COB" ), emptyFilter, cancellationToken: token)).ToList();
+        var filterBuilder = new FilterDefinitionBuilder<BsonDocument>();
+        var filter = filterBuilder.And(
+            filterBuilder.Exists("COB", true),
+            filterBuilder.Ne("COB", BsonNull.Value)
+        );
 
-        var cobs = docs.Where(x => x != null).Select( x => x!.Value.ToString( "yyyy-MM-dd" ) ).ToArray();
+        var docs = await (await coll.DistinctAsync<BsonValue>("COB", filter, cancellationToken: token)).ToListAsync(cancellationToken: token);
+
+        var cobs = docs
+            .Select(x => x.BsonType switch
+            {
+                BsonType.DateTime => x.ToUniversalTime().ToString("yyyy-MM-dd"),
+                BsonType.String   => x.AsString,
+                _                 => null
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => DateTime.TryParse(x, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt)
+                ? dt.ToString("yyyy-MM-dd")
+                : x!)
+            .Distinct()
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToArray();
 
         return cobs;
     }
 
     public async Task<string[]> GetCobDatesAsync(string collectionName, bool force = false, CancellationToken token = default)
     {
-        var cobs = force 
-                ? [] 
-                : await this.LoadCachedCobDatesAsync(collectionName, token)
+        var cobs = force
+                ? []
+                : (await this.LoadCached(collectionName, "CobDates", TimeSpan.FromDays(7), token)).Item2
             ;
 
         // contains today or yesterday or last Friday if today is Monday
@@ -640,38 +655,77 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
         }
 
         cobs = await InternalGetCobDatesAsync(collectionName, token);
-        await this.CacheCobDates(collectionName, cobs, token);
+        await this.StoreCached(collectionName, "CobDates", cobs, TimeSpan.FromDays(7), token);
             
         return cobs;
     }
 
+    private async Task<FilterDefinition<BsonDocument>?> GetLatestCobFilterAsync(string collectionName, CancellationToken token = default)
+    {
+        var coll = GetCollectionWithRetries<BsonDocument>(collectionName);
+        const string cobField = "COB";
+
+        var filterBuilder = new FilterDefinitionBuilder<BsonDocument>();
+        var hasCobFilter = filterBuilder.And(
+            filterBuilder.Exists(cobField, true),
+            filterBuilder.Ne(cobField, BsonNull.Value)
+        );
+
+        var latestCobDoc = await coll.Find(hasCobFilter)
+            .Sort(Builders<BsonDocument>.Sort.Descending(cobField))
+            .Project(Builders<BsonDocument>.Projection.Include(cobField))
+            .Limit(1)
+            .FirstOrDefaultAsync(token);
+
+        if ( latestCobDoc == null || !latestCobDoc.TryGetValue(cobField, out var latestCob) || latestCob.IsBsonNull )
+            return null;
+
+        if ( latestCob.BsonType == BsonType.DateTime )
+        {
+            var cobDay = latestCob.ToUniversalTime().Date;
+            return filterBuilder.And(
+                filterBuilder.Gte(cobField, cobDay),
+                filterBuilder.Lt(cobField, cobDay.AddDays(1))
+            );
+        }
+
+        if ( latestCob.BsonType == BsonType.String )
+            return string.IsNullOrWhiteSpace(latestCob.AsString)
+                ? null
+                : filterBuilder.Eq(cobField, latestCob.AsString);
+
+        return filterBuilder.Eq(cobField, latestCob);
+    }
+
     public async Task<string[]> GetDepartmentsAsync(string collectionName, CancellationToken token = default)
     {
-        var cob = await GetCobDatesAsync(collectionName, token: token);
-        if ( cob.Length == 0 )
-            return [];
+        var (stillValid, cached) = await this.LoadCached(collectionName, "Departments", TimeSpan.FromHours(1), token);
 
-        var (stillValid,cached) = await this.LoadCachedDepartmentsAsync(collectionName, token);
-
-        if (stillValid && cached.Length > 0)
+        if ( stillValid && cached.Length > 0 )
             return cached;
 
+        var filter = await GetLatestCobFilterAsync(collectionName, token);
+
+        if ( filter == null )
+            return [];
+
         var coll = GetCollectionWithRetries<BsonDocument>(collectionName);
-
-        var fields = await GetFieldMapping(collectionName, token);
-
-        var filter = new FilterDefinitionBuilder<BsonDocument>().Eq(fields.MapField("COB"), DateTime.ParseExact(cob[^1], "yyyy-MM-dd", null, DateTimeStyles.AssumeUniversal));
-        var docs = await (await coll.DistinctAsync<string>(fields.MapField("Department"), filter, cancellationToken: token)).ToListAsync(cancellationToken: token);
+        var docs = await (await coll.DistinctAsync<string>("Department", filter, cancellationToken: token)).ToListAsync(cancellationToken: token);
         var departments = docs.Concat(cached).Distinct().OrderBy(x => x).ToArray();
 
-        await this.CacheDepartments(collectionName, departments, token);
+        await this.StoreCached(collectionName, "Departments", departments, TimeSpan.FromHours(1), token);
 
         return departments;
     }
 
     public async Task<(string, string)[]> GetDesksWithDepartmentAsync(string collectionName, CancellationToken token = default)
     {
-        var (stillValid,cached) = await this.LoadCachedDesksAsync(collectionName, token);
+        var (stillValid, cachedValues) = await this.LoadCached(collectionName, "Desks", TimeSpan.FromHours(24), token);
+        var cached = cachedValues
+            .Select(x => x.Split(',', 2, StringSplitOptions.None))
+            .Where(x => x.Length == 2 && !string.IsNullOrWhiteSpace(x[0]) && !string.IsNullOrWhiteSpace(x[1]))
+            .Select(x => (x[0], x[1]))
+            .ToArray();
 
         if (stillValid)
             return cached;
@@ -717,7 +771,8 @@ public class MongoDbDataSource : IPivotTableDataSource, IPivotTableDataSourceMet
         }
 
         var desks = res.ToArray();
-        await this.CacheDesks(collectionName, desks, token);
+        var serializedDesks = desks.Select(x => $"{x.Item1},{x.Item2}").ToArray();
+        await this.StoreCached(collectionName, "Desks", serializedDesks, TimeSpan.FromHours(24), token);
 
         return desks;
     }

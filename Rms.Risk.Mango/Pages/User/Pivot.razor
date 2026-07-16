@@ -188,48 +188,25 @@ else
             [
                 new()
                 {
-                    ControlType      = ExtraFilterDefinition.ControlTypeDropDown,
-                    AllowMultiselect = true,
-                    DisplayName      = "Department",
-                    FieldName        = "Department",
-//                    Values           = [.. DepartmentsList ],
+                    ControlType        = ExtraFilterDefinition.ControlTypeDropDown,
+                    AllowMultiselect   = true,
+                    DisplayName        = "Department",
+                    FieldName          = "Department",
+//                  Values             = [.. DepartmentsList ],
                     SelectorCollection = ExtraFilterDefinition.CurrentCollectionSignature,
-                    SelectorQuery = @"
-[{
-    ""$group"" : {
-      ""_id"" : null,
-      ""Department"" : {
-        ""$addToSet"" : ""$Department""
-      }
-    }
-  },
-  { ""$unwind"" : ""$Department""}
-]
-"
+                    SelectorQuery      = "[Department]"
                 },
 
                 new()
                 {
-                    ControlType      = ExtraFilterDefinition.ControlTypeDatePicker,
-                    AllowMultiselect = true,
-                    DisplayName      = "COB",
-                    FieldName        = "COB",
-//                    Values           = [.. await UserSession.PivotDataSource.GetCobDatesAsync(Collection!) ],
-                    DefaultValue     = CobHelper.GetLatestCob().ToString(CobHelper.CobFormat),
+                    ControlType        = ExtraFilterDefinition.ControlTypeDatePicker,
+                    AllowMultiselect   = true,
+                    DisplayName        = "COB",
+                    FieldName          = "COB",
+//                  Values             = [.. await UserSession.PivotDataSource.GetCobDatesAsync(Collection!) ],
+                    DefaultValue       = CobHelper.GetLatestCob().ToString(CobHelper.CobFormat),
                     SelectorCollection = ExtraFilterDefinition.CurrentCollectionSignature,
-                    SelectorQuery = @"
-[
-  {
-      ""$group"" : {
-        ""_id"" : null,
-        ""COB"" : {
-          ""$addToSet"" : ""$COB""
-        }
-      }
-  },
-  { ""$unwind"" : ""$COB"" }
-]
-"
+                    SelectorQuery      = "[COB]"
                 }
             ]
         };
