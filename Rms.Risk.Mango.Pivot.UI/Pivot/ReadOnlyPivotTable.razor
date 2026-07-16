@@ -104,29 +104,7 @@
                 return;
 
             field = value;
-            _totals.Clear();
-
-            _shadowHeaders = field.GetColumnPositions();
-
-            _descriptorsCache.Clear();
-            _fieldDescriptorsCache.Clear();
-
-            _totals.Update(field);
-
-            if (PivotDef != null && _initialized)
-            {
-                try
-                {
-                    ChartHelper.UpdateLineChart(PivotDef, field, GetFormat);
-                }
-                catch (Exception)
-                {
-                    // ignore
-                }
-            }
-
-            if (_initialized)
-				InvokeAsync(StateHasChanged);
+            OnPivotDataChanged();
         }
     } = new ArrayBasedPivotData([]);
 
@@ -195,8 +173,39 @@
     protected override Task OnAfterRenderAsync(bool firstRender)
     {
 	    if (firstRender)
-		    _initialized = true;
+        {
+            _initialized = true;
+            OnPivotDataChanged();
+        }
 	    return base.OnAfterRenderAsync(firstRender);
+    }
+
+    private void OnPivotDataChanged()
+    {
+        _totals.Clear();
+
+        var pivotData = PivotData;
+        _shadowHeaders = pivotData.GetColumnPositions();
+
+        _descriptorsCache.Clear();
+        _fieldDescriptorsCache.Clear();
+
+        _totals.Update(pivotData);
+
+        if (PivotDef != null && _initialized)
+        {
+            try
+            {
+                ChartHelper.UpdateLineChart(PivotDef, pivotData, GetFormat);
+            }
+            catch (Exception)
+            {
+                // ignore
+            }
+        }
+
+        if (_initialized)
+            InvokeAsync(StateHasChanged);
     }
 
     private async Task<bool> OnCellClick(int row, string fieldName)

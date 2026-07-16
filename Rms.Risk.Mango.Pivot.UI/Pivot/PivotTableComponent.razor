@@ -140,15 +140,7 @@ else if (_pivotData is { Count: > 0 }
 
 			_totals.Update(_pivotData!);
 
-			try
-			{
-				if ( _initialized )
-					ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, GetFormat);
-			}
-			catch (Exception)
-			{
-				// ignore
-			}
+			UpdateChart();
 
 			PivotDataChanged.InvokeAsync(_pivotData);
 			InvokeAsync(StateHasChanged);
@@ -372,6 +364,19 @@ else if (_pivotData is { Count: > 0 }
         catch (Exception e)
         {
             await ModalDialogUtils.ShowExceptionDialog(Modal, "Error fetching collections from pivot service", e);
+        }
+    }
+
+    private void UpdateChart()
+    {
+        try
+        {
+            if (_initialized)
+                ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, GetFormat);
+        }
+        catch (Exception)
+        {
+            // ignore
         }
     }
 
