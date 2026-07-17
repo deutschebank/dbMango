@@ -32,7 +32,7 @@
             <FormJson Value="@(Parameters?.CommandJson)" Class="cmd-json" />
         </div>
         <div class="form-row">
-            <TableControl Items="@GetParsedResult().ToPivotData()" PageSize="35">
+            <TableControl Items="@_parsedResultPivotData" PageSize="35">
                 <TableColumnControl Field="Name" Name="Database Name" />
                 <TableColumnControl Field="Size" Name="Size on disk" Format="N0" />
                 <TableColumnControl Field="IsEmpty" Name="Empty" />
@@ -62,6 +62,9 @@
         public bool IsEmpty { get; set; }
     }
 
+    private IReadOnlyCollection<ResultItem> _parsedResult = [];
+    private IPivotedData _parsedResultPivotData = new List<ResultItem>().ToPivotData();
+
     protected override void OnAfterRender(bool firstRender)
     {
         if (!firstRender)
@@ -71,6 +74,13 @@
             Parameters.RequiredConnectionType = CommandParams.DatabaseConnectionType.Admin;
             Parameters.NeedConfirmation = false;
         }
+    }
+
+    protected override void OnResultReceived()
+    {
+        _parsedResult = GetParsedResult();
+        _parsedResultPivotData = _parsedResult.ToPivotData();
+        InvokeAsync(StateHasChanged);
     }
 
     private IReadOnlyCollection<ResultItem> GetParsedResult()

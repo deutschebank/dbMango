@@ -50,7 +50,7 @@
 <div class="m-body">
     @if (_infoData != null)
     {
-        <TableControl Class="table table-hover table-striped table-forge table-forge-numbered" Items="@_infoData.ToPivotData()" PageSize="10">
+        <TableControl Class="table table-hover table-striped table-forge table-forge-numbered" Items="@_infoPivotData" PageSize="10">
             <TableColumnControl Name="Name" Field="Key" />
             <TableColumnControl Name="Value" Field="Value" />
         </TableControl>
@@ -84,6 +84,7 @@
 
             field = value.ToList();
             _infoData = field.Select(x => new KeyValue(x.Key, x.Value)).ToList();
+            _infoPivotData = _infoData.ToPivotData();
         }
     }
 
@@ -119,6 +120,7 @@
     // ReSharper restore NotAccessedPositionalProperty.Local
 
     private List<KeyValue>? _infoData;
+    private IPivotedData    _infoPivotData = new List<KeyValue>().ToPivotData();
 
     private Task OnOK()
     {

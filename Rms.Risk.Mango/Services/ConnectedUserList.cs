@@ -64,8 +64,7 @@ public class ConnectedUserList : IConnectedUserList
         {
             lock (_users)
             {
-                var copy = new List<IConnectedUser>(_users);
-                return copy;
+                return _users;
             }
         }
     }

@@ -109,7 +109,7 @@ else
             else
             {
                 <div class="fit-content">
-                    <TableControl Items="@_patches.ToPivotData()"
+                    <TableControl Items="@_patchesPivotData"
                                   Class="table table-hover table-striped table-forge table-forge-striped fit-content"
                                   Selectable="true"
                                   RowClass="@((data, row) => TableControl.Source<PatchRecord>(data, row)!.Name == _selectedRecord.Name ? "table-active" : "")"
@@ -152,7 +152,7 @@ else
                             </div>
                             <div class="col">
                                 <TableControl Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3"
-                                              Items="@_selectedRecord.DatabasesToApply.ToPivotData()"
+                                              Items="@_selectedRecordDatabasesPivotData"
                                               PageSize="10"
                                               Filterable="false">
 
@@ -248,6 +248,8 @@ else
     private string       ActivePage { get; set; } = "Details";
 
     private List<PatchRecord> _patches = [];
+    private IPivotedData      _patchesPivotData = new List<PatchRecord>().ToPivotData();
+    private IPivotedData      _selectedRecordDatabasesPivotData = new List<DatabaseRec>().ToPivotData();
     private PatchRecord       _selectedRecord = new();
     private Exception?        _lastException;
     private EditContext?      _editContext;
@@ -292,12 +294,14 @@ else
             FilterInaccessiblePatches();
 
             _patches.Sort((x, y) => string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase));
+            _patchesPivotData = _patches.ToPivotData();
 
             var first = !string.IsNullOrWhiteSpace(SelectedIdStr) ? _patches.FirstOrDefault(x => x.Id.ToString() == SelectedIdStr) : null;
             first ??= _patches.FirstOrDefault(x => x.Active);
             first ??= _patches.FirstOrDefault();
 
             _selectedRecord = first ?? new() { Name = "No patches available or accessible", DatabasesToApply = _writeAllowedDatabases.Select(x => x.Clone()).ToList() };
+            _selectedRecordDatabasesPivotData = _selectedRecord.DatabasesToApply.ToPivotData();
         }
         catch (Exception e)
         {
@@ -395,6 +399,7 @@ else
     private void OnSelectionChanged((int Row, string Col) data)
     {
         _selectedRecord = _patches[data.Row];
+        _selectedRecordDatabasesPivotData = _selectedRecord.DatabasesToApply.ToPivotData();
         SyncUrl();
 
         InvokeAsync(StateHasChanged);

@@ -2,6 +2,15 @@
 @attribute [Authorize]
 @inject IConnectedUserList ConnectedUserList
 
+@code {
+    private IPivotedData _usersPivotData = new List<IConnectedUser>().ToPivotData();
+
+    protected override void OnInitialized()
+    {
+        _usersPivotData = ConnectedUserList.Users.ToPivotData();
+    }
+}
+
 @*
  *                                dbMango
  *
@@ -23,7 +32,7 @@
 
 <h3>Active users</h3>
 
-<TableControl Items="@ConnectedUserList.Users.ToPivotData()" Class="table table-hover table-striped fit-content" PagerSize="35">
+<TableControl Items="@_usersPivotData" Class="table table-hover table-striped fit-content" PagerSize="35">
     <TableColumnControl Name="Connected Since (UTC)" Field="ConnectedAtUtc" />
     <TableColumnControl Name="User ID" Field="Name" />
 </TableControl>

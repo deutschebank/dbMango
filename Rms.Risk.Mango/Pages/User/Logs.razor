@@ -52,7 +52,7 @@
     }
 
     <div class="mr-3 ml-3">
-        <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@Result.ToPivotData()" PageSize="@_state.RowsPerPage" Filterable="true">
+        <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@_resultPivotData" PageSize="@_state.RowsPerPage" Filterable="true">
             <TableColumnControl Name="Time" Field="Time">
                 <Template>
                     <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
@@ -141,6 +141,7 @@
 
     private Exception?           Error  { get; set; }
     private List<LogRecordModel> Result { get; set; } = new();
+    private IPivotedData         _resultPivotData = new List<LogRecordModel>().ToPivotData();
     private List<string>         AvailableSeverity = [];
     private List<string>         AvailableCategories = [];
 
@@ -235,6 +236,7 @@
         
         model.Reverse();
         Result = model;
+        _resultPivotData = Result.ToPivotData();
 
         AvailableCategories = model
             .Select(x => x.Category)

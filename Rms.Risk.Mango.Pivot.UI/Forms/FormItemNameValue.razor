@@ -54,7 +54,7 @@
             </div>
         }
 
-        <TableControl Class="table table-hover table-striped table-forge table-forge-numered table-forge-top-align" Items="@Value.ToPivotData()" PageSize="10" Filterable="false">
+        <TableControl Class="table table-hover table-striped table-forge table-forge-numered table-forge-top-align" Items="@_valuePivotData" PageSize="10" Filterable="false">
             <TableColumnControl Name="Name" Field="Name" Class="column-name">
                 <Template Context="data">
                     @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
@@ -118,8 +118,22 @@
         public TVal Value { get; set; } = new();
     }
 
-    [Parameter] public string                        Name        { get; set; } = "";
-    [Parameter] public List<NameValuePair>           Value       { get; set; } = [];
+    [Parameter] public string Name { get; set; } = "";
+
+    [Parameter]
+    public List<NameValuePair> Value
+    {
+        get;
+        set
+        {
+            if (ReferenceEquals(field, value))
+                return;
+
+            field = value;
+            _valuePivotData = field.ToPivotData();
+        }
+    } = [];
+
     [Parameter] public string?                       Placeholder { get; set; } = "";
     [Parameter] public string?                       Icon        { get; set; }
     [Parameter] public bool                          Enabled     { get; set; } = true;
@@ -136,6 +150,10 @@
             x.Value = tv;
 
     }
+
+    private IPivotedData _valuePivotData = new List<NameValuePair>().ToPivotData();
+
+    private void RefreshValuePivotData() => _valuePivotData = Value.ToPivotData();
 
     private bool IsDisabled => !Enabled;
 
@@ -168,7 +186,8 @@
         var dataRef = Value[index];
         Value.RemoveAt(index);
         Value.Insert(index - 1, dataRef);
-        
+        RefreshValuePivotData();
+
         Changed();
         return InvokeAsync(StateHasChanged);
     }
@@ -188,6 +207,7 @@
         var dataRef = Value[index];
         Value.RemoveAt(index);
         Value.Insert(index + 1, dataRef);
+        RefreshValuePivotData();
 
         Changed();
         return InvokeAsync(StateHasChanged);
@@ -196,6 +216,7 @@
     private Task Delete(NameValuePair data)
     {
         Value.Remove(data);
+        RefreshValuePivotData();
 
         Changed();
         return InvokeAsync(StateHasChanged);
@@ -233,6 +254,7 @@
     private Task AddNewKeyValue()
     {
         Value.Add(new ());
+        RefreshValuePivotData();
 
         Changed();
         return InvokeAsync(StateHasChanged);

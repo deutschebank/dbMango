@@ -81,7 +81,7 @@
                     </div>
                     <div class="col col-md-auto mt-4">
                         <div>Databases you don't have access to:</div>
-                        <TableControl Items="@NoAccessTo.ToPivotData()" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
+                        <TableControl Items="@_noAccessToPivotData" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
                             <TableColumnControl Field="Name" Name="Database name">
                                 <Template Context="ctx">
                                     @{ var rec = TableControl.Source<NoAccessToRec>(ctx.Data, ctx.Row)!; }
@@ -139,6 +139,7 @@
 
     private List<string> DatabasesNames    { get; }      = [];
     private List<string> DatabaseInstances { get; set; } = [];
+    private IPivotedData _noAccessToPivotData = new List<NoAccessToRec>().ToPivotData();
     private Exception?   Error             { get; set; }
 
     private record NoAccessToRec(string Name, string Contacts, string Comments);
@@ -157,16 +158,18 @@
 	            Session.User.GetUser().Identity?.Name ?? "Unknown", 
 	            string.Join("\n\t", DatabaseConfig.Databases.Keys));
 
-	        foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
-	        {
-		        if (name.Contains("-placeholder>"))
-			        continue;
+			foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
+			{
+			if (name.Contains("-placeholder>"))
+				continue;
 
-		        if (!await IsUserAuthorized(name))
-			        NoAccessTo.Add(new(name, DatabaseConfig.Databases[name].Contacts, DatabaseConfig.Databases[name].Comments));
-		        else
-			        DatabasesNames.Add(name);
-	        }
+			if (!await IsUserAuthorized(name))
+					NoAccessTo.Add(new(name, DatabaseConfig.Databases[name].Contacts, DatabaseConfig.Databases[name].Comments));
+			else
+					DatabasesNames.Add(name);
+		}
+
+			_noAccessToPivotData = NoAccessTo.ToPivotData();
 
 	        Logger.LogInformation("User {User} have access to:{databases}",
 		        Session.User.GetUser().Identity?.Name ?? "Unknown", 

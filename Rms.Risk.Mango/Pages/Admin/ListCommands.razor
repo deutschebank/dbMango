@@ -44,7 +44,7 @@
     else
     {
         <TableControl   Class="table table-hover table-striped table-forge table-forge-striped mr-3" 
-                        Items="@Result.ToPivotData()" 
+                        Items="@_resultPivotData" 
                         PageSize="28" 
                         Filterable="true">
 
@@ -105,6 +105,7 @@
 
     private string?          Error  { get; set; }
     private List<CommandDef> Result { get; } = [];
+    private IPivotedData     _resultPivotData = new List<CommandDef>().ToPivotData();
 
     protected override void OnAfterRender(bool firstRender)
     {
@@ -136,6 +137,7 @@
 
             var res = await CommandListService.GetCommands(UserSession.MongoDbAdminForAdminDatabase, cts.Token);
             Result.AddRange(res);
+            _resultPivotData = Result.ToPivotData();
         }
         catch (Exception e)
         {

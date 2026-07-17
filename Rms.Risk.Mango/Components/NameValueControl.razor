@@ -90,7 +90,7 @@
     }
 </div>
 <div class="pt-1 w-100">
-    <TableControl Class="table table-hover table-striped table-forge table-forge-numbered table-forge-top-align" Items="@Value.ToPivotData()" PageSize="10" Filterable="false">
+<TableControl Class="table table-hover table-striped table-forge table-forge-numbered table-forge-top-align" Items="@_valuePivotData" PageSize="10" Filterable="false">
         <TableColumnControl Name="Name" Field="Name" Class="column-name">
             <Template Context="data">
                 @{ var row = TableControl.Source<NameValuePair>(data.Data, data.Row)!; }
@@ -173,7 +173,19 @@
 
     [CascadingParameter] public IModalService Modal { get; set; } = null!;
 
-    [Parameter] public List<NameValuePair> Value        { get; set; } = [];
+    [Parameter]
+    public List<NameValuePair> Value
+    {
+        get;
+        set
+        {
+            if (ReferenceEquals(field, value))
+                return;
+
+            field = value;
+            RefreshValuePivotData();
+        }
+    } = [];
     [Parameter] public RenderFragment?     ChildContent { get; set; }
 
     [Parameter] public bool                 AllowImport          { get; set; }
@@ -186,6 +198,10 @@
     [Parameter] public Func<string, string> GetDefaultValue      { get; set; } = _ => string.Empty;
 
     private static int CalculateSize(string value) => Math.Max(value.Split('\n').Length, value.Split('\r').Length);
+
+    private IPivotedData _valuePivotData = new List<NameValuePair>().ToPivotData();
+
+    private void RefreshValuePivotData() => _valuePivotData = Value.ToPivotData();
 
 #pragma warning disable 1998
     private async Task SetValue(ChangeEventArgs e, NameValuePair data)
@@ -222,12 +238,14 @@
     private void AddNewKeyValue()
     {
         Value.Add(new () { Name = string.Empty, Value = string.Empty });
+        RefreshValuePivotData();
         StateHasChanged();
     }
 
     private Task Delete(NameValuePair data)
     {
         Value.Remove(data);
+        RefreshValuePivotData();
         return InvokeAsync(StateHasChanged);
     }
 
@@ -249,6 +267,7 @@
             else
                 ImportAsWhole(e, text);
 
+            RefreshValuePivotData();
             StateHasChanged();
         }
         catch (Exception ex)
@@ -330,6 +349,7 @@
         var dataRef = Value[index];
         Value.RemoveAt(index);
         Value.Insert(index - 1, dataRef);
+        RefreshValuePivotData();
         return InvokeAsync(StateHasChanged);
     }
 
@@ -348,6 +368,7 @@
         var dataRef = Value[index];
         Value.RemoveAt(index);
         Value.Insert(index + 1, dataRef);
+        RefreshValuePivotData();
         return InvokeAsync(StateHasChanged);
     }
 

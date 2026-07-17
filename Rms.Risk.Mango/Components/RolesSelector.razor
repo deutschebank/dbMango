@@ -41,7 +41,7 @@
 </style>
 
 <TableControl   Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3" 
-                Items="@AllRoles.ToPivotData()" 
+                Items="@_allRolesPivotData" 
                 PageSize="25" 
                 Filterable="false">
 
@@ -79,6 +79,7 @@
             if (field == value)
                 return;
             field = value;
+            _allRolesPivotData = field.ToPivotData();
             UpdateSelectable();
         }
     } = [];
@@ -108,6 +109,7 @@
 
     // ReSharper disable once UnusedAutoPropertyAccessor.Local
     private List<SelectableString> SelectableRoles   { get; set; } = [];
+    private IPivotedData           _allRolesPivotData = new List<RoleInDbModel>().ToPivotData();
 
     private void UpdateSelectable()
     {

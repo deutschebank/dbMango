@@ -59,7 +59,7 @@
 
                 <div class="form-row fit-content mb-3">
                     <TableControl   Class="table table-hover table-striped table-forge table-forge-striped mr-3" 
-                                    Items="@Value.Privileges.ToPivotData()" 
+                                    Items="@_privilegesPivotData" 
                                     PageSize="25"
                                     Selectable="true"
                                     SelectionChanged="@SelectedPrivilegeChanged"
@@ -134,7 +134,7 @@
 
                 <div class="form-row fit-content">
                     <TableControl   Class="full-width table table-hover table-striped table-forge table-forge-striped mr-3" 
-                                    Items="@SelectableActions.ToPivotData()" 
+                                    Items="@_selectableActionsPivotData" 
                                     PageSize="25" 
                                     Filterable="true">
 
@@ -161,7 +161,7 @@
     [Parameter] public string              Name       { get; set; } = $"newRole{++_count}";
 
     [Parameter]
-    public RoleInfoModel       Value
+    public RoleInfoModel Value
     {
         get => field;
         set
@@ -169,6 +169,7 @@
             if (field == value)
                 return;
             field = value;
+            RefreshPrivilegesPivotData();
             UpdateSelectable();
         }
     } = new();
@@ -229,6 +230,10 @@
     }
 
     private List<SelectableString> SelectableActions { get; set; } = [];
+    private IPivotedData            _privilegesPivotData        = new List<PrivilegeModel>().ToPivotData();
+    private IPivotedData            _selectableActionsPivotData = new List<SelectableString>().ToPivotData();
+
+    private void RefreshPrivilegesPivotData() => _privilegesPivotData = Value.Privileges.ToPivotData();
 
     private PrivilegeModel         SelectedPrivilege
     {
@@ -255,6 +260,7 @@
                        UpdateAllowedActions
                    ))
            .ToList();
+        _selectableActionsPivotData = SelectableActions.ToPivotData();
 
         InvokeAsync(StateHasChanged);
     }
@@ -285,6 +291,7 @@
     {
         var newPrivilege = new PrivilegeModel();
         Value.Privileges.Add(newPrivilege);
+        RefreshPrivilegesPivotData();
         SelectedPrivilege = newPrivilege;
         return InvokeAsync(StateHasChanged);
     }
@@ -292,6 +299,7 @@
     private Task DeletePrivileges()
     {
         Value.Privileges.Remove(SelectedPrivilege);
+        RefreshPrivilegesPivotData();
         SelectedPrivilege = Value.Privileges.FirstOrDefault() ?? new PrivilegeModel();
         return InvokeAsync(StateHasChanged);
     }
