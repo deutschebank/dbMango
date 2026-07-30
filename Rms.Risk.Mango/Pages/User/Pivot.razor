@@ -82,6 +82,8 @@ else
                 PivotName = pivot;
                 InvokeAsync(StateHasChanged);
             }
+
+            _state.SelectedCollection = field;
             SyncUrl();
         }
     }
@@ -105,6 +107,7 @@ else
 
     private class PivotState
     {
+        public string?                    SelectedCollection         { get; set; }
         public int                        Rows                       { get; set; } = 40;
         public Dictionary<string, string> SelectedPivotForCollection { get; set; } = new();
     }
@@ -152,36 +155,6 @@ else
             _collections.AddRange(collections);
         }
 
-
-
-        if (string.IsNullOrWhiteSpace(Collection))
-        {
-            var collections = _collections
-                .Where(x => !x.IsGroup)
-                .Select(x => x.CollectionNameWithPrefix)
-                .OrderBy(x => x)
-                .ToList()
-                ;
-
-            Collection = collections.Contains(DefaultCollectionName)
-                ? DefaultCollectionName
-                : collections.FirstOrDefault();
-        }
-
-        if (string.IsNullOrWhiteSpace(PivotName) && !string.IsNullOrWhiteSpace(Collection))
-        {
-            var pivots = (_collections.FirstOrDefault( x => x.CollectionNameWithPrefix == Collection)?.Pivots ?? [])
-                .Select(x => x.Pivot)
-                .Select(x => x.Name)
-                .OrderBy(x => x)
-                .ToList()
-                ;
-
-            PivotName = pivots.Contains(DefaultPivotName)
-                    ? DefaultPivotName
-                    : pivots.FirstOrDefault();
-        }
-
         _extraFilterDef = new()
         {
             Filter =
@@ -222,6 +195,36 @@ else
         var data = await JsRuntime.LoadFromLocalStorage<PivotState>("pivot", cts.Token);
         if ( data != null )
             _state = data;
+
+        if (string.IsNullOrWhiteSpace(Collection) && string.IsNullOrWhiteSpace(_state.SelectedCollection))
+        {
+            var collections = _collections
+                    .Where(x => !x.IsGroup)
+                    .Select(x => x.CollectionNameWithPrefix)
+                    .OrderBy(x => x)
+                    .ToList()
+                ;
+
+            Collection = collections.Contains(DefaultCollectionName)
+                ? DefaultCollectionName
+                : collections.FirstOrDefault();
+        }
+        else if (!string.IsNullOrWhiteSpace(_state.SelectedCollection))
+            Collection = _state.SelectedCollection;
+
+        if (string.IsNullOrWhiteSpace(PivotName) && !string.IsNullOrWhiteSpace(Collection))
+        {
+            var pivots = (_collections.FirstOrDefault( x => x.CollectionNameWithPrefix == Collection)?.Pivots ?? [])
+                    .Select(x => x.Pivot)
+                    .Select(x => x.Name)
+                    .OrderBy(x => x)
+                    .ToList()
+                ;
+
+            PivotName = pivots.Contains(DefaultPivotName)
+                ? DefaultPivotName
+                : pivots.FirstOrDefault();
+        }
 
         await InvokeAsync(StateHasChanged);
 
