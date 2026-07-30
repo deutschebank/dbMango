@@ -639,8 +639,8 @@ else if (_pivotData is { Count: > 0 }
         if (transpose && data.Count > 0 && data.Get(0, 0)?.ToString()?.Equals("No results") != true)
             data = Transpose(data);
 
-        PivotData = data;
         _totals.Clear();
+        PivotData = data;
         _filteredRows = null;
 
         if (addToNavigation)
