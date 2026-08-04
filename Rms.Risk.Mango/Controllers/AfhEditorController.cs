@@ -29,7 +29,7 @@ namespace Rms.Risk.Mango.Controllers;
 [AllowAnonymous]
 [Route("api/[controller]")]
 [ApiController]
-public class AfhEditorController : ControllerBase
+public class AfhEditorController(ILogger<AfhEditorController> logger) : ControllerBase
 {
     /// <summary>
     /// Analyze AFH script at cursor position for intellisense hints.
@@ -37,6 +37,7 @@ public class AfhEditorController : ControllerBase
     /// <param name="request">Analysis request containing script and cursor position.</param>
     /// <returns>Analysis result with completions and stage context.</returns>
     [HttpPost("analyze")]
+    [RequestSizeLimit(1_000_000)]
     [Consumes("application/json")]
     [Produces("application/json")]
     public ActionResult<AfhEditorAnalysis> Analyze([FromBody] AnalysisRequest request)
@@ -58,7 +59,8 @@ public class AfhEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { error = ex.Message });
+            logger.LogWarning(ex, "AFH editor analysis failed.");
+            return StatusCode(500, new { error = "AFH analysis failed." });
         }
     }
 
@@ -77,7 +79,8 @@ public class AfhEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { error = ex.Message });
+            logger.LogWarning(ex, "Failed to load AFH stages.");
+            return StatusCode(500, new { error = "AFH stage metadata could not be loaded." });
         }
     }
 
@@ -102,7 +105,8 @@ public class AfhEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { error = ex.Message });
+            logger.LogWarning(ex, "Failed to load AFH stage '{Keyword}'.", keyword);
+            return StatusCode(500, new { error = "AFH stage metadata could not be loaded." });
         }
     }
 
@@ -121,7 +125,8 @@ public class AfhEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { error = ex.Message });
+            logger.LogWarning(ex, "Failed to load AFH stage keywords.");
+            return StatusCode(500, new { error = "AFH stage keywords could not be loaded." });
         }
     }
 }

@@ -73,7 +73,12 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
             ["command"]     = rec.Command
         });
 
-        _log.LogInformation(doc.ToJson());
+        _log.LogInformation(
+            "Audit record stored: database={Database}, collection={Collection}, commandType={CommandType}, success={Success}",
+            rec.DatabaseName,
+            rec.Command.ElementAt(0).Value,
+            commandType,
+            rec.Success);
 
         await _database.GetCollection<BsonDocument>(AuditCollection).InsertOneAsync(doc, new (), token);
     }
