@@ -41,41 +41,52 @@ public static class TokenHelper
             return Array.Empty<Claim>();
 
         var keyValuePairs = ParseJWT(jwt);
+        if ( keyValuePairs == null )
+            return Array.Empty<Claim>();
 
         var claims = new List<Claim>();
 
-        object? rolesObj = null;
-        keyValuePairs?.TryGetValue(ClaimTypeRole, out rolesObj);
-
-        var roles = rolesObj?.ToString();
-
-        if (roles != null)
+        if ( keyValuePairs.Remove(ClaimTypeRole, out var rolesObj) )
         {
-            if (roles.Trim().StartsWith("["))
+            var roles = rolesObj?.ToString();
+            if (roles != null)
             {
-                var parsedRoles = JsonSerializer.Deserialize<string[]>(roles) ?? [];
-                claims.AddRange(parsedRoles.Select(parsedRole => new Claim(ClaimTypes.Role, parsedRole)));
+                if (roles.Trim().StartsWith("["))
+                {
+                    var parsedRoles = JsonSerializer.Deserialize<string[]>(roles) ?? [];
+                    claims.AddRange(parsedRoles.Select(parsedRole => new Claim(ClaimTypes.Role, parsedRole)));
+                }
+                else
+                {
+                    claims.Add(new(ClaimTypes.Role, roles));
+                }
             }
-            else
-            {
-                claims.Add(new(ClaimTypes.Role, roles));
-            }
-
-            keyValuePairs?.Remove(ClaimTypes.Role);
         }
 
-        if ( keyValuePairs != null ) 
-            claims.AddRange(keyValuePairs.Select(kvp => new Claim(kvp.Key, kvp.Value.ToString()! )));
+        claims.AddRange(keyValuePairs.Select(kvp => new Claim(kvp.Key, kvp.Value.ToString()! )));
 
         return claims;
     }
 
     private static Dictionary<string, object>? ParseJWT(string jwt)
     {
-        var payload       = jwt.Split('.')[1];
-        var json          = Encoding.UTF8.GetString(ParseBase64WithoutPadding(payload));
-        var keyValuePairs = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-        return keyValuePairs;
+        jwt = jwt.Trim();
+        if ( jwt.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) )
+            jwt = jwt["Bearer ".Length..].Trim();
+
+        var parts = jwt.Split('.');
+        if ( parts.Length < 2 )
+            return null;
+
+        try
+        {
+            var json = Encoding.UTF8.GetString(ParseBase64WithoutPadding(parts[1]));
+            return JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static byte[] ParseBase64WithoutPadding(string base64)

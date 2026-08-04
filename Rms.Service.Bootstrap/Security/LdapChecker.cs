@@ -146,10 +146,11 @@ public class LdapChecker
         if (string.IsNullOrWhiteSpace(email))
             return [];
 
+        var escapedEmail = EscapeLdapFilterValue(email);
         var result = await connection.SearchAsync(
             _settings.EntryPoint,
             LdapConnection.ScopeSub,
-            $"(&(objectClass=person)(mail={email}))",
+            $"(&(objectClass=person)(mail={escapedEmail}))",
             _requiredAttributes,
             false,
             token);
@@ -185,10 +186,11 @@ public class LdapChecker
         if (string.IsNullOrWhiteSpace(email))
             throw new("No email supplied to GetCnAndGroups");
 
+        var escapedEmail = EscapeLdapFilterValue(email);
         var result = await connection.SearchAsync(
             _settings.EntryPoint,
             LdapConnection.ScopeSub,
-            $"(&(objectClass=person)(mail={email}))",
+            $"(&(objectClass=person)(mail={escapedEmail}))",
             _requiredAttributes,
             false, 
             token);
@@ -236,10 +238,11 @@ public class LdapChecker
         if (_groupMembers.TryGetValue(groupName, out var hashSet))
             return hashSet;
 
+        var escapedGroupName = EscapeLdapFilterValue(groupName);
         var result = await connection.SearchAsync(
             _settings.EntryPoint,
             LdapConnection.ScopeSub,
-            $"(&(objectClass=group)(cn={groupName}))",
+            $"(&(objectClass=group)(cn={escapedGroupName}))",
             _requiredAttributes,
             false,
             token);
@@ -286,10 +289,11 @@ public class LdapChecker
         if (_nestedGroups.TryGetValue(groupName, out var hashSet))
             return hashSet;
 
+        var escapedGroupName = EscapeLdapFilterValue(groupName);
         var result = await connection.SearchAsync(
             _settings.EntryPoint,
             LdapConnection.ScopeSub,
-            $"(&(objectClass=group)(cn={groupName}))",
+            $"(&(objectClass=group)(cn={escapedGroupName}))",
             _requiredAttributes,
             false, 
             token);
@@ -325,6 +329,16 @@ public class LdapChecker
 
         _nestedGroups[groupName] = groups;
         return groups;
+    }
+
+    private static string EscapeLdapFilterValue(string value)
+    {
+        return value
+            .Replace("\\", "\\5c")
+            .Replace("*", "\\2a")
+            .Replace("(", "\\28")
+            .Replace(")", "\\29")
+            .Replace("\0", "\\00");
     }
 
     private static Dictionary<string,string> Extract(string attr)

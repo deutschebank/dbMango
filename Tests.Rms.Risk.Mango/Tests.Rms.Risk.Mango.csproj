@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rms.Risk.Mango\Rms.Risk.Mango.csproj" />
+    <ProjectReference Include="..\Rms.Service.Bootstrap\Rms.Service.Bootstrap.csproj" />
   </ItemGroup>
 
 </Project>
