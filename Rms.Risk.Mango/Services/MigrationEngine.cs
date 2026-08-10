@@ -545,12 +545,27 @@ public class MigrationEngine(
         var source = _factory.Create(job.SourceDatabase, collStatus.SourceCollection, job.SourceDatabaseInstance);
 
         var sw    = Stopwatch.StartNew();
-        var count = await source.CountAsync(filter, token);
-        sw.Stop();
-        _log.Debug($"Counting Count={count} documents took Elapsed=\"{sw.Elapsed}\"");
+        try
+        {
+            var count = await source.CountAsync(filter, token);
+            sw.Stop();
+            _log.Debug($"Counting Count={count} documents took Elapsed=\"{sw.Elapsed}\"");
 
-        lock (_lock)
-            collStatus.Count = count;
+            lock (_lock)
+                collStatus.Count = count;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The count is only used for progress reporting. On very large collections the
+            // underlying aggregate/count command can fail transiently (e.g. "stream truncated").
+            // Do not let that abort the migration - the copy itself does not depend on it.
+            sw.Stop();
+            _log.Warn($"Counting documents for Collection=\"{collStatus.SourceCollection}\" failed after Elapsed=\"{sw.Elapsed}\"; continuing without an accurate total.", ex);
+        }
     }
 
     /// <summary>

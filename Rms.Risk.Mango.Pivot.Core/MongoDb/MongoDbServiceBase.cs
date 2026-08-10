@@ -139,12 +139,42 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
 
     private async Task<long> CountNoRetries(string filter, CancellationToken token = default)
     {
+        // When there is no (effective) filter we can use the fast, metadata-based
+        // estimated count. CountDocumentsAsync issues an "aggregate" command
+        // ($match + $group) that scans the whole collection, which on very large
+        // collections is slow and prone to transient transport errors such as
+        // "Command aggregate failed :: stream truncated". EstimatedDocumentCount
+        // uses the lightweight "count" command instead.
+        if (IsEmptyFilter(filter))
+        {
+            var estimateOptions = new EstimatedDocumentCountOptions
+            {
+                MaxTime = _settings.MongoDbQueryTimeout
+            };
+            return await Collection.EstimatedDocumentCountAsync(estimateOptions, token);
+        }
+
         var options = new CountOptions
         {
             MaxTime         = _settings.MongoDbQueryTimeout
         };
         var count = await Collection.CountDocumentsAsync(filter, options, token);
         return count;
+    }
+
+    private static bool IsEmptyFilter(string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return true;
+
+        try
+        {
+            return BsonDocument.Parse(filter).ElementCount == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async IAsyncEnumerable<T> FindNoRetries(string filter, string? projection = null, int? limit = null, [EnumeratorCancellation] CancellationToken token = default)
