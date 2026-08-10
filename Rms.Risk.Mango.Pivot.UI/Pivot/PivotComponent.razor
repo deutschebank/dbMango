@@ -494,9 +494,16 @@
             return;
         }
 
+        // Build the definition to share from the live pivot settings (SelectedPivotNode.Pivot),
+        // which reflect the currently selected Keys, Data fields and other settings the user may
+        // have changed in the settings panel. Fall back to the last executed pivot if unavailable.
+        // Preserve the executed drilldown navigation context from CurrentPivot.
+        var sharedPivotDef = (SelectedPivotNode?.Pivot ?? CurrentPivot!).Clone();
+        sharedPivotDef.DrilldownFilter = CurrentPivot!.DrilldownFilter;
+
         var def = new SharedPivotDef
         {
-            PivotDef    = CurrentPivot!,
+            PivotDef    = sharedPivotDef,
             Collection  = Collection!,
             ExtraFilter = GetExtraFilter()?.ToJson(GetAllFields()) ?? "",
             SharedBy    = await GetUserName(),
