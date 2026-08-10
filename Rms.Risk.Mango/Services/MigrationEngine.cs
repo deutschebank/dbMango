@@ -611,8 +611,13 @@ public class MigrationEngine(
 
         var batch = new List<BsonValue>(job.BatchSize);
 
+        // Use the retryable find (allowRetries: true) for the long-lived _id enumeration.
+        // This cursor stays open for the whole collection copy and idles while the loop
+        // blocks on the throttler between batch dispatches, so on loaded/sharded clusters
+        // it can be reaped ("Cursor ... not found on server"). The retryable variant
+        // transparently resumes via Skip + Sort { _id: 1 } instead of failing the job.
         await foreach (var doc in source
-                          .FindAsync(filter, false, projection, limit: null, token)
+                          .FindAsync(filter, true, projection, limit: null, token)
                       )
         {
             token.ThrowIfCancellationRequested();
@@ -682,8 +687,10 @@ public class MigrationEngine(
 
         var readSw = Stopwatch.StartNew();
 
+        // Retryable read: recovers from transient cursor loss ("Cursor ... not found")
+        // on loaded clusters instead of aborting the whole migration.
         await foreach (var doc in source
-                          .FindAsync(filter, false, collStatus.Projection?.ToString(), limit: null, token)
+                          .FindAsync(filter, true, collStatus.Projection?.ToString(), limit: null, token)
                       )
         {
             token.ThrowIfCancellationRequested();
