@@ -670,8 +670,23 @@
             return;
         }
 
-        
+
         Collection = sharedPivot.Collection;
+
+        // The settings panel (Keys/Data etc.) and any subsequent refresh are driven by
+        // SelectedPivotNode.Pivot. Setting Collection/Pivot above resets SelectedPivotNode to
+        // the predefined pivot from the tree (matched by name), which would drop the shared
+        // (possibly modified) Keys/Data. Point the selected node at the shared definition so
+        // the shared settings are remembered and used, not just rendered once.
+        var sharedNode = new GroupedPivot
+        {
+            Text    = sharedPivot.PivotDef.Name,
+            IsGroup = false,
+            Pivot   = sharedPivot.PivotDef
+        };
+
+        Pivot             = sharedPivot.PivotDef.Name;
+        SelectedPivotNode = sharedNode;
 
         var extraFilter = FilterExpressionTree.ParseJson(sharedPivot.ExtraFilter ?? "{}");
         await InvokeAsync(() => PivotTable.RunPivot(sharedPivot.PivotDef, extraFilter));
