@@ -125,6 +125,8 @@
     private readonly CancellationTokenSource                       _globalCancellation = new();
     private readonly StringFilter                                  _filter             = new();
 
+    private string _loadedKey = "";
+
 
     public void Dispose()
     {
@@ -137,58 +139,83 @@
     public void SelectMeta()  => Selection = _collections.Where(x => IsSelectable(x) && x.EndsWith("-Meta",StringComparison.OrdinalIgnoreCase)).ToList();
     public void SelectCache() => Selection = _collections.Where(x => IsSelectable(x) && x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)).ToList();
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override void OnParametersSet()
     {
-        if (!firstRender)
+        // Load (or reload) collections whenever the target database/instance becomes available or
+        // changes. The parent page (Browse) sets UserSession.Database/DatabaseInstance from the route
+        // parameters in its own OnAfterRenderAsync, which runs AFTER this component's first render.
+        // Reacting to parameter changes here avoids the race where we would otherwise query with a
+        // stale/empty session, hang on the timeout, and leave the list disabled until a page refresh.
+        TryLoadCollections();
+    }
+
+    private void TryLoadCollections()
+    {
+        // When an explicit list of collections is provided we don't depend on the session.
+        var key = Collections != null
+            ? "explicit"
+            : $"{UserSession.Database}|{UserSession.DatabaseInstance}";
+
+        // Don't attempt to load until we have a valid target to query.
+        if (Collections == null &&
+            (string.IsNullOrWhiteSpace(UserSession.Database) || string.IsNullOrWhiteSpace(UserSession.DatabaseInstance)))
             return;
 
-        _ = Task.Run(async () =>
+        if (key == _loadedKey)
+            return;
+
+        _loadedKey = key;
+        _         = LoadCollectionsAsync();
+    }
+
+    private async Task LoadCollectionsAsync()
+    {
+        try
         {
-            try
+            var admin = UserSession.MongoDbAdmin;
+
+            var cts2 = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
+            var collections = Collections ?? (await admin.ListCollections(cts2.Token));
+            var grouped = collections
+               .GroupBy(x =>
+                            x.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
+                                ? " Meta"
+                                : x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
+                                    ? " Cache"
+                                    : " Data"
+                );
+
+            // make a copy of pre-selected collections
+            var selection = new Dictionary<string, bool>(_selection); 
+
+            _collections.Clear();
+            _selection.Clear();
+            _stats.Clear();
+            foreach( var group in grouped)
             {
-                var admin = UserSession.MongoDbAdmin;
-
-                var cts2 = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
-                var collections = Collections ?? (await admin.ListCollections(cts2.Token));
-                var grouped = collections
-                   .GroupBy(x =>
-                                x.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
-                                    ? " Meta"
-                                    : x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
-                                        ? " Cache"
-                                        : " Data"
-                    );
-
-                // make a copy of pre-selected collections
-                var selection = new Dictionary<string, bool>(_selection); 
-
-                _collections.Clear();
-                _selection.Clear();
-                foreach( var group in grouped)
+                _collections.Add(group.Key);
+                foreach (var coll in group.OrderBy(x => x).Select(x => x))
                 {
-                    _collections.Add(group.Key);
-                    foreach (var coll in group.OrderBy(x => x).Select(x => x))
-                    {
-                        _collections.Add(coll);
-                        _selection[coll] = selection.GetValueOrDefault(coll);
-                    }
-
+                    _collections.Add(coll);
+                    _selection[coll] = selection.GetValueOrDefault(coll);
                 }
 
-                if (!_collections.Contains(Value))
-                    Value = _collections.FirstOrDefault( x => !x.StartsWith(" ")) ?? "";
-
-                _isReady = true;
-                await InvokeAsync(StateHasChanged);
-
-                _ = Task.Run(LoadCollStats, _globalCancellation.Token);
             }
-            catch (Exception e)
-            {
-                Logger.LogError(e, "Failed to load collections");
-            }
-        }, _globalCancellation.Token);
 
+            if (!_collections.Contains(Value))
+                Value = _collections.FirstOrDefault( x => !x.StartsWith(" ")) ?? "";
+
+            _isReady = true;
+            await InvokeAsync(StateHasChanged);
+
+            _ = Task.Run(LoadCollStats, _globalCancellation.Token);
+        }
+        catch (Exception e)
+        {
+            // Allow a subsequent parameter change to retry the load rather than staying stuck.
+            _loadedKey = "";
+            Logger.LogError(e, "Failed to load collections");
+        }
     }
 
     private static string GetCollectionClass(string collectionName) =>

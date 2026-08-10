@@ -15,9 +15,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *@
-﻿
-<style>
+   *@
+ ﻿
+ @inject IJSRuntime JsRuntime
+
+ <style>
     pre {
         font-size: inherit;
         color: inherit;
@@ -62,6 +64,10 @@
     {
         <button class="btn btn-secondary" @onclick="@(() => BlazoredModal.CancelAsync())">@CancelButtonName</button>
     }
+    @if (!string.IsNullOrEmpty(CopyText))
+    {
+        <button class="btn btn-secondary" @onclick="@OnCopy">@(_copied ? "Copied!" : CopyButtonName)</button>
+    }
     <button class="btn btn-primary" @onclick="@OnOK">@OkButtonName</button>
 </div>
 
@@ -95,6 +101,11 @@
     [Parameter] public string  OkButtonName         { get; set; } = "OK";
     [Parameter] public string  CancelButtonName     { get; set; } = "Cancel";
     [Parameter] public string? InputTextLabel       { get; set; } 
+
+    [Parameter] public string? CopyText             { get; set; }
+    [Parameter] public string  CopyButtonName       { get; set; } = "Copy URL";
+
+    private bool _copied;
 
     [Parameter]
     public string InputText
@@ -147,6 +158,16 @@
         if (!ShowInputText)
             return;
 
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnCopy()
+    {
+        if (string.IsNullOrEmpty(CopyText))
+            return;
+
+        await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", CopyText);
+        _copied = true;
         await InvokeAsync(StateHasChanged);
     }
 }
