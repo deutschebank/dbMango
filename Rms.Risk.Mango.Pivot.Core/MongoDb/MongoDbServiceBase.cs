@@ -333,6 +333,14 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                             yield break;
                         }
                         batch = cursor.Current;
+
+                        // Forward progress: the (re-issued) cursor is healthy again, so reset the
+                        // retry budget. Otherwise 'attempts' accumulates over the whole lifetime of
+                        // the enumeration and a long-running copy of a large collection aborts as soon
+                        // as it hits NumberOfRetries transient cursor losses in total (even millions of
+                        // successfully read documents apart). Retries must count CONSECUTIVE failures.
+                        attempts       = 0;
+                        firstException = null;
                     }
                     catch (Exception e)
                     {
