@@ -495,11 +495,14 @@
         }
 
         // Build the definition to share from the live pivot settings (SelectedPivotNode.Pivot),
-        // which reflect the currently selected Keys, Data fields and other settings the user may
-        // have changed in the settings panel. Fall back to the last executed pivot if unavailable.
-        // Preserve the executed drilldown navigation context from CurrentPivot.
+        // which reflect the currently selected settings the user may have changed in the panel.
+        // Preserve the full executed drilldown context from CurrentPivot: drilldown can merge prior
+        // filters into Filter, keep the latest condition in DrilldownFilter, and expand Keys/Data.
         var sharedPivotDef = (SelectedPivotNode?.Pivot ?? CurrentPivot!).Clone();
-        sharedPivotDef.DrilldownFilter = CurrentPivot!.DrilldownFilter;
+        sharedPivotDef.KeyFields = [.. CurrentPivot!.KeyFields];
+        sharedPivotDef.DataFields = [.. CurrentPivot.DataFields];
+        sharedPivotDef.Filter = CurrentPivot.Filter;
+        sharedPivotDef.DrilldownFilter = CurrentPivot.DrilldownFilter;
 
         var def = new SharedPivotDef
         {

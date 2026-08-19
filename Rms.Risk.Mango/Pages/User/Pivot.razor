@@ -38,7 +38,8 @@
 else
 {
     <AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
-        <PivotComponent PivotService="@UserSession.PivotDataSource"
+        <PivotComponent @ref="_pivotComponent"
+                        PivotService="@UserSession.PivotDataSource"
                         Collections="@_collections"
                         @bind-Collection="Collection"
                         @bind-Pivot="PivotName"
@@ -104,6 +105,7 @@ else
     }
 
     private string? _currentUrl;
+    private string? _sharedPivotId;
 
     private class PivotState
     {
@@ -116,6 +118,7 @@ else
     private FilterExpressionTree.ExpressionGroup _extraFilter = new();
     private FilterExpressionTree.ExpressionGroup GetExtraFilter() => _extraFilter;
 
+    private PivotComponent? _pivotComponent;
     private readonly List<GroupedCollection> _collections = [];
 
     private const string DefaultCollectionName = "Default";
@@ -125,6 +128,8 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
+        _sharedPivotId ??= GetSharedPivotId();
+
         if (UserSession == null || _extraFilterDef.Filter.Count > 0 )
             return;
 
@@ -228,11 +233,24 @@ else
 
         await InvokeAsync(StateHasChanged);
 
+        if (!string.IsNullOrWhiteSpace(_sharedPivotId) && _pivotComponent != null)
+        {
+            var sharedPivotId = _sharedPivotId;
+            await _pivotComponent.NavigateToSharedPivot(sharedPivotId);
+            _sharedPivotId = null;
+        }
+
         SyncUrl();
     }
 
     private void SyncUrl()
     {
+        if (!string.IsNullOrWhiteSpace(_sharedPivotId))
+        {
+            _currentUrl = NavigationManager.Uri;
+            return;
+        }
+
         var url = NavigationManager.BaseUri + "user/pivot";
 
         url += $"/{Uri.EscapeDataString(UserSession.Database)}";
@@ -264,12 +282,23 @@ else
         SyncUrl();
     }
 
+    private string? GetSharedPivotId()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("shared", out var sharedPivotId))
+            return sharedPivotId.ToString();
+
+        return null;
+    }
+
     private async Task OnCurrentPivotChanged(PivotDefinition arg)
     {
         if (PivotName != null && Collection != null)
             _state.SelectedPivotForCollection[Collection] = PivotName;
 
         await InvokeAsync(async () => await JsRuntime.SaveToLocalStorage("pivot", _state));
+
+        _sharedPivotId = null;
     }
 
     private Task<BsonDocument?> LoadSchema()
