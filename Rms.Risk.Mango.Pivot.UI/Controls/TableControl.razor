@@ -46,19 +46,21 @@
         <thead>
             <tr>
                 <th style="width: 25px !important;" class="p-0">
-                    <div class="align-left">
-                        <button class="btn px-0" @onclick="TriggerFilterRow" title="Filter rows" aria-label="Filter rows">
-                            <span class="ui-icon-font ui-icon-sm icon-search-sm"></span>
-                        </button>
-                        @if (TransposeEnabled)
-                        {
-                            <button class="btn px-0" @onclick="ToggleTranspose" title="Transpose table" aria-label="Transpose table">
-                                <span class="ui-icon-font ui-icon-sm icon-flip-sm"></span>
+                    <div class="align-left d-flex flex-column align-items-start">
+                        <div class="d-flex flex-row flex-nowrap align-items-center">
+                            <button class="btn px-0" @onclick="TriggerFilterRow" title="Filter rows" aria-label="Filter rows">
+                                <span class="ui-icon-font ui-icon-sm icon-search-sm"></span>
                             </button>
-                        }
+                            @if (TransposeEnabled)
+                            {
+                                <button class="btn px-0" @onclick="ToggleTranspose" title="Transpose table" aria-label="Transpose table">
+                                    <span class="ui-icon-font ui-icon-sm icon-flip-sm"></span>
+                                </button>
+                            }
+                        </div>
                         @if (Filterable)
                         {
-                            <span class="d-block text-center">#</span>
+                            <div><span class="d-block text-center">#</span></div>
                         }
                     </div>
                 </th>
