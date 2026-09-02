@@ -47,16 +47,33 @@
         <thead>
             <tr>
                 <th style="width: 25px !important;" class="p-0">
-                    <div class="w-100 h-100 d-flex flex-column">
-                        <button class="btn px-0 w-100 text-left" @onclick="TriggerFilterRow">
-                            <span class="m-auto ui-icon-font ui-icon-sm icon-search-sm"></span>
+                    <div class="align-left">
+                        <button class="btn px-0" @onclick="TriggerFilterRow" title="Filter rows" aria-label="Filter rows">
+                            <span class="ui-icon-font ui-icon-sm icon-search-sm"></span>
                         </button>
+                        @if (TransposeEnabled)
+                        {
+                            <button class="btn px-0" @onclick="ToggleTranspose" title="Transpose table" aria-label="Transpose table">
+                                <span class="ui-icon-font ui-icon-sm icon-flip-sm"></span>
+                            </button>
+                        }
                         @if (Filterable)
                         {
-                            <span class="m-auto">#</span>
+                            <span class="d-block text-center">#</span>
                         }
                     </div>
                 </th>
+                @if (_isTransposed)
+                {
+                    @foreach (var row in DisplayedRows)
+                    {
+                        <th>@GetTransposedRowLabel(row)</th>
+                    }
+                    @if (Totals != null)
+                    {
+                        <th class="totals-row">Total</th>
+                    }
+                }
                 <CascadingValue Value="this">
                     @ChildContent
                 </CascadingValue>
@@ -64,7 +81,50 @@
         </thead>
 
         <tbody>
-            @if (DisplayedRows.Any())
+            @if (_isTransposed)
+            {
+                @foreach (var column in Columns)
+                {
+                    <tr>
+                        <th class="py-0 align-bottom @column.Class">
+                            @column.HeaderContent
+                        </th>
+                        @foreach (var row in DisplayedRows)
+                        {
+                            @if (column.Template == null && !string.IsNullOrEmpty(column.Field))
+                            {
+                                var val = GetValue(Items, column.Field, row);
+
+                                <td class="@column.Class @(CellClass(Items, row, column))"
+                                    style="@(CellStyle(Items, row, column))"
+                                    @onclick="@(() => OnSelectionChanged(row, column.Field))">
+                                    @ConvertToString(val, column.Format)
+                                </td>
+                            }
+                            else if (column.Template != null)
+                            {
+                                <td class="@column.Class @(CellClass(Items, row, column))"
+                                    style="@(CellStyle(Items, row, column))"
+                                    @onclick="@(() => OnSelectionChanged(row, column.Field))">
+                                    @column.Template((row, column, Items))
+                                </td>
+                            }
+                            else
+                            {
+                                <td class="@column.Class">???</td>
+                            }
+                        }
+                        @if (Totals != null)
+                        {
+                            var total = column.ShowTotals ? Totals.TryGet(column.Name)?.Total : null;
+                            <td class="@(GetCellClass(null, -1, total, column)) totals-row">
+                                @(column.ShowTotals ? ConvertToString(total, column.Format) : " ")
+                            </td>
+                        }
+                    </tr>
+                }
+            }
+            else if (DisplayedRows.Any())
             {
                 var ix = 1 + (_currentPage - 1) * PageSize;
                 @foreach (var row in DisplayedRows)
@@ -216,6 +276,7 @@
     [Parameter] public string?                                  Class            { get; set; }
     [Parameter] public string?                                  TableClass       { get; set; }
     [Parameter] public bool                                     Filterable       { get; set; } 
+    [Parameter] public bool                                     TransposeEnabled { get; set; } = true;
     [Parameter] public bool                                     Selectable       { get; set; } 
     [Parameter] public int?                                     SelectedRow      { get; set; }
     [Parameter] public string?                                  SelectedColumn   { get; set; }
@@ -227,6 +288,9 @@
     private string UniqueID { get;set;} = Guid.NewGuid().ToString();
 
     private int _itemCount;
+    private bool _isTransposed;
+
+    internal bool IsTransposed => _isTransposed;
     private readonly SemaphoreSlim _applyColumnFilterAndSortLock = new(1, 1);
 
     /// <summary>
@@ -367,6 +431,18 @@
         };
     }
 
+    private string GetTransposedRowLabel(int row)
+    {
+        var firstColumn = Columns.FirstOrDefault();
+        var label = firstColumn == null
+            ? string.Empty
+            : ConvertToString(GetValue(Items, firstColumn.Field, row), firstColumn.Format);
+
+        return string.IsNullOrWhiteSpace(label)
+            ? (row + 1).ToString()
+            : label;
+    }
+
     public static bool IsNumeric(object value) => value is double ||
         value is int ||
         value is long ||
@@ -475,6 +551,9 @@
     protected override void OnParametersSet()
     {
         base.OnParametersSet();
+
+        if (!TransposeEnabled)
+            _isTransposed = false;
 
         if (!ReferenceEquals(_lastItemsSource, Items))
         {
@@ -795,11 +874,53 @@
         Filterable = !Filterable;
     }
 
+    private void ToggleTranspose()
+    {
+        _isTransposed = !_isTransposed;
+    }
+
     private async Task OnCopyAllToClipboard()
     {
         string Shield(string s) => s.Contains(",") || s.Contains("\n") ? $"\"{s}\"" : s;
 
         var str = new StringBuilder();
+
+        if (_isTransposed)
+        {
+            var rows = (FilteredRowIndices ?? AllRowIndices).ToArray();
+            str.Append(Shield("Field"));
+            foreach (var row in rows)
+            {
+                str.Append(',');
+                str.Append(Shield(GetTransposedRowLabel(row)));
+            }
+
+            if (Totals != null)
+                str.Append(",Total");
+            str.AppendLine();
+
+            foreach (var column in Columns)
+            {
+                str.Append(Shield(column.Name));
+                foreach (var row in rows)
+                {
+                    str.Append(',');
+                    str.Append(Shield(ConvertToString(GetValue(Items, column.Field, row), column.Format)));
+                }
+
+                if (Totals != null)
+                {
+                    var total = column.ShowTotals ? Totals.TryGet(column.Name)?.Total : null;
+                    str.Append(',');
+                    str.Append(Shield(column.ShowTotals ? ConvertToString(total, column.Format) : ""));
+                }
+                str.AppendLine();
+            }
+
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", str.ToString());
+            return;
+        }
+
         str.Append(string.Join(",", Columns.Select(col => Shield(col.Name ?? ""))));
         str.AppendLine();
 
