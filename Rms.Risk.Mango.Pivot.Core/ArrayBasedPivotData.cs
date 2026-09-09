@@ -100,7 +100,7 @@ public class ArrayBasedPivotData : IPivotedData
         get
         {
             if (row >= _realData.Count)
-                throw new ArgumentException($"Row={row} is greater than Count={_realData.Count}");
+                return null;
 
             var physicalCol = _columnMap != null && displayCol < _columnMap.Length
                 ? _columnMap[displayCol]

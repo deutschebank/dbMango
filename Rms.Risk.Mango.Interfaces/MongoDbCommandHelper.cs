@@ -46,6 +46,7 @@ public static class MongoDbCommandHelper
         "dbStats",
         "buildInfo",
         "getShardVersion",
+        "getParameter",
         "getLog",
         "rolesInfo",
         "usersInfo",

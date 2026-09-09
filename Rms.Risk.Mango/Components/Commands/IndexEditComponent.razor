@@ -38,17 +38,20 @@
     }
 </style>
 
-<div class="form-row @Class">
-    @if (!HideIndexParams)
-    {
-        <div class="flex-stack-vertical mr-3">
-            <FormItemText Name="Index name" @bind-Value="IndexName" Icon="icon-document-blank-sm" Enabled="@Enabled"/>
-            <FormItemText Name="Expire after" @bind-Value="ExpireAfter" Icon="icon-clock-sm" Enabled="@Enabled" InputType="number"/>
-            <FormItemCheckBox Name="Unique" @bind-Value="Unique" Icon="icon-unlock-outline-sm" Enabled="@Enabled"/>
+<div class="d-flex flex-row fit-content @Class">
+	<div class="fit-content mr-3">
+		@if (!HideIndexParams)
+		{
+			<div class="form-row fit-content">
+				<FormItemText Name="Index name" @bind-Value="IndexName" Icon="icon-document-blank-sm" Enabled="@Enabled" Class="mr-1"/>
+				<FormItemText Name="Expire after" @bind-Value="ExpireAfter" Icon="icon-clock-sm" Enabled="@Enabled" InputType="number" Class="mr-1" />
+				<FormItemCheckBox Name="Unique" @bind-Value="Unique" Icon="icon-unlock-outline-sm" Enabled="@Enabled" Class="mr-1" />
+				<FormItemCheckBox Name="Sparse" @bind-Value="Sparse" Icon="icon-number-outline" Enabled="@Enabled" />
+			</div>
+        }
+		<div class="form-row fit-content">
+			<FormItemNameValue Name="Key fields" Value="@_keyFields" SetValue="@SetSorting" Changed="() => UpdateCommand()" Enabled="@Enabled" Class="key-fields"/>
         </div>
-    }
-    <div class="">
-        <FormItemNameValue Name="Key fields" Value="@_keyFields" SetValue="@SetSorting" Changed="() => UpdateCommand()" Enabled="@Enabled" Class="key-fields"/>
     </div>
 </div>
 
@@ -123,6 +126,18 @@
         }
     }
 
+    private bool Sparse
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            UpdateCommand();
+        }
+    }
+
     private List<FormItemNameValue<DatabaseStructureLoader.FieldSorting>.NameValuePair> _keyFields = [];
 
     private void UpdateCommand()
@@ -134,6 +149,7 @@
             ""name"": ""{IndexName}""
 {ExpireAtOption}
 {UniqueOption}
+{SparseOption}
         }}");
 
         IsValid = (HideIndexParams || !string.IsNullOrWhiteSpace(IndexName)) && _keyFields.Any(x => !string.IsNullOrWhiteSpace(x.Name));
@@ -143,8 +159,9 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private string ExpireAtOption => int.Parse(ExpireAfter) > 0 ? $",\"expireAfterSeconds\": {ExpireAfter}" : "";
+    private string ExpireAtOption => !string.IsNullOrWhiteSpace(ExpireAfter) && int.Parse(ExpireAfter) > 0 ? $",\"expireAfterSeconds\": {ExpireAfter}" : "";
     private string UniqueOption => Unique ? ",\"unique\": 1" : "";
+    private string SparseOption => Sparse ? ",\"sparse\": 1" : "";
 
     private string GetIndexKeys()
     {
@@ -181,7 +198,12 @@
         if (dict.TryGetValue("expireAfterSeconds", out var eas) && eas != null)
             ExpireAfter = eas.ToString()!;
         else
-            ExpireAfter = "0";
+            ExpireAfter = "";
+
+        if (dict.TryGetValue("sparse", out var s) && s != null)
+            Sparse = s.ToString() == "1" || s.ToString() == "True";
+        else
+            Sparse = false;
 
         if (dict.TryGetValue("key", out var keys) && keys is Dictionary<string, object> kd)
         {

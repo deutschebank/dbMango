@@ -16,10 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-﻿using System.Collections;
-using ChartJs.Blazor.Common.Axes;
-using ChartJs.Blazor.Common.Enums;
-using ChartJs.Blazor.LineChart;
+using System.Collections;
+using pax.BlazorChartJs;
 using Rms.Risk.Mango.Pivot.Core;
 using Rms.Risk.Mango.Pivot.UI.Controls;
 using Rms.Risk.Mango.Pivot.UI.Services;
@@ -31,127 +29,87 @@ namespace Rms.Risk.Mango.Pivot.UI.Pivot;
 /// </summary>
 public class ChartHelperForPivot
 {
-    public bool IsLineChart(PivotDefinition pivotDef, IPivotedData pivotData ) 
+    public bool IsLineChart(PivotDefinition? pivotDef, IPivotedData? pivotData)
         => GetLineChartColumns(pivotDef, pivotData, out _, out _, out _);
 
-    public LineConfig ChartConfig { get; } = new()
+    public ChartJsConfig ChartConfig { get; } = new()
     {
+        Type = ChartType.line,
+        Data = new()
+        {
+            Labels = [],
+            Datasets = []
+        },
         Options = new()
         {
-            Title = new()
+            Responsive = true,
+            Plugins = new()
             {
-                Display       = false,
-                Text          = "Data graph"
+                Legend = new()
+                {
+                    Display = false,
+                    Position = "right"
+                }
             },
             Scales = new()
             {
-                XAxes =
-                [
-                    new CategoryAxis
-                    {
-                        ScaleLabel = new()
-                        {
-                            LabelString = "Date"
-                        }
-                    }
-                ],
-                YAxes =
-                [
-                    new LinearCartesianAxis
-                    {
-                        ScaleLabel = new()
-                        {
-                            LabelString = "Amount"
-                        }
-                    }
-                ]
-            },
-            Tooltips = new()
-            {
-                Mode          = InteractionMode.Nearest,
-                Intersect     = true
-            },
-            Hover = new()
-            {
-                Mode          = InteractionMode.Nearest,
-                Intersect     = true
-            },
-            Responsive        = true,
-            Legend            = new()
-            {
-                Display       = false,
-                Position      = Position.Right,
-                Labels        = new()
+                Y = new LinearAxis
                 {
-                    FontColor = Night.light
+                    BeginAtZero = false,
+                    Title = new()
+                    {
+                        Display = true,
+                        Text = "Amount"
+                    }
                 }
             }
         }
     };
 
     public void UpdateLineChart(
-        string                      name,
+        string name,
         IReadOnlyCollection<string> labels,
         IReadOnlyCollection<double> data
     )
     {
-        if ( name == null || labels == null || data == null )
-            return;
+        ChartConfig.Data.Labels = labels.ToList();
 
-        ChartConfig.Data.Labels.Clear();
-        ChartConfig.Data.Labels.Add( name );
-
-        ChartConfig.Data.Datasets.Clear();
         var color = Night.RandomColorString();
-
-        var currentDataSet = new LineDataset<double>
+        var currentDataSet = new LineDataset
         {
-            Label                = name,
-            BackgroundColor      = color,
-            BorderColor          = color,
+            Label = name,
+            BackgroundColor = color,
+            BorderColor = color,
             PointBackgroundColor = color,
-            PointRadius          = 3,
-            PointBorderWidth     = 1,
-            ShowLine             = true,
-            Fill                 = false,
-            PointHitRadius       = 5,
-            SteppedLine          = SteppedLine.False
+            PointRadius = 3,
+            PointBorderWidth = 1,
+            Fill = false,
+            PointHitRadius = 5,
+            Stepped = false,
+            Data = data.Select(x => (object)x).ToList()
         };
 
-        currentDataSet.AddRange( data );
+        ChartConfig.Data.Datasets = [currentDataSet];
 
-        ChartConfig.Data.XLabels.Clear();
-        foreach (var label in labels)
-            ChartConfig.Data.XLabels.Add(label);
+        ChartConfig.Options ??= new();
+        ChartConfig.Options.Plugins ??= new();
+        ChartConfig.Options.Plugins.Legend ??= new();
+        ChartConfig.Options.Plugins.Legend.Display = true;
+        ChartConfig.Options.Plugins.Legend.Position = "bottom";
 
-        ChartConfig.Data.Datasets.Add( currentDataSet );
-
-        ChartConfig.Options.Legend          ??= new();
-        ChartConfig.Options.Legend.Display  =   true;
-        ChartConfig.Options.Legend.Position =   Position.Bottom;
-
-        ChartConfig.Options.Scales ??= new();
-        ChartConfig.Options.Scales?.YAxes.Clear();
-
-        if ( data.Count == 0 ) 
-            return;
-
-        var dataMin = data.Min();
-        var dataMax = data.Max();
-
-        ChartConfig.Options.Scales?.YAxes.Add( new LinearCartesianAxis
+        if (data.Count > 0)
         {
-            Ticks = new()
-            {
-                Min = dataMin - Math.Abs(dataMin)*0.01, // -1%
-                Max = dataMax + Math.Abs(dataMax)*0.01  // +1%
-            }
-        });
+            var dataMin = data.Min();
+            var dataMax = data.Max();
+            SetYAxisRange(dataMin, dataMax);
+        }
+
+        ChartConfig.ReinitializeChart();
     }
 
     public void UpdateLineChart(
-        PivotDefinition pivotDef, 
-        IPivotedData pivotData, 
+        PivotDefinition pivotDef,
+        IPivotedData pivotData,
         Func<string, string> getFormat
         )
     {
@@ -161,7 +119,7 @@ public class ChartHelperForPivot
         var comparer = new RowComparer(pivotData, xCol, dataSetColumns!);
 
         // sort row indexes by data set key ( all yCol ), then by X-axis label (xCol)
-        var orderedRows  = Enumerable
+        var orderedRows = Enumerable
             .Range(0, pivotData.Count)
             .OrderBy(x => x, comparer)
             .ToArray()
@@ -174,8 +132,8 @@ public class ChartHelperForPivot
             .OrderBy(x => x)
             .ToArray()
             ;
-        var labels =labelObjects
-            .Select( x => TableControl.ConvertToString(x, getFormat(pivotDef.LineChartXAxis!)))
+        var labels = labelObjects
+            .Select(x => TableControl.ConvertToString(x, getFormat(pivotDef.LineChartXAxis!)))
             .ToList()
             ;
 
@@ -183,27 +141,24 @@ public class ChartHelperForPivot
             return;
 
         var labelPos = labelObjects
-                .Select((x, i) => new KeyValuePair<object, int>(x!,i))
+                .Select((x, i) => new KeyValuePair<object, int>(x!, i))
                 .ToDictionary(x => x.Key, x => x.Value)
             ;
-        
-        ChartConfig.Data.Labels.Clear();
-        foreach (var label in labels)
-            ChartConfig.Data.Labels.Add(label);
 
+        ChartConfig.Data.Labels = labels;
         ChartConfig.Data.Datasets.Clear();
 
-        LineDataset<object?> []? currentDataSet = null;
-        var currentKey   = new object[dataSetColumns?.Count ?? 0];
-        var rowKey       = new object?[dataSetColumns?.Count ?? 0];
-        var data         = new List<object?[]>(Enumerable.Range(0, yCol!.Count).Select(_ => new object[labelObjects.Length]));
+        LineDataset[]? currentDataSet = null;
+        var currentKey = new object[dataSetColumns?.Count ?? 0];
+        var rowKey = new object?[dataSetColumns?.Count ?? 0];
+        var data = new List<object?[]>(Enumerable.Range(0, yCol!.Count).Select(_ => new object?[labelObjects.Length]));
 
         var dataMin = double.MaxValue;
         var dataMax = double.MinValue;
 
         foreach (var row in orderedRows)
         {
-            for ( var i = 0; i < (dataSetColumns?.Count ?? 0); i++)
+            for (var i = 0; i < (dataSetColumns?.Count ?? 0); i++)
                 rowKey[i] = pivotData.Get(dataSetColumns![i].Item2, row!);
 
             // start new data set if row label (all yCols) changed
@@ -213,30 +168,32 @@ public class ChartHelperForPivot
                 {
                     for (var dataSetNo = 0; dataSetNo < yCol.Count; dataSetNo += 1)
                     {
-                        currentDataSet[dataSetNo].AddRange(data[dataSetNo]);
+                        currentDataSet[dataSetNo].Data = data[dataSetNo]
+                            .Select(x => x ?? double.NaN)
+                            .ToList();
                         ChartConfig.Data.Datasets.Add(currentDataSet[dataSetNo]);
                     }
-                    data = [..Enumerable.Range(0, yCol.Count).Select(_ => new object[labelObjects.Length])];
+                    data = [.. Enumerable.Range(0, yCol.Count).Select(_ => new object?[labelObjects.Length])];
                 }
 
                 Array.Copy(rowKey, currentKey, currentKey.Length);
 
-                currentDataSet = new LineDataset<object?>[yCol.Count];
+                currentDataSet = new LineDataset[yCol.Count];
                 for (var dataSetNo = 0; dataSetNo < yCol.Count; dataSetNo += 1)
                 {
                     var color = Night.RandomColorString();
                     currentDataSet[dataSetNo] = new()
                     {
-                        Label                = (yCol.Count > 1 ? $"{yCol[dataSetNo].Item1} - " : "") + string.Join(" - ", currentKey.Select(x => x.ToString())),
-                        BackgroundColor      = color,
-                        BorderColor          = color,
+                        Label = (yCol.Count > 1 ? $"{yCol[dataSetNo].Item1} - " : "") + string.Join(" - ", currentKey.Select(x => x.ToString())),
+                        BackgroundColor = color,
+                        BorderColor = color,
                         PointBackgroundColor = color,
-                        PointRadius          = 3,
-                        PointBorderWidth     = 1,
-                        ShowLine             = true,
-                        Fill                 = pivotDef.LineChartFill,
-                        PointHitRadius       = 5,
-                        SteppedLine          = pivotDef.LineChartSteppedLine ? SteppedLine.True : SteppedLine.False
+                        PointRadius = 3,
+                        PointBorderWidth = 1,
+                        Fill = pivotDef.LineChartFill,
+                        PointHitRadius = 5,
+                        Stepped = pivotDef.LineChartSteppedLine,
+                        Data = []
                     };
                 }
             }
@@ -267,39 +224,50 @@ public class ChartHelperForPivot
         {
             for (var dataSetNo = 0; dataSetNo < yCol.Count; dataSetNo += 1)
             {
-                currentDataSet[dataSetNo].AddRange(data[dataSetNo]);
+                currentDataSet[dataSetNo].Data = data[dataSetNo]
+                    .Select(x => x ?? double.NaN)
+                    .ToList();
                 ChartConfig.Data.Datasets.Add(currentDataSet[dataSetNo]);
             }
         }
 
-        ChartConfig.Options.Legend          ??= new();
-        ChartConfig.Options.Legend.Display  =   pivotDef.LineChartShowLegend;
-        ChartConfig.Options.Legend.Position =   Position.Right;
+        ChartConfig.Options ??= new();
+        ChartConfig.Options.Plugins ??= new();
+        ChartConfig.Options.Plugins.Legend ??= new();
+        ChartConfig.Options.Plugins.Legend.Display = pivotDef.LineChartShowLegend;
+        ChartConfig.Options.Plugins.Legend.Position = "right";
 
         // ReSharper disable CompareOfFloatsByEqualityOperator
-        if ( dataMin == double.MaxValue || dataMax == double.MinValue ) 
-            return;
-
-        ChartConfig.Options.Scales       ??= new();
-        //ChartConfig.Options.Scales.YAxes??= new();
-        ChartConfig.Options.Scales?.YAxes.Clear();
-        ChartConfig.Options.Scales?.YAxes.Add( new LinearCartesianAxis
+        if (dataMin == double.MaxValue || dataMax == double.MinValue)
         {
-            Ticks = new()
-            {
-                Min = dataMin - Math.Abs(dataMin)*0.01, // -1%
-                Max = dataMax + Math.Abs(dataMax)*0.01  // +1%
-            }
-        });
+            ChartConfig.ReinitializeChart();
+            return;
+        }
+
+        SetYAxisRange(dataMin, dataMax);
         // ReSharper restore CompareOfFloatsByEqualityOperator
 
+        ChartConfig.ReinitializeChart();
+    }
+
+    private void SetYAxisRange(double dataMin, double dataMax)
+    {
+        ChartConfig.Options ??= new();
+        ChartConfig.Options.Scales ??= new();
+        ChartConfig.Options.Scales.Y ??= new LinearAxis();
+
+        if (ChartConfig.Options.Scales.Y is not LinearAxis yAxis)
+            return;
+
+        yAxis.Min = dataMin - Math.Abs(dataMin) * 0.01; // -1%
+        yAxis.Max = dataMax + Math.Abs(dataMax) * 0.01; // +1%
     }
 
     private bool GetLineChartColumns(
-        PivotDefinition pivotDef, 
-        IPivotedData pivotData, 
-        out int xColumn, 
-        out List<Tuple<string, int>>? yColumn, 
+        PivotDefinition? pivotDef,
+        IPivotedData? pivotData,
+        out int xColumn,
+        out List<Tuple<string, int>>? yColumn,
         out List<Tuple<string, int>>? dataSetColumns
         )
     {
@@ -307,12 +275,12 @@ public class ChartHelperForPivot
         yColumn = null;
         dataSetColumns = null;
 
-        if (   pivotDef?.MakeLineChart == null
-            || pivotData == null
+        if ( pivotDef is not { MakeLineChart: true }
+            || pivotData == null 
             || pivotData.Count == 0
-            || !(pivotData.Headers?.Count > 1)
+            || pivotData.Headers.Count < 1
             || string.IsNullOrWhiteSpace(pivotDef.LineChartXAxis)
-            || (pivotDef.LineChartYAxis?.Count ?? 0 ) <= 0
+            || (pivotDef.LineChartYAxis?.Count ?? 0) <= 0
             )
         {
             return false;
@@ -335,8 +303,8 @@ public class ChartHelperForPivot
             .ToList()
             ;
 
-        xColumn        = xCol;
-        yColumn        = yCol!;
+        xColumn = xCol;
+        yColumn = yCol!;
         dataSetColumns = dCol!;
         return true;
     }
@@ -344,12 +312,10 @@ public class ChartHelperForPivot
     /// <summary>
     /// Compare pivot rows by multiple columns
     /// </summary>
-    private class RowComparer(IPivotedData pivot, int xCol, List<Tuple<string, int>> dataSetCols) : IComparer<int>
+    // ReSharper disable InconsistentNaming
+    private class RowComparer(IPivotedData _pivot, int _xCol, List<Tuple<string, int>> _dataSetCols) : IComparer<int>
+    // ReSharper restore InconsistentNaming
     {
-        private readonly IPivotedData _pivot = pivot;
-        private readonly int _xCol = xCol;
-        private readonly List<Tuple<string, int>> _dataSetCols = dataSetCols ?? [];
-
         public int Compare(int row1, int row2)
         {
             int c;

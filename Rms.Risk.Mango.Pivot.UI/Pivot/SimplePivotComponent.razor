@@ -1,8 +1,6 @@
-﻿@using System.Dynamic
-@using System.Reflection
+﻿@using System.Reflection
 @using log4net
 @using Rms.Risk.Mango.Pivot.Core.Models
-@using Rms.Risk.Mango.Pivot.Core
 
 @*
  *                                dbMango
@@ -50,7 +48,7 @@
         }
     }
 
-    [Parameter] public Func<DynamicObject, string, Task<bool>>             HandleCellClick     { get; set; } = (_, _) => Task.FromResult(false);
+    [Parameter] public Func<IPivotedData, int, string, Task<bool>>        HandleCellClick     { get; set; } = (_, _, _) => Task.FromResult(false);
     [Parameter] public Func<string /*columnName*/, PivotColumnDescriptor?> GetColumnDescriptor { get; set; } = _ => null;
 
     [Parameter] public bool EnableAutoUpdate { get; set; } = true;

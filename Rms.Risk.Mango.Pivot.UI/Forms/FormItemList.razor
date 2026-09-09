@@ -144,7 +144,7 @@
             if (!IsSelectable(v))
             {
                 // Start a new group with this name
-                currentGroup = new Group { Name = v?.ToString() ?? string.Empty };
+                currentGroup = new() { Name = v?.ToString() ?? string.Empty };
                 groups.Add(currentGroup);
             }
             else

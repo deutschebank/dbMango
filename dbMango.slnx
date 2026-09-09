@@ -1,0 +1,20 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path="APACHE-2.0.md" />
+    <File Path="COPYRIGHT.txt" />
+    <File Path="OSS-LICENSES.md" />
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="Rms.Risk.Mango.Interfaces/Rms.Risk.Mango.Interfaces.csproj" />
+  <Project Path="Rms.Risk.Mango.Language/Rms.Risk.Mango.Language.csproj" />
+  <Project Path="Rms.Risk.Mango.Pivot.Core/Rms.Risk.Mango.Pivot.Core.csproj" />
+  <Project Path="Rms.Risk.Mango.Pivot.UI/Rms.Risk.Mango.Pivot.UI.csproj" />
+  <Project Path="Rms.Risk.Mango/Rms.Risk.Mango.csproj" />
+  <Project Path="Rms.Service.Bootstrap/Rms.Service.Bootstrap.csproj" />
+  <Project Path="Tests.Rms.Risk.Mango.Language/Tests.Rms.Risk.Mango.Language.csproj" />
+  <Project Path="Tests.Rms.Risk.Mango/Tests.Rms.Risk.Mango.csproj" />
+</Solution>

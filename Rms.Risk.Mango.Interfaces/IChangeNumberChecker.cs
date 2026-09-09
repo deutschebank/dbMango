@@ -22,5 +22,5 @@ public record CheckerReply(bool IsValid, string? ErrorMessage = null, DateTime V
 
 public interface IChangeNumberChecker
 {
-    Task<CheckerReply> IsValid(string taskNumber, string email, DateTime whenTimeUtc = default);
+    Task<CheckerReply> IsValid(string taskNumber, string email, string? info, DateTime whenTimeUtc = default);
 }

@@ -395,7 +395,7 @@ public static class FilterExpressionTree
                 // skip grouping if only one child
                 {
                     var fieldExpr = (FieldExpression)cond.Children[0];
-                    return [new BsonElement(fieldExpr.Field, ConvertValue(fieldExpr.Field, fieldExpr.Argument))];
+                    return [new(fieldExpr.Field, ConvertValue(fieldExpr.Field, fieldExpr.Argument))];
                 }
             case ExpressionGroup group:
                 var items = cond.Children.Select( cond1 => MakeJsonExpression(cond1, fieldTypes) ).Where( x => x != null ).ToList();
@@ -418,7 +418,7 @@ public static class FilterExpressionTree
         var o = ConvertCondition( op, arg.ToString() ?? "", out var regex );
         var d = new BsonDocument {new( o, regex ?? arg )};
 
-        return [new BsonElement(prop, d)];
+        return [new(prop, d)];
 
         BsonValue ConvertValue(string name, string value)
         {
@@ -434,59 +434,57 @@ public static class FilterExpressionTree
                 bsonValue = new BsonDouble(Convert.ToDouble(value));
             else if (propType == typeof(long))
                 bsonValue  = new BsonInt64(Convert.ToInt64(value));
-            else bsonValue = propType == typeof(DateTime) || value.StartsWith(IsoDatePrefix)
-                    ? new BsonDateTime(ConvertToDateTime(value)) 
+            else {
+                var dt = TryConvertToDateTime(value);
+                bsonValue = propType == typeof(DateTime) || dt != null
+                    ? new BsonDateTime(dt ?? throw new InvalidExpressionException($"Invalid date/time: {value}")) 
                     : new BsonString(value)
                     ;
+            }
             return bsonValue;
         }
     }
 
     private const DateTimeStyles DateTimeStyle = DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
+    private static readonly string[] _validDateTimeFormats =
+    [
+        "yyyy-MM-ddTHH:mm:ssZ",
+        "yyyy-MM-ddTHH:mm:ss.fffZ",
+        "yyyy-MM-ddTHH:mm:ssK",
+        "yyyy-MM-ddTHH:mm:ss.fffK",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss.fff",
+        "yyyy-MM-dd",
+        "yyyy/MM/ddTHH:mm:ssZ",
+        "yyyy/MM/ddTHH:mm:ss.fffZ",
+        "yyyy/MM/ddTHH:mm:ssK",
+        "yyyy/MM/ddTHH:mm:ss.fffK",
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy/MM/dd HH:mm:ss.fff",
+        "yyyy/MM/dd",
+        // really don't recommend these
+        "dd/MM/yyyy",
+        "dd/MM/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm:ss.fff",
+        "dd-MM-yyyy"
+    ];
 
-    private static DateTime ConvertToDateTime(string val)
+    private static DateTime? TryConvertToDateTime(string val)
     {
 
         if (val.StartsWith(IsoDatePrefix) && val.EndsWith(IsoDateSuffix))
         {
             var inner = val.Substring(IsoDatePrefix.Length, val.Length - IsoDatePrefix.Length - IsoDateSuffix.Length);
-            return ConvertExact(inner);
+            return TryConvertToDateTime(inner);
         }
 
-        return ConvertExact(val);
-
-        DateTime ConvertExact(string value)
+        foreach ( var format in _validDateTimeFormats )
         {
-            var formats = new[]
-            {
-                "yyyy-MM-ddTHH:mm:ssZ",
-                "yyyy-MM-ddTHH:mm:ss.fffZ",
-                "yyyy-MM-ddTHH:mm:ssK",
-                "yyyy-MM-ddTHH:mm:ss.fffK",
-                "yyyy-MM-dd HH:mm:ss",
-                "yyyy-MM-dd HH:mm:ss.fff",
-                "yyyy-MM-dd",
-                "yyyy/MM/ddTHH:mm:ssZ",
-                "yyyy/MM/ddTHH:mm:ss.fffZ",
-                "yyyy/MM/ddTHH:mm:ssK",
-                "yyyy/MM/ddTHH:mm:ss.fffK",
-                "yyyy/MM/dd HH:mm:ss",
-                "yyyy/MM/dd HH:mm:ss.fff",
-                "yyyy/MM/dd",
-                // really don't recommend these
-                "dd/MM/yyyy",
-                "dd/MM/yyyy HH:mm:ss",
-                "dd/MM/yyyy HH:mm:ss.fff",
-                "dd-MM-yyyy"
-            };
-
-            foreach ( var format in formats )
-            {
-                if (DateTime.TryParseExact(value, format, null, DateTimeStyle, out var d))
-                    return DateTime.SpecifyKind(d, DateTimeKind.Utc);
-            }
-            throw new ApplicationException("Invalid date/time: " + value);
+            if (DateTime.TryParseExact(val, format, null, DateTimeStyle, out var d))
+                return DateTime.SpecifyKind(d, DateTimeKind.Utc);
         }
+
+        return null;
     }
 
     private static string ConvertCondition(FieldConditionType op, string arg, out string? regex)

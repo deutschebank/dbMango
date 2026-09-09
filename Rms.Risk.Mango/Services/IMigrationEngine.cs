@@ -116,20 +116,22 @@ public class MigrationJob
 
     }
 
-    public int                 JobId                       { get; init; } = ++_jobId;
-    public JobType             Type                        { get; init; } = JobType.Copy;
-    public string              Ticket                      { get; set; }  = "";
-    public string              Email                       { get; init; } = "";
-    public DateTime            StartedAtUtc                { get; set; }
-    public DateTime            FinishedAtUtc               { get; set; }
-    public string              SourceDatabase              { get; init; } = "";
-    public string              SourceDatabaseInstance      { get; init; } = "";
-    public string              DestinationDatabase         { get; init; } = "";
-    public string              DestinationDatabaseInstance { get; init; } = "";
-    public int                 BatchSize                   { get; init; } = 1_000;
-    public bool                Upsert                      { get; init; }
-    public bool                ClearDestinationBefore      { get; init; }
-    public bool                DisableIndexes              { get; init; } = false;
+    public int      JobId                       { get; init; } = ++_jobId;
+    public JobType  Type                        { get; init; } = JobType.Copy;
+    public string   Ticket                      { get; set; }  = "";
+    public string   Email                       { get; init; } = "";
+    public DateTime StartedAtUtc                { get; set; }
+    public DateTime FinishedAtUtc               { get; set; }
+    public string   SourceDatabase              { get; init; } = "";
+    public string   SourceDatabaseInstance      { get; init; } = "";
+    public string   DestinationDatabase         { get; init; } = "";
+    public string   DestinationDatabaseInstance { get; init; } = "";
+    public int      BatchSize                   { get; init; } = 1_000;
+    public bool     Upsert                      { get; init; }
+    public bool     ClearDestinationBefore      { get; init; }
+    public bool     DisableIndexes              { get; init; } = false;
+    public bool     PrettyPrint                 { get; init; } = false; // for Download
+
     public List<CollectionJob> Status                      { get; init; } = [];
     public bool                Complete                    { get; set; }
     public Exception?          Exception                   { get; set; }

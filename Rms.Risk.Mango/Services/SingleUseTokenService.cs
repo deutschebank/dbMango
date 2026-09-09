@@ -20,7 +20,7 @@
 
 public class SingleUseTokenService : ISingleUseTokenService
 {
-    public static TimeSpan TokenValidityInterval = TimeSpan.FromSeconds( 30 );
+    private static readonly TimeSpan TokenValidityInterval = TimeSpan.FromSeconds( 30 );
 
     private readonly Lock _syncObject = new();
     private readonly List<Tuple<DateTime, string>> _tokens = [];
@@ -30,7 +30,7 @@ public class SingleUseTokenService : ISingleUseTokenService
         var guid = Guid.NewGuid().ToString().Replace( "-", "" );
         lock ( _syncObject )
         {
-            _tokens.Add( Tuple.Create( DateTime.Now + TokenValidityInterval, guid ) );
+            _tokens.Add( Tuple.Create( DateTime.UtcNow + TokenValidityInterval, guid ) );
         }
 
         return guid;
@@ -42,7 +42,7 @@ public class SingleUseTokenService : ISingleUseTokenService
         {
             var toDelete = new List<int>( _tokens.Count );
             var valid = false;
-            var now = DateTime.Now;
+            var now = DateTime.UtcNow;
             for ( var i = 0; i < _tokens.Count; i++ )
             {
                 var (expireAt, guid) = _tokens[i];

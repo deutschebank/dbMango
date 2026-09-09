@@ -92,7 +92,7 @@
                         </div>
 
                     </div>
-                    <TableControl Items="@SelectedJob.Status" PagerSize="35" Class="table table-hover table-striped table-forge table-forge-striped">
+                    <TableControl Items="@_selectedJobStatusPivotData" PagerSize="35" Class="table table-hover table-striped table-forge table-forge-striped">
                         <TableColumnControl Name="Collection" Field="DestinationCollection" />
                         <TableColumnControl Name="Count"      Field="Count"         Format="N0" />
                         <TableColumnControl Name="Copied"     Field="Copied"        Format="N0" />
@@ -130,6 +130,7 @@
     private bool               IsReadyToCancel => IsReady && !SelectedJob.Complete;
     private string             Error           { get; set; } = "";
     private List<MigrationJob> RunningJobs     { get; set; } = [];
+    private IPivotedData       _selectedJobStatusPivotData = new List<MigrationJob.CollectionJob>().ToPivotData();
     private string             BatchSize       { get; set; } = "1000";
     private bool               Upsert          { get; set; }
     private bool               WipeDestination { get; set; }
@@ -179,6 +180,7 @@
             if (field.JobId == value.JobId)
                 return;
             field = value;
+            _selectedJobStatusPivotData = field.Status.ToPivotData();
             StateHasChanged();
         }
     } = new() { Complete = true };

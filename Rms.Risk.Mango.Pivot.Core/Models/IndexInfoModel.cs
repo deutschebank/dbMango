@@ -37,7 +37,7 @@ public class IndexesInfoModel
                 Version = indexDoc.Contains("v") ? indexDoc["v"].AsInt32 : 0,
                 Key = indexDoc.Contains("key") && indexDoc["key"].IsBsonDocument
                     ? indexDoc["key"].AsBsonDocument.ToDictionary(k => k.Name, v => v.Value.ToString() ?? "")
-                    : new Dictionary<string, string>(),
+                    : new(),
                 Name = indexDoc.Contains("name") ? indexDoc["name"].AsString : string.Empty,
                 ExpireAfterSeconds = indexDoc.Contains("expireAfterSeconds") ? indexDoc["expireAfterSeconds"].ToNullableInt32() : null
             };
@@ -70,7 +70,7 @@ public class IndexInfoModel
     public void CopyFrom(IndexInfoModel source)
     {
         Version            = source.Version;
-        Key                = new Dictionary<string, string>(source.Key);
+        Key                = new(source.Key);
         Name               = source.Name;
         ExpireAfterSeconds = source.ExpireAfterSeconds;
     }

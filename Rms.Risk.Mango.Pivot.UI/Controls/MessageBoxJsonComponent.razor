@@ -1,4 +1,11 @@
-﻿@inject IJSRuntime JsRuntime
+﻿@using Rms.Risk.Mango.Pivot.UI.SchemaForm
+@using System.Text.Encodings.Web
+@using System.Text.Json
+@using NJsonSchema
+
+@inject IJSRuntime JsRuntime
+@using Markdig
+@using Markdown.ColorCode
 
 @*
  *                                dbMango
@@ -31,36 +38,84 @@
 <div class="m-3">
     <p>View or edit Json document</p>
     <div>
-        <TextEditorComponent Class="text-area" @bind-Text="Text" MimeType="application/json" />
+		@if (Schema == null || !ShowSchemaForm)
+		{
+			if (EnableWrite)
+			{
+				<div class="@ErrorBoxClass">@ErrorText</div>
+				<TextEditorComponent Class="text-area" @bind-Text="Text" MimeType="application/json"/>
+			}
+			else
+			{
+				if (Text.Length > 500_000)
+				{
+					<div><pre>@HtmlEncoder.Default.Encode(Text)</pre></div>
+				}
+				else
+				{
+					<FormJson Value="Text" Class="text-area"/>
+				}
+			}
+		}
+		else
+		{
+			<SchemaDocumentForm Class="text-area" Schema="Schema" Document="Doc" Mode="@(EnableWrite ? SchemaFormMode.Edit : SchemaFormMode.ReadOnly)"/>
+		}
 
-        <div class="form-row modal-footer w-100 p-0">
-            <FormButton Name="" OnClick="OnCopy" Icon="icon-duplicate-document" />
-            @if (EnableWrite)
-            {
-                <FormButton Name=""       OnClick="OnPaste"  Icon="icon-paste" />
-                <FormButton Name="Update" OnClick="OnUpdate" Icon="icon-document-upload-sm" />
-                <FormButton Name="Delete" OnClick="OnDelete" Icon="icon-trash-sm" />
-            }
-            <FormButton Name="Cancel" IsPrimary="true" OnClick="@(() => BlazoredModal.CancelAsync())"/>
-        </div>
+		<div class="form-row modal-footer w-100 p-0">
+			<FormButton Name="" OnClick="OnCopy" Icon="icon-duplicate-document"/>
+			@if (Schema != null)
+			{
+				<FormButton Name="Validate" OnClick="OnValidate" Icon="icon-checkmark-sm"/>
+			}
+		    @if (EnableWrite)
+		    {
+			    <FormButton Name="" OnClick="OnPaste" Icon="icon-paste"/>
+			    <FormButton Name="Update" OnClick="OnUpdate" Icon="icon-document-upload-sm"/>
+			    <FormButton Name="Delete" OnClick="OnDelete" Icon="icon-trash-sm"/>
+		    }
+		    <FormButton Name="Cancel" IsPrimary="true" OnClick="@(() => BlazoredModal.CancelAsync())"/>
+	    </div>
     </div>
 </div>
 
 @code
 {
-    public class ResultType
-    {
-        public bool   ShouldUpdate { get; init; }
-        public string Json         { get; init; } = "";
-    }
+	public class ResultType
+	{
+		public bool   ShouldUpdate { get; init; }
+		public string Json         { get; init; } = "";
+	}
 
-    [CascadingParameter]        BlazoredModalInstance BlazoredModal { get; set; } = null!;
-    [CascadingParameter] public IModalService         Modal         { get; set; } = null!;
+	[CascadingParameter]        BlazoredModalInstance BlazoredModal { get; set; } = null!;
+	[CascadingParameter] public IModalService         Modal         { get; set; } = null!;
 
-    [Parameter] public string Text        { get; set; } = "";
-    [Parameter] public bool   EnableWrite { get; set; }
+	[Parameter] public string Text           { get; set; } = "";
+	[Parameter] public bool   EnableWrite    { get; set; }
+	[Parameter] public bool   ShowSchemaForm { get; set; }
+	[Parameter] public BsonDocument? Schema  { get; set; }
 
-    private async Task OnUpdate()
+	private BsonDocument Doc { get; set; } = null!;
+	private string ErrorText { get; set; } = "";
+	private string ErrorBoxClass => string.IsNullOrEmpty(ErrorText)
+		? "d-none"
+		: ErrorText == "Validated OK"
+			? "alert alert-success"
+			: "alert alert-danger";
+
+	private readonly MarkdownPipeline _htmlPipeline = new MarkdownPipelineBuilder()
+			//.UseAdvancedExtensions()
+			.UseColorCode()
+			.Build()
+		;
+
+	protected override void OnParametersSet()
+	{
+		base.OnParametersSet();
+		Doc = !string.IsNullOrWhiteSpace(Text) && Schema != null ? BsonDocument.Parse(Text) : new BsonDocument();
+	}
+
+	private async Task OnUpdate()
     {
         if (!EnableWrite)
             await BlazoredModal.CancelAsync();
@@ -89,4 +144,50 @@
         Text = await JsRuntime.InvokeAsync<string>("DashboardUtils.PasteFromClipboard");
         StateHasChanged();
     }
+
+    private async Task OnValidate()
+    {
+		try
+		{
+			if (Schema == null)
+				throw new InvalidOperationException("Schema is not provided.");
+
+			if (string.IsNullOrWhiteSpace(Text))
+				throw new InvalidOperationException("Source JSON document is empty.");
+
+			var sourceBson = BsonDocument.Parse(Text);
+			var normalizedSourceJson = JsonSerializer.Serialize(ToPlainJsonValue(sourceBson));
+
+			var jsonSchema = await JsonSchema.FromJsonAsync(Schema.ToJson());
+			var errors = jsonSchema.Validate(normalizedSourceJson);
+
+			ErrorText = errors.Count == 0
+				? "Validated OK"
+				: string.Join(Environment.NewLine, errors.Select(x => x.ToString()));
+		}
+		catch (Exception ex)
+		{
+			ErrorText = ex.Message;
+		}
+    }
+
+	private static object? ToPlainJsonValue(BsonValue value)
+	{
+		return value.BsonType switch
+		{
+			BsonType.Null => null,
+			BsonType.Boolean => value.AsBoolean,
+			BsonType.Int32 => value.AsInt32,
+			BsonType.Int64 => value.AsInt64,
+			BsonType.Double => value.AsDouble,
+			BsonType.Decimal128 => (double)value.AsDecimal128,
+			BsonType.String => value.AsString,
+			BsonType.DateTime => value.ToUniversalTime().ToString("O"),
+			BsonType.ObjectId => value.AsObjectId.ToString(),
+			BsonType.Document => value.AsBsonDocument.Elements.ToDictionary(e => e.Name, e => ToPlainJsonValue(e.Value)),
+			BsonType.Array => value.AsBsonArray.Select(ToPlainJsonValue).ToList(),
+			BsonType.Binary => Convert.ToBase64String(value.AsBsonBinaryData.Bytes),
+			_ => value.ToString()
+		};
+	}
 }

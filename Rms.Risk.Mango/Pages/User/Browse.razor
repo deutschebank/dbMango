@@ -2,8 +2,6 @@
 @page "/user/browse/{DatabaseStr}/{CollectionStr}"
 @page "/user/browse/{DatabaseStr}/{DatabaseInstanceStr}/{CollectionStr}"
 @using Rms.Risk.Mango.Language
-@using Rms.Risk.Mango.Pivot.Core.MongoDb
-@implements IDisposable
 
 @attribute [Authorize]
 
@@ -11,6 +9,7 @@
 @inject IUserSession           UserSession
 @inject IJSRuntime            JsRuntime
 @inject IAuthorizationService Auth
+@inject ISchemaLoader         SchemaLoader
 
 @*
  *                                dbMango
@@ -55,10 +54,6 @@
         background-color: #1d2a3b;
     }
 
-    .meta {
-        color: grey;
-    }
-
     pre {
         width: 100%;
         height: 100%;
@@ -77,14 +72,21 @@
         <div class="form-row">
             <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)"  @bind-Value="Timeout"   InputType="number"   Icon="icon-clock-sm"/>
             <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number"   Icon="icon-download-selected-sm" />
-            <FormItemSelect   Enabled="@IsReady" Class="mr-2" Name="Rows"           @bind-Value="Rows"      Values="@_rowValues" Icon="icon-number-outline"  />
+            <FormItemText   Class="mr-2" Name="Rows per page" @bind-Value="RowsPerPageStr" InputType="number" Icon="icon-download-selected-sm" />
             <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Show as Json"   @bind-Value="ShowAsJson"                     Icon="icon-tos-sm" />
             <div class="flex-stack-vertical">
                 <div class="flex-stack-horizontal">
                     <div class="form-group">
-                        <FormButton Enabled="@IsReady" Name="Find" Icon="icon-search-sm" OnClick="Run" IsPrimary="true" />
+	                    <FormButton Enabled="@IsReady" Name="Find"       Icon="icon-search-sm"          OnClick="Run"                    IsPrimary="true"  />
+                        <FormButton Enabled="@IsReady" Name="Schema"     Icon="icon-sliders-horizontal" OnClick="ShowSchema"             IsPrimary="false" />
+                        <FormButton Enabled="@IsReady" Name="Properties" Icon="icon-wrench-sm"          OnClick="ShowCollectionControls" IsPrimary="false" />
                     </div>
-                </div>
+	                    <AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
+		                    <div class="form-group">
+			                    <FormButton Enabled="@CanDelete" Name="Delete" Icon="icon-trash-sm" OnClick="Delete" IsPrimary="false" Hint="Delete all selected documents."/>
+		                    </div>
+	                    </AuthorizedOnly>
+                    </div>
                 <div>See <a href="/doc/afh?tab=Expressions" target="_blank">documentation</a>...</div>
             </div>
         </div>
@@ -94,21 +96,7 @@
     <SplitPanel Orientation="horizontal" InitialSplit="0.2">
         <First>
             <div class="panel">
-                <FormItemList Enabled="@IsReady" Class="mr-2" Name="Collection" @bind-Value="SelectedCollection" Values="@Collections" IsSelectable="IsSelectable">
-                    <OptionTemplate>
-                        <div class="d-flex">
-                            <div class="flex-grow-1 m-1 @GetCollectionClass(context)">@context</div>
-                            @if (Stats.TryGetValue(context, out var stat))
-                            {
-                                if (stat.Sharded)
-                                {
-                                    <div class="m-1">Sharded</div>
-                                }
-                                <div class="m-1 ">@NumbersUtils.ToHumanReadable(stat.Size)</div>
-                            }
-                        </div>
-                    </OptionTemplate>
-                </FormItemList>
+                <CollectionsList @bind-Value="SelectedCollection" Class="mr-2"/>
             </div>
         </First>
         <Second>
@@ -154,10 +142,7 @@
     [SupplyParameterFromQuery(Name = "q")]
     public string Text { get; set; } = "";
 
-    private                 List<string>                                  Collections { get; set; } = [];
-    private                 ConcurrentDictionary<string, CollectionStats> Stats       { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly List<int>                                     _rowValues                = Enumerable.Range(0, 8).Select(x => x * 5 + 25).ToList();
-    private                 Dictionary<string, List<string>>              AllHistory  { get; set; } = [];
+    private Dictionary<string, List<string>> AllHistory { get; set; } = [];
 
     private int Rows
     {
@@ -170,6 +155,16 @@
             InvokeAsync(StateHasChanged);
         }
     } = 35;
+
+    private string RowsPerPageStr
+    {
+        get => Rows.ToString();
+        set
+        {
+            if (int.TryParse(value, out var newValue))
+                Rows = newValue;
+        }
+    }
 
     private List<string> History
     {
@@ -195,8 +190,12 @@
             if (UserSession.Collection == value)
                 return;
             UserSession.Collection = value;
+            ResultBson.Clear();
+            ResultPivot = new([]);
+            Result = "";
             ShowDropdown = false;
             Text = "";
+
             SyncUrl();
             InvokeAsync(StateHasChanged);
         }
@@ -227,45 +226,53 @@
         }
     }
 
+    private bool IsReady => !_running && !string.IsNullOrWhiteSpace(Database) && !string.IsNullOrWhiteSpace(DatabaseInstance) && !string.IsNullOrWhiteSpace(SelectedCollection);
+    private bool CanDelete => IsReady && ResultBson.Count > 0;
+
     private string Timeout      { get; set; } = "20";
     private string FetchSize    { get; set; } = "100";
-    private bool   IsReady      { get; set; }
     private bool   ShowAsJson   { get; set; }
     private bool   ShowDropdown { get; set; }
 
     private string              Result      { get; set; } = "{}";
     private List<BsonDocument>  ResultBson  { get; set; } = [];
-    public  ArrayBasedPivotData ResultPivot { get; set; } = new([]);
+    private ArrayBasedPivotData ResultPivot { get; set; } = new([]);
 
     private EditContext?   _editContext;
     private EditContext    EditContext => _editContext!;
 
+    private          bool                    _running;
     private readonly CancellationTokenSource _globalCancellation = new();
 
-    private static string GetCollectionClass(string collectionName) =>
-        collectionName.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
-            ? "meta"
-            : "";
+    private CellClickHelper _cellClickHelper = null!;
 
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        _cellClickHelper = new(
+            auth        : Auth,
+            schemaLoader: SchemaLoader,
+            userSession : UserSession,
+            modal       : Modal,
+            invokeAsync : InvokeAsync,
+            showError   : ShowError
+        );
+
+    }
+    
     protected override void OnInitialized()
     {
         _editContext = new (this);
     }
 
-    public void Dispose()
-    {
-        _globalCancellation.Cancel();
-        _globalCancellation.Dispose();
-    }
-
-
-
     private class BrowseState
     {
+        // ReSharper disable PropertyCanBeMadeInitOnly.Local
         public string                           Text       { get; set; } = "";
         public int                              Rows       { get; set; } = 25;
         public Dictionary<string, List<string>> History    { get; set; } = [];
         public string?                          Collection { get; set; }
+        // ReSharper restore PropertyCanBeMadeInitOnly.Local
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -306,67 +313,6 @@
 
         if (Text is "null" or null)
             Text = "";
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var admin = UserSession.MongoDbAdmin;
-
-                var cts2 = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
-                var grouped = (await admin.ListCollections(cts2.Token))
-                    .GroupBy(x =>
-                        x.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
-                            ? " Meta"
-                            : x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
-                                ? " Cache"
-                                : " Data"
-                    );
-
-                Collections.Clear();
-                foreach( var group in grouped)
-                {
-                    Collections.Add(group.Key);
-                    Collections.AddRange(group.OrderBy(x => x).Select(x => x));
-                }
-
-                if (!Collections.Contains(SelectedCollection))
-                    SelectedCollection = Collections.FirstOrDefault( x => !x.StartsWith(" ")) ?? "";
-
-                IsReady = true;
-                await InvokeAsync(StateHasChanged);
-
-                _ = Task.Run(LoadCollStats, _globalCancellation.Token);
-            }
-            catch (Exception e)
-            {
-                await Display(e);
-            }
-        }, _globalCancellation.Token);
-    }
-
-    private async Task LoadCollStats()
-    {
-        var admin = UserSession.MongoDbAdmin;
-        var collections = Collections.ToList(); // make a copy to avoid modifying the original list during iteration
-
-        foreach (var name in collections)
-        {
-            try
-            {
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
-
-                var doc = await admin.CollStats(name, cts.Token);
-                doc.Details = null; // Remove details to avoid large output
-
-                Stats[name] = doc;
-                await InvokeAsync(StateHasChanged);
-            }
-            catch (Exception)
-            {
-                // ignore
-            }
-        }
     }
 
     private async Task<BrowseState?> GetState(CancellationToken token)  
@@ -388,7 +334,8 @@
 
     enum ActionType
     {
-        Find
+        Find,
+        Delete
     }
 
     private async Task Run(ActionType actionType)
@@ -397,7 +344,7 @@
 
         try
         {
-            IsReady = false;
+            _running     = true;
             ShowDropdown = false;
             await InvokeAsync(StateHasChanged);
 
@@ -424,7 +371,8 @@
 
             var res = actionType switch
             {
-                ActionType.Find => await RunFind(json, limit, cts.Token),
+                ActionType.Find   => await RunFind(json, limit, cts.Token),
+                ActionType.Delete => await RunDelete(json, cts.Token),
                 _ => throw new ArgumentOutOfRangeException(nameof(actionType), actionType, null)
             };
 
@@ -447,7 +395,7 @@
         }
         finally
         {
-            IsReady = true;
+            _running = false;
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -479,7 +427,78 @@
             // This is not critical, and we can continue without saving
         }
     }
+
+    private async Task ShowSchema()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedCollection))
+        {
+            Result = "No collection selected.";
+            ShowAsJson = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _running = true;
+        await InvokeAsync(StateHasChanged);
+
+        string jsonSchema;
+        try
+        {
+            var schema = await SchemaLoader.LoadSchema(SelectedCollection);
+            jsonSchema = schema.ToJson(new()
+                {
+                    Indent = true
+                });
+        }
+        catch (Exception e)
+        {
+            _running = false;
+            await InvokeAsync(StateHasChanged);
+            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error loading schema", e);
+            return;
+		}
+        finally
+        {
+	        _running = false;
+	        await InvokeAsync(StateHasChanged);
+        }
+
+        await PivotTableComponent.ShowBsonDialog(
+			Modal,
+			$"Schema for {SelectedCollection}",
+			jsonSchema,
+			false,
+			null);
+    }
+
+    private async Task ShowCollectionControls()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedCollection))
+        {
+            await ModalDialogUtils.ShowInfoDialog(Modal, "Properties", "No collection selected.");
+            return;
+        }
+
+        var parameters = new ModalParameters
+        {
+            { nameof(CollectionControl.DatabaseStr),         Database },
+            { nameof(CollectionControl.DatabaseInstanceStr), DatabaseInstance },
+            { nameof(CollectionControl.CollectionName),      SelectedCollection }
+        };
+
+        var options = new ModalOptions
+        {
+            HideCloseButton = false,
+            DisableBackgroundCancel = false
+        };
+
+        var form = Modal.Show<CollectionControl>($"Collection controls: {SelectedCollection}", parameters, options);
+        await form.Result;
+    }
+
     private Task Run() => Run(ActionType.Find);
+
+    private Task Delete() => Run(ActionType.Delete);
 
     private Task Display(Exception e)
     {
@@ -525,6 +544,74 @@
         return (pd, list);
     }
 
+    private async Task<(ArrayBasedPivotData, List<BsonDocument>)> RunDelete(string text, CancellationToken token)
+    {
+        BsonDocument filter;
+        if (string.IsNullOrWhiteSpace(text))
+            filter = [];
+        else
+        {
+            // BsonArray.Parse doesn't exist on the driver; wrap the JSON array into a document
+            // and use BsonDocument.Parse, then extract the array.
+            var wrapper = BsonDocument.Parse("{\"_arr\":" + text + "}");
+            var arr = wrapper["_arr"].AsBsonArray;
+            if (arr.Count != 1)
+                throw new ApplicationException($"Expected only $match stage. Got Count={arr.Count} elements");
+
+            var first = arr[0].AsBsonDocument;
+            if (!first.Contains("$match"))
+                throw new ApplicationException("Expected first element to contain a '$match' stage");
+
+            filter = first["$match"].AsBsonDocument;
+        }
+
+        // Build the delete command document
+        var command = new BsonDocument
+        {
+            ["delete"] = SelectedCollection,
+            ["deletes"] = new BsonArray
+            {
+                new BsonDocument
+                {
+                    ["q"] = filter,
+					["limit"] = 0 // 0 means delete all matching documents
+                }
+            }
+        };
+
+        // Ask for execution ticket/permission
+        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+        if (string.IsNullOrWhiteSpace(ticket))
+            return (ArrayBasedPivotData.NoData, []);
+
+        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, 
+	        $"Delete from {SelectedCollection}", 
+	        "Are you sure to delete all documents matching the filter?");
+
+        if (r.Cancelled)
+            return (ArrayBasedPivotData.NoData, []);
+
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
+
+        var res = await UserSession.MongoDbAdmin.RunCommand(command, token);
+
+        var list = new List<BsonDocument>();
+        int deleted;
+        try
+        {
+            deleted = res["n"].ToInt32();
+        }
+        catch
+        {
+            // fallback if different response shape
+            try { deleted = res["deletedCount"].ToInt32(); } catch { deleted = 0; }
+        }
+
+        list.Add(new BsonDocument { ["Result"] = $"Deleted {deleted} documents" });
+
+        return (ArrayBasedPivotData.NoData, list);
+    }
+
     private void SyncUrl()
     {
         var url = NavigationManager.BaseUri + $"user/browse/{Database}";
@@ -536,143 +623,14 @@
         JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
-    private async Task<bool> OnCellClick(DynamicObject row, string columnName)
+    private Task<bool> OnCellClick(IPivotedData data, int row, string columnName)
+        => _cellClickHelper.OnCellClick(SelectedCollection, ResultBson, data, row, columnName);
+
+    private async Task ShowError(BsonValue id, string text)
     {
-        try
-        {
-            var id = TableControl.GetDynamicMember(row, "_id");
-            if (id == null)
-                return true;
-
-            var bson = ResultBson.FirstOrDefault(x => x["_id"].ToString() == id.ToString());
-            if (bson == null)
-                return true;
-
-            var oldId = bson["_id"];
-
-            var enableWrite = await Auth.AuthorizeAsync(
-                UserSession.User.GetUser(), 
-                UserSession.Database, 
-                [new WriteAccessRequirement()]);
-
-            var res = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, enableWrite.Succeeded);
-            if (res == null)
-                return true;
-
-            if (enableWrite.Succeeded)
-            {
-                if (res.Value.ShouldUpdate)
-                {
-                    bson = BsonDocument.Parse(res.Value.Json);
-                    await OnUpdate(oldId, bson);
-                }
-                else
-                    await OnDelete(oldId);
-            }
-        }
-        catch (Exception e)
-        {
-            await ModalDialogUtils.ShowExceptionDialog(Modal, "Error", e);
-        }
-        return true;
+        Result = text;
+        ShowAsJson = true;
+        await ModalDialogUtils.ShowInfoDialog(Modal, $"Id: {id}", "Failure");
+        await InvokeAsync(StateHasChanged);
     }
-
-    private async Task OnDelete(BsonValue id)
-    {
-        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
-        if (string.IsNullOrWhiteSpace(ticket))
-            return;
-
-        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, $"Delete {id}", "Are you sure to delete document?");
-        if (r.Cancelled)
-            return;
-
-        var command = BsonDocument.Parse($@"{{
-     ""delete"": ""{SelectedCollection}"",
-     ""deletes"": [{{
-        ""q"": {{  }},
-        ""limit"": 1
-     }}]
-}}");
-
-        var idDoc = new BsonDocument
-            {
-                ["_id"] = id
-            };
-
-        command["deletes"][0]["q"] = idDoc;
-
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
-        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
-
-        var res      = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
-        var deleted = res["n"].ToInt32();
-        if (deleted != 1)
-        {
-            Result = 
-                res.ToJson(new() { Indent = true }) +
-                "\n------------------------------------------------------------------\n"+
-                command.ToJson(new() { Indent = true });
-            ShowAsJson = true;
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Delete {id}", "Failure");
-            await InvokeAsync(StateHasChanged);
-        }
-        else
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Delete {id}", "Success");
-    }
-
-    private async Task OnUpdate(BsonValue id, BsonDocument newBson)
-    {
-        var ticket = await Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
-        if (string.IsNullOrWhiteSpace(ticket))
-            return;
-
-        var r = await ModalDialogUtils.ShowConfirmationDialog(Modal, $"Update {id}", "Are you sure to update document?");
-        if (r.Cancelled)
-            return;
-
-        var command = BsonDocument.Parse($@"{{
-    update: ""{SelectedCollection}"",
-    updates: [
-       {{
-         q: {{ }},
-         u: {{ }},
-         upsert: false,
-         multi: false,
-       }}
-    ],
-    ordered: false,
-    bypassDocumentValidation: false
-}}");
-
-        var idDoc = new BsonDocument
-        {
-            ["_id"] = id
-        };
-
-        command["updates"][0]["q"] = idDoc;
-        command["updates"][0]["u"] = newBson;
-
-        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
-
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(int.Parse(Timeout)));
-        var res = await UserSession.MongoDbAdmin.RunCommand(command, cts.Token);
-
-        var modified = res["nModified"].ToInt32();
-        if (modified != 1)
-        {
-            Result = 
-                res.ToJson(new() { Indent = true }) +
-                "\n------------------------------------------------------------------\n"+
-                command.ToJson(new() { Indent = true });
-            ShowAsJson = true;
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Failure");
-            await InvokeAsync(StateHasChanged);
-        }
-        else
-            await ModalDialogUtils.ShowInfoDialog(Modal, $"Update {id}", "Success");
-    }
-
-    private bool IsSelectable(string arg) => !arg.StartsWith(" ");
-
 }

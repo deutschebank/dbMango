@@ -16,146 +16,77 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-﻿using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
+﻿using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
 namespace Rms.Risk.Mango.Pivot.Core.Models;
 
 public static class MongoDbCachingHelper
 {
-    public static async Task<string[]> LoadCachedCobDatesAsync(this MongoDbDataSource source, string collectionName, CancellationToken token = default)
-    {
-        var coll   = source.GetCollectionWithRetries<BsonDocument>(collectionName+"-Meta");
-        var cursor = await coll.FindAsync("{ _id : \"CachedCobDates\"}", cancellationToken: token);
-
-        while ( await cursor.MoveNextAsync(token) )
-        {
-            var batch = cursor.Current;
-            foreach ( var doc in batch )
-            {
-                if ( doc.IsBsonNull )
-                    return [];
-
-                var res = doc.ToDictionary();
-
-                return res["CobDates"] is not object[] cobs 
-                        ? [] 
-                        : cobs.Select( x => x as string )
-                              .Where( x => !string.IsNullOrWhiteSpace( x ) )
-                              .OfType<string>()
-                              .ToArray()
-                    ;
-            }
-        }
-        return [];
-    }
-
-    private class CachedDepartmentsDoc
+    private class CachedValuesDoc
     {
         // ReSharper disable once UnusedAutoPropertyAccessor.Local
         [BsonId] public string   Id          { get; set; } = "";
-        public          string[] Departments { get; set; } = [];
+        public          string[] Values      { get; set; } = [];
         public          DateTime CachedOnUtc { get; set; }
+        public          DateTime ExpireAtUtc { get; set; }
     }
 
-    private const string CachedDepartmentsDocName = "CachedDepartments";
+    private static string GetCachedDocId(string fieldName) => $"Cached{fieldName}";
 
-    public static async Task<Tuple<bool,string[]>> LoadCachedDepartmentsAsync(this MongoDbDataSource source, string collectionName, CancellationToken token = default)
+    public static async Task<Tuple<bool, string[]>> LoadCached(this MongoDbDataSource source, string collectionName, string fieldName, TimeSpan ttl, CancellationToken token = default)
     {
-        var coll   = source.GetCollectionWithRetries<CachedDepartmentsDoc>(collectionName+"-Meta");
-        var cursor = await coll.FindAsync($"{{ _id : \"{CachedDepartmentsDocName}\"}}", cancellationToken: token);
+        if ( string.IsNullOrWhiteSpace(fieldName) )
+            return Tuple.Create(false, Array.Empty<string>());
 
-        while ( await cursor.MoveNextAsync(token) )
+        try
         {
-            var batch = cursor.Current;
-            foreach ( var doc in batch )
-            {
-                var expireAt     = doc.CachedOnUtc + TimeSpan.FromHours(1);
-                var isStillValid = expireAt > DateTime.UtcNow;
+            var coll = source.GetCollectionWithRetries<CachedValuesDoc>(collectionName + "-Meta");
+            var docId = GetCachedDocId(fieldName);
+            var doc = await coll.Find(Builders<CachedValuesDoc>.Filter.Eq(x => x.Id, docId)).FirstOrDefaultAsync(token);
 
-                return Tuple.Create(
-                    isStillValid, 
-                    doc.Departments.Where( x => !string.IsNullOrWhiteSpace( x ) ).ToArray() 
-                );
-            }
+            if ( doc == null || doc.Values == null )
+                return Tuple.Create(false, Array.Empty<string>());
+
+            var values = doc.Values.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+            var expireAtUtc = doc.ExpireAtUtc != default
+                ? doc.ExpireAtUtc
+                : (doc.CachedOnUtc == default ? DateTime.MinValue : doc.CachedOnUtc + ttl);
+            var isStillValid = expireAtUtc > DateTime.UtcNow;
+            return Tuple.Create(isStillValid, values);
         }
-        return Tuple.Create(false, Array.Empty<string>());
+        catch
+        {
+            return Tuple.Create(false, Array.Empty<string>());
+        }
     }
 
-    public static async Task CacheDepartments(this MongoDbDataSource source, string collectionName, string [] departments, CancellationToken token = default)
+    public static async Task StoreCached(this MongoDbDataSource source, string collectionName, string fieldName, string[] values, TimeSpan ttl, CancellationToken token = default)
     {
-        if ( departments.Length == 0 )
+        if ( values.Length == 0 || string.IsNullOrWhiteSpace(fieldName) || ttl <= TimeSpan.Zero )
             return;
 
-        var doc = new CachedDepartmentsDoc()
+        var cachedOnUtc = DateTime.UtcNow;
+        var doc = new CachedValuesDoc
         {
-            Id          = CachedDepartmentsDocName,
-            CachedOnUtc = DateTime.UtcNow,
-            Departments = departments
+            Id          = GetCachedDocId(fieldName),
+            CachedOnUtc = cachedOnUtc,
+            ExpireAtUtc = cachedOnUtc + ttl,
+            Values      = values.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray()
         };
 
-        var coll = source.GetCollectionWithRetries<CachedDepartmentsDoc>(collectionName + "-Meta");
-        await coll.ReplaceOneAsync( $"{{ _id : \"{CachedDepartmentsDocName}\"}}", doc, new ReplaceOptions {IsUpsert = true}, token);
-    }
+        if ( doc.Values.Length == 0 )
+            return;
 
-    private class CachedDesksDoc
-    {
-        // ReSharper disable once UnusedAutoPropertyAccessor.Local
-        [BsonId] public string             Id                { get; set; } = "";
-        public          (string, string)[] DeskAndDepartment { get; set; } = [];
-        public          DateTime           CachedOnUtc       { get; set; }
-    }
-
-    private const string CachedDesksDocName = "CachedDesks";
-
-    public static async Task<Tuple<bool,(string, string)[]>> LoadCachedDesksAsync(this MongoDbDataSource source, string collectionName, CancellationToken token = default)
-    {
-        var coll   = source.GetCollectionWithRetries<CachedDesksDoc>(collectionName+"-Meta");
-        var cursor = await coll.FindAsync($"{{ _id : \"{CachedDesksDocName}\"}}", cancellationToken: token);
-
-        while ( await cursor.MoveNextAsync(token) )
+        try
         {
-            var batch = cursor.Current;
-            foreach ( var doc in batch )
-            {
-                var expireAt     = doc.CachedOnUtc + TimeSpan.FromHours(24);
-                var isStillValid = expireAt > DateTime.UtcNow;
-
-                return Tuple.Create(
-                    isStillValid, 
-                    doc.DeskAndDepartment.Where( x => !string.IsNullOrWhiteSpace( x.Item1 ) &&
-                                                     !string.IsNullOrWhiteSpace( x.Item2 )).ToArray() 
-                );
-            }
+            var coll = source.GetCollectionWithRetries<CachedValuesDoc>(collectionName + "-Meta");
+            await coll.ReplaceOneAsync(Builders<CachedValuesDoc>.Filter.Eq(x => x.Id, doc.Id), doc, new ReplaceOptions { IsUpsert = true }, token);
         }
-        return Tuple.Create(false, Array.Empty<(string, string)>());
-    }
-
-    public static async Task CacheDesks(this MongoDbDataSource source, string collectionName, (string, string) [] desks, CancellationToken token = default)
-    {
-        if ( desks.Length == 0 )
-            return;
-
-        var doc = new CachedDesksDoc()
+        catch
         {
-            Id                = CachedDesksDocName,
-            CachedOnUtc       = DateTime.UtcNow,
-            DeskAndDepartment = desks
-        };
-
-        var coll = source.GetCollectionWithRetries<CachedDesksDoc>(collectionName + "-Meta");
-        await coll.ReplaceOneAsync( $"{{ _id : \"{CachedDesksDocName}\"}}", doc, new ReplaceOptions {IsUpsert = true}, token);
-    }
-
-    public static async Task CacheCobDates(this MongoDbDataSource source, string collectionName, string [] cobs, CancellationToken token = default)
-    {
-        if ( cobs.Length == 0 )
-            return;
-
-        var doc  = new BsonDocument(new Dictionary<string, string[]> { ["CobDates"] = cobs});
-        var coll = source.GetCollectionWithRetries<BsonDocument>(collectionName + "-Meta");
-        await coll.ReplaceOneAsync( "{_id : \"CachedCobDates\"}", doc, new ReplaceOptions {IsUpsert = true}, token);
+            // ignore invalid or incompatible cached document state
+        }
     }
 
 }

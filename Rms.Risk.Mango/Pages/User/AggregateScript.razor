@@ -5,9 +5,11 @@
 @using Rms.Risk.Mango.Language
 @using Rms.Risk.Mango.Language.Parsers
 
-@inject NavigationManager NavigationManager
-@inject IUserSession       UserSession
-@inject IJSRuntime        JsRuntime
+@inject NavigationManager     NavigationManager
+@inject IUserSession          UserSession
+@inject IJSRuntime            JsRuntime
+@inject IAuthorizationService Auth
+@inject ISchemaLoader SchemaLoader
 
 @*
  *                                dbMango
@@ -59,7 +61,7 @@
         <div class="form-row">
             <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Timeout (sec)"  @bind-Value="Timeout"   InputType="number" Icon="icon-clock-sm"/>
             <FormItemText     Enabled="@IsReady" Class="mr-2" Name="Max fetch size" @bind-Value="FetchSize" InputType="number" Icon="icon-download-selected-sm" />
-            @* <FormItemCheckBox Enabled="@IsReady" Class="mr-2" Name="Show as Json" @bind-Value="ShowAsJson" /> *@
+            <FormItemText Class="mr-2" Name="Rows per page" @bind-Value="RowsPerPageStr" InputType="number" Icon="icon-download-selected-sm" />
             <div class="flex-stack-vertical">
                 <div class="flex-stack-horizontal">
                     <div class="form-group">
@@ -85,11 +87,11 @@
                 </div>
                 <div class="flex-stack-horizontal">
                     See:
+                    <a href="/doc/afh" target="_blank" class="ml-1 mr-1">Script help</a>
+                    ,
                     <a href="https://www.mongodb.com/docs/manual/reference/command/aggregate/" target="_blank" class="ml-1 mr-1">Aggregation pipeline</a>
                     ,
                     <a href="https://www.mongodb.com/docs/manual/reference/operator/aggregation-pipeline/#std-label-aggregation-pipeline-operator-reference" target="_blank" class="ml-1 mr-1">Stages</a>
-                    ,
-                    <a href="/doc/afh" target="_blank" class="ml-1 mr-1">Script help</a>
                     ,
                     <a href="/doc/editor" target="_blank" class="ml-1 mr-1">Keys</a>
                 </div>
@@ -100,15 +102,15 @@
 
     <div class="row">
         <div class="col-6">
-            <TabControl ActivePageChanged="@OnActivePageChanged" PersistAllTabs="true">
+            <TabControl ActivePage="@InputActivePage" ActivePageChanged="@OnActivePageChanged" PersistAllTabs="true">
                 <TabPage Text="Text">
                     <div class="js-field">
                         <FormCodeEditor @bind-Text="Text" MediaType="text/x-afh" Class=""/>
                     </div>
                 </TabPage>
-                <TabPage Text="Json pipeline">
+                <TabPage Text="@JsonPipelineTabHeader">
                     <div class="js-field">
-                        <FormCodeEditor @bind-Text="TextJson" MediaType="application/json" Class="" Readonly="true" />
+                        <FormCodeEditor @ref="_jsonEditor" @bind-Text="TextJson" MediaType="application/json" Class="" Readonly="true" />
                     </div>
                 </TabPage>
             </TabControl>
@@ -120,6 +122,8 @@
                     <SimplePivotComponent PivotName="find"
                                           CollectionName="find"
                                           PivotData="@ResultPivot"
+                                          Rows="@Rows"
+                                          HandleCellClick="@OnCellClick"
                     />
                 </TabPage>
                 <TabPage Text="Json">
@@ -133,8 +137,12 @@
 </AuthorizedOnly>
 
 @code {
-    [Parameter] public string? DatabaseStr { get; set; }
-    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [CascadingParameter] public IModalService Modal  { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr           { get; set; }
+    [Parameter] public string? DatabaseInstanceStr   { get; set; }
+
+    private const string JsonPipelineTabHeader = "Json pipeline";
 
     private string Database
     {
@@ -160,10 +168,33 @@
         }
     }
 
-    private string Timeout { get; set; } = "20";
-    private string FetchSize  { get; set; } = "10";
+    private class AfhPageState
+    {
+        public string Timeout    { get; set; } = "20";
+        public string FetchSize  { get; set; } = "10";
+        public int    Rows       { get; set; } = 35;
+        public string Text       { get; set; } = "";
+    }
+
+    private AfhPageState _state = new();
+
+    private string Timeout    { get => _state.Timeout;   set => _state.Timeout = value; }
+    private string FetchSize  { get => _state.FetchSize; set => _state.FetchSize = value; }
     private bool   IsReady    { get; set; } = true;
-    // private bool   ShowAsJson { get; set; }
+
+    private string InputActivePage
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            _refreshJsonEditor = value == JsonPipelineTabHeader;
+            InvokeAsync(StateHasChanged);
+        }
+    } = "Text";
+
     private string ResultActivePage
     {
         get;
@@ -176,15 +207,53 @@
         }
     } = "Table";
 
+    private int Rows
+    {
+        get => _state.Rows;
+        set
+        {
+            if (_state.Rows == value)
+                return;
+            _state.Rows = value;
+            InvokeAsync(StateHasChanged);
+        }
+    }
 
-    private string              Text        { get; set; } = "";
-    private string              TextJson    { get; set; } = "";
-    private string              Result      { get; set; } = "{}";
-    private List<BsonDocument>  ResultBson  { get; set; } = [];
-    public  ArrayBasedPivotData ResultPivot { get; set; } = new([]);
+    private string RowsPerPageStr
+    {
+        get => Rows.ToString();
+        set
+        {
+            if (int.TryParse(value, out var newValue))
+                Rows = newValue;
+        }
+    }
 
-    private EditContext?   _editContext;
-    private EditContext    EditContext => _editContext!;
+    private string              Text             { get => _state.Text; set => _state.Text = value; }
+    private string              TextJson         { get; set; } = "";
+    private string              Result           { get; set; } = "{}";
+    private List<BsonDocument>  ResultBson       { get; set; } = [];
+    public  ArrayBasedPivotData ResultPivot      { get; set; } = new([]);
+
+    private EditContext?     _editContext;
+    private EditContext      EditContext => _editContext!;
+    private CellClickHelper  _cellClickHelper = null!;
+    private FormCodeEditor?  _jsonEditor;
+    private bool             _refreshJsonEditor;
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        _cellClickHelper = new(
+            auth        : Auth,
+            schemaLoader: SchemaLoader,
+            userSession : UserSession,
+            modal       : Modal,
+            invokeAsync : InvokeAsync,
+            showError   : ShowError
+            );
+
+    }
 
     protected override void OnInitialized()
     {
@@ -193,33 +262,55 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-            return;
-
-        if (string.IsNullOrWhiteSpace(DatabaseStr))
-            DatabaseStr = Database;
-        else
-            Database = DatabaseStr;
-
-        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
-            DatabaseInstanceStr = DatabaseInstance;
-        else
-            DatabaseInstance = DatabaseInstanceStr;
-
-        SyncUrl();
-
-        var text = await JsRuntime.LoadFromLocalStorage("AggregationForHumans");
-        if (!string.IsNullOrWhiteSpace(text))
+        if (firstRender)
         {
-            Text = text;
-            await InvokeAsync(StateHasChanged);
+            if (string.IsNullOrWhiteSpace(DatabaseStr))
+                DatabaseStr = Database;
+            else
+                Database = DatabaseStr;
+
+            if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+                DatabaseInstanceStr = DatabaseInstance;
+            else
+                DatabaseInstance = DatabaseInstanceStr;
+
+            SyncUrl();
+
+            var text = await JsRuntime.LoadFromLocalStorage("AggregationForHumans");
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                try
+                {
+                    _state = JsonUtils.FromJson<AfhPageState>(text) ?? new AfhPageState();
+                }
+                catch (Exception)
+                {
+                    Text = text;
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+
+        if (_refreshJsonEditor && InputActivePage == JsonPipelineTabHeader && _jsonEditor != null)
+        {
+            _refreshJsonEditor = false;
+            await _jsonEditor.Refresh();
         }
     }
 
     private async Task Format()
     {
+        try
+        {
+            var ast = LanguageParser.ParseScriptToAST(Text);
+            Text = ast.AsText();
 
-        await InvokeAsync(StateHasChanged);
+            await UpdatePipelineJson();
+        }
+        catch (Exception ex)
+        {
+            await Display(ex);
+        }
     }
 
     private Task Run()     => Run(false);
@@ -237,7 +328,7 @@
             var pipelineJson = GetCombinedPipelineJson();
             await UpdatePipelineJson();
 
-            await JsRuntime.SaveToLocalStorage("AggregationForHumans", Text, cts.Token);
+            await JsRuntime.SaveToLocalStorage("AggregationForHumans", _state, cts.Token);
 
             UserSession.Collection = GetSelectedCollection();
 
@@ -348,9 +439,9 @@
             fieldMap,
             results,
             null,
-            true,
+            int.Parse(FetchSize) <= 20,
             int.Parse(FetchSize),
-            false,
+            true,
             token);
 
         if (list.Count == 0)
@@ -411,7 +502,9 @@
 
     private async Task OnActivePageChanged(string arg)
     {
-        if (arg != "Json pipeline")
+        InputActivePage = arg;
+
+        if (arg != JsonPipelineTabHeader)
             return;
 
         await UpdatePipelineJson();
@@ -423,6 +516,9 @@
         {
             var json = GetCombinedPipelineJson();
             TextJson = json;
+
+            if (InputActivePage == JsonPipelineTabHeader)
+                _refreshJsonEditor = true;
         }
         catch (Exception e)
         {
@@ -432,4 +528,13 @@
         await InvokeAsync(StateHasChanged);
     }
 
+    private Task<bool> OnCellClick(IPivotedData data, int row, string columnName)
+        => _cellClickHelper.OnCellClick(GetSelectedCollection(), ResultBson, data, row, columnName);
+
+    private async Task ShowError(BsonValue id, string text)
+    {
+        Result = text;
+        ResultActivePage = "Json";
+        await InvokeAsync(StateHasChanged);
+    }
 }

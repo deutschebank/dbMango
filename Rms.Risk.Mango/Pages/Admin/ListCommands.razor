@@ -44,27 +44,27 @@
     else
     {
         <TableControl   Class="table table-hover table-striped table-forge table-forge-striped mr-3" 
-                        Items="@(Result.Cast<dynamic>().ToList())" 
+                        Items="@_resultPivotData" 
                         PageSize="28" 
                         Filterable="true">
-            
+
             <TableColumnControl Name="Name" Field="Name" Class="column-name">
                 <Template>
-                    <a href="@GetCommandLink(((CommandDef)context.Row).Name)" target="_blank">
-                        @(((CommandDef)context.Row).Name)
+                    <a href="@GetCommandLink(TableControl.Source<CommandDef>(context.Data, context.Row)!.Name)" target="_blank">
+                        @(TableControl.Source<CommandDef>(context.Data, context.Row)!.Name)
                     </a>
                 </Template>
             </TableColumnControl>
 
             <TableColumnControl Name="Description" Field="Description" Class="column-value">
                 <Template>
-                    @(((CommandDef)context.Row).Description)
+                    @(TableControl.Source<CommandDef>(context.Data, context.Row)!.Description)
                 </Template>
             </TableColumnControl>
 
             <TableColumnControl Name="Admin" Field="AdminOnly" Class="column-admin" >
                 <Template>
-                    <FormItemCheckBox Value="@(((CommandDef)context.Row).AdminOnly)" Enabled="false" LabelOn="" LabelOff=""/>
+                    <FormItemCheckBox Value="@(TableControl.Source<CommandDef>(context.Data, context.Row)!.AdminOnly)" Enabled="false" LabelOn="" LabelOff=""/>
                 </Template>
             </TableColumnControl>
         </TableControl>
@@ -105,6 +105,7 @@
 
     private string?          Error  { get; set; }
     private List<CommandDef> Result { get; } = [];
+    private IPivotedData     _resultPivotData = new List<CommandDef>().ToPivotData();
 
     protected override void OnAfterRender(bool firstRender)
     {
@@ -136,6 +137,7 @@
 
             var res = await CommandListService.GetCommands(UserSession.MongoDbAdminForAdminDatabase, cts.Token);
             Result.AddRange(res);
+            _resultPivotData = Result.ToPivotData();
         }
         catch (Exception e)
         {

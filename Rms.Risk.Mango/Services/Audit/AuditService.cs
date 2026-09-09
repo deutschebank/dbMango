@@ -25,7 +25,7 @@ using Rms.Risk.Mango.Pivot.UI.Services;
 namespace Rms.Risk.Mango.Services.Audit;
 
 // ReSharper disable InconsistentNaming
-public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings, int _auditExpireDays, string? _databaseInstance = null) : IAuditService
+public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings, int _auditExpireDays, ILogger<AuditService> _log, string? _databaseInstance = null) : IAuditService
 // ReSharper restore InconsistentNaming
 {
     public const string AuditCollection = DatabaseStructureLoader.AuditCollection;
@@ -40,6 +40,9 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
 
     public async Task Record(AuditRecord rec, CancellationToken token = default)
     {
+        if ( _config.DisableDbMangoCollections)
+            return;
+
         var commandType = rec.Command.ElementAt(0).Name ?? "";
         if (MongoDbCommandHelper.IsReadOnlyCommand(commandType))
             return;
@@ -70,15 +73,26 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
             ["command"]     = rec.Command
         });
 
+        _log.LogInformation(
+            "Audit record stored: database={Database}, collection={Collection}, commandType={CommandType}, success={Success}",
+            rec.DatabaseName,
+            rec.Command.ElementAt(0).Value,
+            commandType,
+            rec.Success);
+
         await _database.GetCollection<BsonDocument>(AuditCollection).InsertOneAsync(doc, new (), token);
     }
 
     public async Task<List<AuditRecord>> Audit(DateTime startDate, DateTime endDate, CancellationToken token = default)
     {
+        if ( _config.DisableDbMangoCollections)
+            return [];
+
+
         var filter = $@"{{
     ""$and"" : [
-        {{ ts : {{ ""$gte"" : ISODate(""{startDate:yyyy-MM-dd}T00:00:00"") }} }},
-        {{ ts : {{ ""$lte"" : ISODate(""{endDate:yyyy-MM-dd}T23:59:59"") }} }}
+        {{ ts : {{ ""$gte"" : {{ ""$date"" : ""{startDate:yyyy-MM-dd}T00:00:00Z"" }} }} }},
+        {{ ts : {{ ""$lte"" : {{ ""$date"" : ""{endDate:yyyy-MM-dd}T23:59:59Z"" }} }} }}
     ]
 }}";
 
@@ -124,10 +138,5 @@ public class AuditService(MongoDbConfigRecord _config, MongoDbSettings _settings
             return "";
         return doc[name].ToString() ?? "";
     }
-    //private static bool GetBool(BsonDocument doc, string name)
-    //{
-    //    if (!doc.Contains(name) || doc[name].IsBsonNull )
-    //        return false;
-    //    return doc[name].ToBoolean();
-    //}
+
 }

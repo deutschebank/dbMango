@@ -52,14 +52,14 @@ public class MongoDbConfigTests
         {
             MongoDbUrl      = "mongodb://localhost:27017",
             MongoDbDatabase = "testDatabase",
-            Auth = new MongoDbAuth
+            Auth = new()
             {
                 User         = "testUser",
                 Password     = "testPassword",
                 AuthDatabase = "testAuthDatabase",
                 Method       = "SCRAM-SHA-256"
             },
-            AdminAuth = new MongoDbAuth
+            AdminAuth = new()
             {
                 User         = "adminUser",
                 Password     = "adminPassword",
@@ -172,14 +172,14 @@ public class MongoDbConfigTests
         {
             MongoDbUrl      = "mongodb://localhost:27017",
             MongoDbDatabase = "testDatabase",
-            Auth = new MongoDbAuth
+            Auth = new()
             {
                 User         = "testUser",
                 Password     = "testPassword",
                 AuthDatabase = "admin",
                 Method       = "SCRAM-SHA-256"
             },
-            AdminAuth = new MongoDbAuth
+            AdminAuth = new()
             {
                 User         = "adminUser",
                 Password     = "adminPassword",

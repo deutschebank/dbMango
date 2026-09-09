@@ -1,7 +1,5 @@
-﻿@using System.Dynamic
-@using System.Runtime.CompilerServices
-@using System.Text
-@using Microsoft.CSharp.RuntimeBinder
+﻿@using System.Text
+@using System.Text.Json
 
 @inject IJSRuntime JsRuntime
 
@@ -48,16 +46,35 @@
         <thead>
             <tr>
                 <th style="width: 25px !important;" class="p-0">
-                    <div class="w-100 h-100 d-flex flex-column">
-                        <button class="btn px-0 w-100 text-left" @onclick="TriggerFilterRow">
-                            <span class="m-auto ui-icon-font ui-icon-sm icon-search-sm"></span>
-                        </button>
+                    <div class="align-left d-flex flex-column align-items-start">
+                        <div class="d-flex flex-row flex-nowrap align-items-center">
+                            <button class="btn px-0" @onclick="TriggerFilterRow" title="Filter rows" aria-label="Filter rows">
+                                <span class="ui-icon-font ui-icon-sm icon-search-sm"></span>
+                            </button>
+                            @if (TransposeEnabled)
+                            {
+                                <button class="btn px-0" @onclick="ToggleTranspose" title="Transpose table" aria-label="Transpose table">
+                                    <span class="ui-icon-font ui-icon-sm icon-flip-sm"></span>
+                                </button>
+                            }
+                        </div>
                         @if (Filterable)
                         {
-                            <span class="m-auto">#</span>
+                            <div><span class="d-block text-center">#</span></div>
                         }
                     </div>
                 </th>
+                @if (_isTransposed)
+                {
+                    @foreach (var row in DisplayedRows)
+                    {
+                        <th>@GetTransposedRowLabel(row)</th>
+                    }
+                    @if (Totals != null)
+                    {
+                        <th class="totals-row">Total</th>
+                    }
+                }
                 <CascadingValue Value="this">
                     @ChildContent
                 </CascadingValue>
@@ -65,12 +82,55 @@
         </thead>
 
         <tbody>
-            @if (DisplayedItems.Any())
+            @if (_isTransposed)
+            {
+                @foreach (var column in Columns)
+                {
+                    <tr>
+                        <th class="py-0 align-bottom @column.Class">
+                            @column.HeaderContent
+                        </th>
+                        @foreach (var row in DisplayedRows)
+                        {
+                            @if (column.Template == null && !string.IsNullOrEmpty(column.Field))
+                            {
+                                var val = GetValue(Items, column.Field, row);
+
+                                <td class="@column.Class @(CellClass(Items, row, column))"
+                                    style="@(CellStyle(Items, row, column))"
+                                    @onclick="@(() => OnSelectionChanged(row, column.Field))">
+                                    @ConvertToString(val, column.Format)
+                                </td>
+                            }
+                            else if (column.Template != null)
+                            {
+                                <td class="@column.Class @(CellClass(Items, row, column))"
+                                    style="@(CellStyle(Items, row, column))"
+                                    @onclick="@(() => OnSelectionChanged(row, column.Field))">
+                                    @column.Template((row, column, Items))
+                                </td>
+                            }
+                            else
+                            {
+                                <td class="@column.Class">???</td>
+                            }
+                        }
+                        @if (Totals != null)
+                        {
+                            var total = column.ShowTotals ? Totals.TryGet(column.Name)?.Total : null;
+                            <td class="@(GetCellClass(null, -1, total, column)) totals-row">
+                                @(column.ShowTotals ? ConvertToString(total, column.Format) : " ")
+                            </td>
+                        }
+                    </tr>
+                }
+            }
+            else if (DisplayedRows.Any())
             {
                 var ix = 1 + (_currentPage - 1) * PageSize;
-                @foreach (var item in DisplayedItems)
+                @foreach (var row in DisplayedRows)
                 {
-                    <tr class="@(RowClass(item))">
+                    <tr class="@(RowClass(Items, row))">
                         <td class="tc-row-number">
                             @ix
                         </td>
@@ -78,26 +138,26 @@
                         {
                             @if (column.Template == null && !string.IsNullOrEmpty(column.Field))
                             {
-                                var val = GetLambdaForValue(column.Field)(item);
+                                var val = GetValue(Items, column.Field, row);
 
-                                <td class="@column.Class @(CellClass(item, column))"
-                                    style="@(CellStyle(item, column))"
-                                    @onclick="@(() => OnSelectionChanged(item, column.Field))"
+                                <td class="@column.Class @(CellClass(Items, row, column))"
+                                    style="@(CellStyle(Items, row, column))"
+                                    @onclick="@(() => OnSelectionChanged(row, column.Field))"
                                     >
                                     @ConvertToString(val, column.Format)
                                 </td>
                             }
                             else if (column.Template != null)
                             {
-                                <td class="@column.Class @(CellClass(item, column))"
-                                    style="@(CellStyle(item, column))"
-                                    @onclick="@(() => OnSelectionChanged(item, column.Field))">
-                                    @column.Template((item, column))
+                                <td class="@column.Class @(CellClass(Items, row, column))"
+                                    style="@(CellStyle(Items, row, column))"
+                                    @onclick="@(() => OnSelectionChanged(row, column.Field))">
+                                    @column.Template((row, column, Items))
                                 </td>
                             }
                             else
                             {
-                                <td class="@column.Class @(CellClass(item, column))">
+                                <td class="@column.Class @(CellClass(Items, row, column))">
                                     ???
                                 </td>
                             }
@@ -117,7 +177,7 @@
                             {
                                 var val = Totals.TryGet(column?.Name ?? "")?.Total;
 
-                                <td class="@(GetCellClass("", val, column!)) totals-row">
+                                <td class="@(GetCellClass(null, -1, val, column!)) totals-row">
                                     @ConvertToString(val, column!.Format)
                                 </td>
                             }
@@ -164,7 +224,7 @@
                 </li>
             }
             <li class="page-item ml-2" style="color: @Night.secondary">
-                @(DisplayedItems?.Count() ?? 0) of total @Items?.Count
+                @(DisplayedRows?.Count() ?? 0) of total @(Items?.Count ?? 0)
             </li>
             <li class="page-item ml-2 flex-pull-right">
                 <a class="page-link cursor-pointer" @onclick="@OnCopyAllToClipboard">
@@ -191,15 +251,15 @@
     [Parameter] public RenderFragment? TableFooter              { get; set; }
 
     [Parameter]
-    public IReadOnlyCollection<dynamic> Items
+    public IPivotedData Items
     {
         get;
         set
         {
-            //detect if the new list is actually different, this is a little basic, but handles deletes/adds
-            //to the list. Ideally a hash of the list is best, but because 'StateHasChanged' is being called so many times
+            //detect if the new data is actually different, this is a little basic, but handles deletes/adds
+            //to the list. Ideally a hash of the data is best, but because 'StateHasChanged' is being called so many times
             //by some controls (ContextControl!) this logic 
-            if (value == null || (value.Count == _itemCount && Equals(field, value)))
+            if (value == null || (value.Count == _itemCount && ReferenceEquals(field, value)))
                 return;
 
             field      = value;
@@ -207,47 +267,52 @@
 
             ActiveFilters.Clear();
             ActiveFiltersExactMatch.Clear();
-            //reapply the filtering to the new items
-            Task.Run(ApplyColumnFilterAndSort);
+            //reapply the filtering to the new items on the renderer context
+            _ = InvokeAsync(ApplyColumnFilterAndSort);
         }
-    } = [];
+    } = new ArrayBasedPivotData([]);
 
     [Parameter] public int                                      PageSize         { get; set; } = 10;
     [Parameter] public int                                      PagerSize        { get; set; } = 5;
     [Parameter] public string?                                  Class            { get; set; }
     [Parameter] public string?                                  TableClass       { get; set; }
     [Parameter] public bool                                     Filterable       { get; set; } 
+    [Parameter] public bool                                     TransposeEnabled { get; set; } = true;
     [Parameter] public bool                                     Selectable       { get; set; } 
-    [Parameter] public dynamic?                                 SelectedItem     { get; set; }
+    [Parameter] public int?                                     SelectedRow      { get; set; }
     [Parameter] public string?                                  SelectedColumn   { get; set; }
-    [Parameter] public EventCallback<(dynamic row, string col)> SelectionChanged { get; set; }
-    [Parameter] public Func<dynamic, string>                    RowClass         { get; set; } = _ => "";
+    [Parameter] public EventCallback<(int row, string col)>     SelectionChanged { get; set; }
+    [Parameter] public Func<IPivotedData, int, string>          RowClass         { get; set; } = (_, _) => "";
     [Parameter] public bool                                     AbsoluteSort     { get; set; } = true;
     [Parameter] public IMinMaxCache?                            Totals           { get; set; }
 
     private string UniqueID { get;set;} = Guid.NewGuid().ToString();
 
     private int _itemCount;
+    private bool _isTransposed;
+
+    internal bool IsTransposed => _isTransposed;
+    private readonly SemaphoreSlim _applyColumnFilterAndSortLock = new(1, 1);
 
     /// <summary>
     /// Allow the user to specify a custom class per cell, this will completely override the default styling 
     /// </summary>
-    [Parameter] public Func<dynamic, TableColumnControl, string> CellClass { get; set; } = DefaultGetCellClass;
+    [Parameter] public Func<IPivotedData, int, TableColumnControl, string> CellClass { get; set; } = DefaultGetCellClass;
     /// <summary>
     /// Allow the user to specify a custom style per cell, this will be applied on top of normal styling
     /// </summary>
-    [Parameter] public Func<dynamic, TableColumnControl, string> CellStyle { get; set; } = (_,_) => "";
+    [Parameter] public Func<IPivotedData, int, TableColumnControl, string> CellStyle { get; set; } = (_,_,_) => "";
 
     /// <summary>
     /// Allows the user to apply _Extra_ styling on top of the existing default styling
     /// </summary>
-    [Parameter] public Func<dynamic, TableColumnControl, string>? GetCellClassCallback { get; set; }
+    [Parameter] public Func<IPivotedData, int, TableColumnControl, string>? GetCellClassCallback { get; set; }
 
     [Parameter]
-    public List<dynamic> FilteredItems { get; set; } = [];
+    public List<int>? FilteredRowIndices { get; set; }
 
     [Parameter]
-    public EventCallback<List<dynamic>> FilteredItemsChanged { get; set; }
+    public EventCallback<List<int>?> FilteredRowIndicesChanged { get; set; }
 
     [Parameter]
     public string? CurrentSortColumn
@@ -294,7 +359,11 @@
 
     //Column the table is currently sorted by.
 
-    protected IEnumerable<dynamic> DisplayedItems => FilteredItems?.Skip((_currentPage - 1) * PageSize).Take(PageSize) ?? [];
+    private IEnumerable<int> AllRowIndices => Enumerable.Range(0, Items?.Count ?? 0);
+
+    protected IEnumerable<int> DisplayedRows => (FilteredRowIndices ?? AllRowIndices)
+        .Skip((_currentPage - 1) * PageSize)
+        .Take(PageSize);
 
     private int  _totalPages;
     private int  _currentPage = 1;
@@ -309,13 +378,20 @@
                 return;
 
             await ApplyColumnFilterAndSort();
+            await InvokeAsync(StateHasChanged);
         }
     }
 
     private async Task UpdatePage(int page)
     {
+        var totalRows = FilteredRowIndices?.Count ?? Items?.Count ?? 0;
+        var newTotalPages = (int)Math.Ceiling(totalRows / (decimal)PageSize);
+
+        if (_currentPage == page && _totalPages == newTotalPages)
+            return;
+
         _currentPage = page;
-        _totalPages = (int)Math.Ceiling((FilteredItems?.Count ?? 0) / (decimal)PageSize);
+        _totalPages = newTotalPages;
 
         var sideWidth = (int)Math.Floor((PagerSize - 1) / 2d);
         _startPage    = _currentPage - sideWidth >= 1 ? _currentPage - sideWidth : 1;
@@ -328,60 +404,44 @@
     //Direction the table is currently sorted by
 
     /// <summary>
-    /// Returns a function that given a row item, will return the value for a specified field
+    /// Get the value for a specified field at a given row from the supplied data.
     /// </summary>
-    /// <param name="field"></param>
-    /// <returns></returns>
-    public static Func<dynamic?, dynamic?> GetLambdaForValue(string? field)
+    public static object? GetValue(IPivotedData? data, string? field, int row)
     {
-        return i =>
-        {
-            if (string.IsNullOrEmpty(field))
-            {
-                return "";
-            }
-            switch (i)
-            {
-                case IDictionary<string, object> dict:
-                    {
-                        dict.TryGetValue(field, out var value);
-                        return value;
-                    }
-                case IDictionary<string, string> dict1:
-                    {
-                        dict1.TryGetValue(field, out var value);
-                        return value;
-                    }
-                case DynamicObject dyn:
-                    {
-                        return GetDynamicMember(dyn, field);
-                    }
-                default:
-                    return i?.GetType().GetProperty(field)?.GetValue(i, null);
-            }
-        };
+        if (data == null || string.IsNullOrEmpty(field))
+            return "";
+
+        return data.GetColumnPositions().TryGetValue(field, out var col)
+            ? data.Get(col, row)
+            : null;
     }
 
     /// <summary>
-    /// Returns a function that given a row item, will return the absolute value for a specified field
+    /// Get the absolute value for a specified field at a given row from the supplied data.
     /// </summary>
-    /// <param name="field"></param>
-    /// <returns></returns>
-    public static Func<dynamic?, dynamic?> GetLambdaForAbsValue(string? field)
+    public static object? GetAbsValue(IPivotedData? data, string? field, int row)
     {
-        var getValue = GetLambdaForValue(field);
-        return x =>
+        var val = GetValue(data, field, row);
+        return val switch
         {
-            var val = getValue(x);
-            return val switch
-            {
-                double d => Math.Abs(d),
-                int i    => Math.Abs(i),
-                long l   => Math.Abs(l),
-                float f  => Math.Abs(f),
-                _        => val
-            };
+            double d => Math.Abs(d),
+            int i    => Math.Abs(i),
+            long l   => Math.Abs(l),
+            float f  => Math.Abs(f),
+            _        => val
         };
+    }
+
+    private string GetTransposedRowLabel(int row)
+    {
+        var firstColumn = Columns.FirstOrDefault();
+        var label = firstColumn == null
+            ? string.Empty
+            : ConvertToString(GetValue(Items, firstColumn.Field, row), firstColumn.Format);
+
+        return string.IsNullOrWhiteSpace(label)
+            ? (row + 1).ToString()
+            : label;
     }
 
     public static bool IsNumeric(object value) => value is double ||
@@ -391,21 +451,19 @@
         value is ulong;
 
     /// <summary>
-    /// This is a rather weird way around the ability to create an Icomparer of dynamic
+    /// Recover the original source object for a row when the data is backed by a typed collection.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    public abstract class GridComparerDynamic<T> : IComparer<T>
-    {
-        public abstract int Compare(T? row1, T? row2);
-    }
+    public static T? Source<T>(IPivotedData data, int row) => PivotDataHelper.Source<T>(data, row);
 
-
-    public class GridComparer(Func<dynamic?, dynamic?> methodLambda) : GridComparerDynamic<dynamic>
+    /// <summary>
+    /// Compares two row indices by the value produced by <paramref name="valueSelector"/>.
+    /// </summary>
+    public sealed class GridComparer(Func<int, object?> valueSelector) : IComparer<int>
     {
-        public override int Compare(object? row1, object? row2)
+        public int Compare(int row1, int row2)
         {
-            var row1Value = methodLambda(row1);
-            var row2Value = methodLambda(row2);
+            var row1Value = valueSelector(row1);
+            var row2Value = valueSelector(row2);
 
             if (row1Value == null && row2Value == null) return 0;
             //put any nulls at the end of the list
@@ -417,12 +475,12 @@
             {
                 //if both types are at least numberic, then compare them as doubles
                 if (IsNumeric(row1Value) && IsNumeric(row2Value))
-                    return ((double)row1Value).CompareTo((double)row2Value);
+                    return ((double)Convert.ToDouble(row1Value)).CompareTo(Convert.ToDouble(row2Value));
                 //fall back to comparing as strings
-                return row1Value.ToString().CompareTo(row2Value.ToString());
+                return string.CompareOrdinal(row1Value.ToString(), row2Value.ToString());
             }
-            if (row1Value is IComparable)
-                return row1Value.CompareTo(row2Value);
+            if (row1Value is IComparable comparable)
+                return comparable.CompareTo(row2Value);
             return 0;
         }
     }
@@ -453,6 +511,7 @@
         _currentPage = 1;
 
         await ApplyColumnFilterAndSort();
+        await InvokeAsync(StateHasChanged);
     }
 
     public async Task SetColumnSort(string columnName)
@@ -485,21 +544,67 @@
         }
 
         await ApplyColumnFilterAndSort();
+        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task ApplyColumnFilterAndSort()
+    private object? _lastItemsSource;
+
+    protected override void OnParametersSet()
     {
-        IEnumerable<dynamic> fa = Items; // no copying needed
+        base.OnParametersSet();
+
+        if (!TransposeEnabled)
+            _isTransposed = false;
+
+        if (!ReferenceEquals(_lastItemsSource, Items))
+        {
+            _lastItemsSource = Items;
+            ResetStateForNewItems();
+        }
+    }
+
+    private void ResetStateForNewItems()
+    {
+        SelectedRow    = null;
+        SelectedColumn = null;
+
+        ActiveFilters?.Clear();
+        ActiveFiltersExactMatch?.Clear();
+
+        CurrentSortColumn = null;
+
+        _currentPage = 1;
+        _startPage   = 1;
+        _itemCount   = Items?.Count ?? 0;
+        _totalPages  = PageSize > 0
+            ? Math.Max(1, (int)Math.Ceiling(_itemCount / (double)PageSize))
+            : 1;
+        _endPage = Math.Min(PagerSize, _totalPages);
+
+        FilteredRowIndices = null;
+    }
+
+    private List<int>? GetFilteredRowIndexes()
+    {
+        var data = Items;
+
+        if (ActiveFilters.Count == 0 && SortMode == SortModeType.NoSort)
+            return null;
+
+        IEnumerable<int> fa = Enumerable.Range(0, data.Count);
+
+        var columnPositions = data.GetColumnPositions();
 
         //create data filtering linq
         foreach (var (column, value) in ActiveFilters)
         {
             var exactMatch = ActiveFiltersExactMatch[column];
-            fa = fa.Where(x =>
-            {
-                var tableColumnDef = Columns.FirstOrDefault(c => c.Field == column);
+            var tableColumnDef = Columns.FirstOrDefault(c => c.Field == column);
+            var hasColumn = columnPositions.TryGetValue(column, out var colPos);
 
-                var colOriginalValue = GetLambdaForValue(column)(x);
+            fa = fa.Where(row =>
+            {
+                var colOriginalValue = hasColumn ? data.Get(colPos, row) : null;
 
                 var colValue = ConvertToString(colOriginalValue, tableColumnDef?.Format);
 
@@ -514,29 +619,44 @@
             });
         }
 
+        var sortColumn = CurrentSortColumn;
+
         //add data sorting on top
         fa = SortMode switch
         {
             SortModeType.NoSort             => fa,
-            SortModeType.Ascending          => fa.OrderBy          (x => x, new GridComparer(GetLambdaForValue(CurrentSortColumn))),
-            SortModeType.Descending         => fa.OrderByDescending(x => x, new GridComparer(GetLambdaForValue(CurrentSortColumn))),
-            SortModeType.AscendingAbsolute  => fa.OrderBy          (x => x, new GridComparer(GetLambdaForAbsValue(CurrentSortColumn))),
-            SortModeType.DescendingAbsolute => fa.OrderByDescending(x => x, new GridComparer(GetLambdaForAbsValue(CurrentSortColumn))),
-            _ => throw new ArgumentOutOfRangeException()
+            SortModeType.Ascending          => fa.OrderBy(x => x, new GridComparer(row => GetValue(data, sortColumn, row))),
+            SortModeType.Descending         => fa.OrderByDescending(x => x, new GridComparer(row => GetValue(data, sortColumn, row))),
+            SortModeType.AscendingAbsolute  => fa.OrderBy(x => x, new GridComparer(row => GetAbsValue(data, sortColumn, row))),
+            SortModeType.DescendingAbsolute => fa.OrderByDescending(x => x, new GridComparer(row => GetAbsValue(data, sortColumn, row))),
+            _                               => throw new ArgumentOutOfRangeException()
         };
 
-        FilteredItems = [..fa];
+        var newIndexes = fa.ToList();
+        return newIndexes;
+    }
 
+    private async Task ApplyColumnFilterAndSort()
+    {
+        await _applyColumnFilterAndSortLock.WaitAsync();
         try
         {
-            await InvokeAsync(() => FilteredItemsChanged.InvokeAsync(FilteredItems));
-        }
-        catch (Exception)
-        {
-            // ignore
-        }
+            var newIndexes = GetFilteredRowIndexes();
+            var hasChanged = (FilteredRowIndices is null) != (newIndexes is null)
+                || (FilteredRowIndices is not null && newIndexes is not null && !FilteredRowIndices.SequenceEqual(newIndexes));
 
-        await UpdatePage(_currentPage);
+            if (hasChanged)
+            {
+                FilteredRowIndices = newIndexes;
+                await FilteredRowIndicesChanged.InvokeAsync(FilteredRowIndices);
+            }
+
+            await UpdatePage(1);
+        }
+        finally
+        {
+            _applyColumnFilterAndSortLock.Release();
+        }
     }
     #endregion
 
@@ -610,23 +730,54 @@
             return "";
 
         if (value is string s)
-            return s;
+            return ToSingleLineWithLengthLimit(s);
 
-        if (format == null)
-            return value.ToString() ?? "";
+        if (value is System.Collections.IDictionary || value is System.Collections.IEnumerable)
+            return ToSingleLineWithLengthLimit(ConvertCollectionToString(value));
 
+        var str = format == null
+            ? value.ToString() ?? ""
+            : value switch
+            {
+                double d    => d    .ToString( format ),
+                float f     => f    .ToString( format ),
+                long l      => l    .ToString( format ),
+                int i       => i    .ToString( format ),
+                TimeSpan ts => ts   .ToString( format == "N0" ? "g" : format),
+                decimal dc  => dc   .ToString( format ),
+                DateTime dt => DateTimeFormatting(dt, format),
+                _           => value.ToString() ?? ""
+            };
 
-        return value switch
+        return ToSingleLineWithLengthLimit(str);
+    }
+
+    private static string ConvertCollectionToString(object value)
+    {
+        try
         {
-            double d    => d    .ToString( format ),
-            float f     => f    .ToString( format ),
-            long l      => l    .ToString( format ),
-            int i       => i    .ToString( format ),
-            TimeSpan ts => ts   .ToString( format == "N0" ? "g" : format),
-            decimal dc  => dc   .ToString( format ),
-            DateTime dt => DateTimeFormatting(dt, format),
-            _           => value.ToString() ?? ""
-        };
+            return JsonSerializer.Serialize(value);
+        }
+        catch (Exception)
+        {
+            return value.ToString() ?? "";
+        }
+    }
+
+    private static string ToSingleLineWithLengthLimit(string value)
+    {
+        const int maxLength = 100;
+        const string ellipsis = "...";
+
+        var singleLine = value
+            .Replace("\r\n", " ")
+            .Replace('\n', ' ')
+            .Replace('\r', ' ');
+
+        if (singleLine.Length <= maxLength)
+            return singleLine;
+
+        return singleLine[..(maxLength - ellipsis.Length)] + ellipsis;
     }
 
     private static string DateTimeFormatting(DateTime dt, string format)
@@ -639,16 +790,16 @@
             dt.ToString((format == "N0" || format == "N1") ? "yyyy-MM-dd" : format);
     }
 
-    public static string DefaultGetCellClass(dynamic item, TableColumnControl column)
+    public static string DefaultGetCellClass(IPivotedData data, int row, TableColumnControl column)
     {
         if (column?.Field == null)
             return "";
 
-        var val = GetLambdaForValue(column.Field)(item);
-        return GetCellClass(item, val, column);
+        var val = GetValue(data, column.Field, row);
+        return GetCellClass(data, row, val, column);
     }
 
-    public static string GetCellClass(dynamic row, object? value, TableColumnControl column)
+    public static string GetCellClass(IPivotedData? data, int row, object? value, TableColumnControl column)
     {
         var c = column.Class;
 
@@ -693,9 +844,9 @@
                 break;
         }
 
-        if (column.TableControl?.GetCellClassCallback != null)
+        if (data != null && row >= 0 && column.TableControl?.GetCellClassCallback != null)
         {
-            customStyle = column.TableControl.GetCellClassCallback(row, column);
+            customStyle = column.TableControl.GetCellClassCallback(data, row, column);
         }
 
         return (s?.Equals("") ?? false) switch
@@ -708,29 +859,14 @@
         };
     }
 
-    private async Task OnSelectionChanged(dynamic selection, string? field)
+    private async Task OnSelectionChanged(int row, string? field)
     {
-        SelectedItem = selection;
+        SelectedRow = row;
         SelectedColumn = field;
 
         if (Selectable)
         {
-            await SelectionChanged.InvokeAsync((selection, field ?? ""));
-        }
-    }
-
-    public static object? GetDynamicMember(object obj, string memberName)
-    {
-        var binder = Binder.GetMember(CSharpBinderFlags.None, memberName, obj.GetType(),
-                                      [CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)]);
-        var callsite = CallSite<Func<CallSite, object, object>>.Create(binder);
-        try
-        {
-            return callsite.Target(callsite, obj);
-        }
-        catch (Exception)
-        {
-            return null;
+            await SelectionChanged.InvokeAsync((row, field ?? ""));
         }
     }
 
@@ -739,19 +875,61 @@
         Filterable = !Filterable;
     }
 
+    private void ToggleTranspose()
+    {
+        _isTransposed = !_isTransposed;
+    }
+
     private async Task OnCopyAllToClipboard()
     {
         string Shield(string s) => s.Contains(",") || s.Contains("\n") ? $"\"{s}\"" : s;
 
         var str = new StringBuilder();
+
+        if (_isTransposed)
+        {
+            var rows = (FilteredRowIndices ?? AllRowIndices).ToArray();
+            str.Append(Shield("Field"));
+            foreach (var row in rows)
+            {
+                str.Append(',');
+                str.Append(Shield(GetTransposedRowLabel(row)));
+            }
+
+            if (Totals != null)
+                str.Append(",Total");
+            str.AppendLine();
+
+            foreach (var column in Columns)
+            {
+                str.Append(Shield(column.Name));
+                foreach (var row in rows)
+                {
+                    str.Append(',');
+                    str.Append(Shield(ConvertToString(GetValue(Items, column.Field, row), column.Format)));
+                }
+
+                if (Totals != null)
+                {
+                    var total = column.ShowTotals ? Totals.TryGet(column.Name)?.Total : null;
+                    str.Append(',');
+                    str.Append(Shield(column.ShowTotals ? ConvertToString(total, column.Format) : ""));
+                }
+                str.AppendLine();
+            }
+
+            await JsRuntime.InvokeVoidAsync("DashboardUtils.CopyToClipboard", str.ToString());
+            return;
+        }
+
         str.Append(string.Join(",", Columns.Select(col => Shield(col.Name ?? ""))));
         str.AppendLine();
 
-        foreach (var row in FilteredItems)
+        foreach (var row in FilteredRowIndices ?? AllRowIndices)
         {
             str.Append(string.Join(",", Columns.Select(col =>
             {
-                var colOriginalValue = GetLambdaForValue(col.Field)(row);
+                var colOriginalValue = GetValue(Items, col.Field, row);
                 var colValue = ConvertToString(colOriginalValue, col.Format);
                 return Shield(colValue);
             })));

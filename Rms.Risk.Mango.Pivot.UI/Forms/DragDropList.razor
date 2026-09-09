@@ -27,7 +27,7 @@
      
 </style>
 
-<ul ondragover="event.preventDefault();" class="@Class">
+<ul ondragover="event.preventDefault();" class="@Class" @ondrop="DropOnList">
     @if (Value != null)
     {
         foreach (var item in Value)
@@ -37,8 +37,9 @@
                 <li draggable="true"
                     class="@LiClass"
                     tabindex="1"
-                    @ondrop="@(() => Drop(item))"
-                    @ondrag="@(() => StartDrag(item))">
+                    @ondrop:stopPropagation="true"
+                    @ondrop="@(() => DropOnItem(item))"
+                    @ondragstart="@(() => StartDrag(item))">
                     @ItemTemplate?.Invoke(item)
                 </li>
             }
@@ -52,40 +53,83 @@
 
 @code
                                                                 {
+    public sealed class DropEvent
+    {
+        public required TNode DraggedItem { get; init; }
+        public TNode?         TargetItem  { get; init; }
+        public bool           DroppedOnList
+        {
+            get;
+            init;
+        }
+    }
+
     [Parameter] public List<TNode>?               Value        { get; set; }
     [Parameter] public EventCallback<List<TNode>> ValueChanged { get; set; }
     [Parameter] public RenderFragment<TNode>?     ItemTemplate { get; set; }
     [Parameter] public string                     Class        { get; set; } = "";
     [Parameter] public string                     LiClass      { get; set; } = "drag-drop-li";
+    [Parameter] public EventCallback<TNode>       DragStarted  { get; set; }
+    [Parameter] public EventCallback<DropEvent>   Dropped      { get; set; }
 
-    private int _currentIndex;
+    private static TNode? _sharedDraggedItem;
+    private        TNode? _draggedItem;
 
-    private void StartDrag(TNode item)
+    private async Task StartDrag(TNode item)
     {
-        _currentIndex = GetIndex(item);
+        _draggedItem = item;
+        _sharedDraggedItem = item;
+        if (DragStarted.HasDelegate)
+            await DragStarted.InvokeAsync(item);
     }
 
     private int GetIndex(TNode item) => Value?.IndexOf(item) ?? -1;
 
-    private async void Drop(TNode item)
+    private Task DropOnItem(TNode item) => Drop(item, false);
+
+    private Task DropOnList() => Drop(default, true);
+
+    private async Task Drop(TNode? targetItem, bool droppedOnList)
     {
         try
         {
-            if ( item == null || Value == null )
+            var draggedItem = _draggedItem;
+            if (draggedItem == null)
+                draggedItem = _sharedDraggedItem;
+
+            if (Value == null || draggedItem == null)
                 return;
 
-            var index = GetIndex(item);
-            if (index < 0)
+            if (Dropped.HasDelegate)
+            {
+                await Dropped.InvokeAsync(new DropEvent { DraggedItem = draggedItem, TargetItem = targetItem, DroppedOnList = droppedOnList });
+                return;
+            }
+
+            var currentIndex = GetIndex(draggedItem);
+            if (currentIndex < 0)
                 return;
 
             // get current item
-            var current = Value[_currentIndex];
+            var current = Value[currentIndex];
             // remove TNode from current index
-            Value.RemoveAt(_currentIndex);
-            Value.Insert(index, current);
+            Value.RemoveAt(currentIndex);
 
-            // update current selection
-            _currentIndex = index;
+            var index = droppedOnList
+                ? Value.Count
+                : targetItem == null
+                    ? -1
+                    : GetIndex(targetItem);
+            if (index < 0)
+                return;
+
+            if (index > currentIndex)
+                index--;
+
+            if (index == currentIndex)
+                return;
+
+            Value.Insert(index, current);
 
             await InvokeAsync(StateHasChanged);
             await ValueChanged.InvokeAsync(Value);
@@ -93,6 +137,11 @@
         catch (Exception)
         {
             // ignore
+        }
+        finally
+        {
+            _draggedItem = default;
+            _sharedDraggedItem = default;
         }
     }
 }

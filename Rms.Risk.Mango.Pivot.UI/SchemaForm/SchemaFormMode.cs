@@ -1,4 +1,4 @@
-/* 
+﻿/* 
  *                                dbMango
  *
  * Copyright 2025 Deutsche Bank AG
@@ -16,20 +16,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
+namespace Rms.Risk.Mango.Pivot.UI.SchemaForm;
 
-namespace Rms.Risk.Mango.Pages;
-
-public class LogoutModel : PageModel
+public enum SchemaFormMode
 {
-    public async Task<IActionResult> OnGet()
-    {
-        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        await HttpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
-        return LocalRedirect("/");
-    }
+    Add,
+    Edit,
+    ReadOnly
 }

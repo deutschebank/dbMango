@@ -67,8 +67,17 @@ internal class ServerSideTokenStore : IServerSideTokenStore
         if (userSub == null) 
             return Task.FromResult((UserTokens?)null);
 
-        _userTokenProviders.TryGetValue(userSub, out var value);
-        return Task.FromResult(value);
+        if ( !_userTokenProviders.TryGetValue(userSub, out var value) )
+            return Task.FromResult((UserTokens?)null);
+
+        value.ClearExpired();
+        if ( !HasTokens(value) )
+        {
+            _userTokenProviders.TryRemove(userSub, out _);
+            return Task.FromResult((UserTokens?)null);
+        }
+
+        return Task.FromResult<UserTokens?>(value);
     }
 
     public Task StoreTokensAsync(ClaimsPrincipal principal, UserTokens userTokens)
@@ -88,10 +97,17 @@ internal class ServerSideTokenStore : IServerSideTokenStore
                    ?.Value;
 
     public string? GetId(ClaimsPrincipal principal)
-        => Get(principal, ClaimTypes.Email) 
-         ?? Get(principal, "email") 
-         ?? Get(principal, ClaimTypes.NameIdentifier) 
-         ?? Get(principal, ClaimTypes.Name) 
+        => Get(principal, "sub")
+         ?? Get(principal, ClaimTypes.NameIdentifier)
          ?? Get(principal, "usersub")
+         ?? Get(principal, ClaimTypes.Email)
+         ?? Get(principal, "email")
+         ?? Get(principal, ClaimTypes.Name)
          ;
+
+    private static bool HasTokens(UserTokens userTokens)
+        => userTokens.AccessToken != null
+        || userTokens.RefreshToken != null
+        || userTokens.IdToken != null
+        || userTokens.ForgeToken != null;
 }

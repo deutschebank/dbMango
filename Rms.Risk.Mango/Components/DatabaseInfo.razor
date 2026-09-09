@@ -1,9 +1,11 @@
 ﻿@using System.Text.RegularExpressions
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@using Rms.Risk.Mango.Services.Context
 @attribute [Authorize]
 
-@inject IMongoDbServiceFactory MongoDbServiceFactory
-@inject IUserSession            UserSession
-@inject IAuthorizationService  Auth
+@inject IUserSession                  UserSession
+@inject IAuthorizationService         Auth
+@inject IDatabaseConfigurationService DatabaseConfig
 
 @if (Error != null)
 
@@ -34,10 +36,25 @@ else if (_loading)
 }
 else
 {
+    <style>
+        .val
+        {
+            color: greenyellow;
+        }
+    </style>
     <table>
         @foreach (var item in _stats.Where(x => !_exclude.Contains(x.Key)))
         {
-            <tr> <td><div class="mr-4">@(FormatName(item)):</div></td> <td><div class="text-right">@FormatValue(item)</div></td> </tr>
+            <tr> <td><div class="mr-4">@(FormatName(item)):</div></td> <td>
+            @if (FormatName(item).Contains("access"))
+            {
+                <div class="text-right val" title="@GetTooltip()">@FormatValue(item)</div>
+            }
+            else
+            {
+                <div class="text-right val">@FormatValue(item)</div>
+            }
+            </td> </tr>
         }
     </table>
 }
@@ -160,6 +177,23 @@ freeStorage: 0
         _stats["Write access"] = writeAccess.Succeeded;
         _stats["Admin access"] = adminAccess.Succeeded;
 
+        try
+        {
+            _stats["Version"]          = await UserSession.MongoDbAdminForAdminDatabase.GetVersion();
+        }
+        catch
+        {
+            // ignore
+        }
+        try
+        {
+            _stats["Features"] = await UserSession.MongoDbAdminForAdminDatabase.GetFeatureCompatibilityVersion();
+        }
+        catch
+        {
+            // ignore
+        }
+
     }
 
     private static HashSet<string> _byteMeasures =
@@ -202,6 +236,20 @@ freeStorage: 0
         if (_numberMeasures.Contains(item.Key))
             return Convert.ToDouble(item.Value).ToString("N0");
         return item.Value?.ToString() ?? "";
+    }
+
+    private string GetTooltip()
+    {
+        if ( string.IsNullOrWhiteSpace(Database))
+            return string.Empty;
+
+        var config = DatabaseConfig.Databases.GetValueOrDefault(Database);
+        if (config?.Groups == null)
+            return string.Empty;
+
+        return $"Read: {string.Join(", ", config.Groups.ReadOnly)}; " +
+               $"Write: {string.Join(", ", config.Groups.ReadWrite)}; " +
+               $"Admin: {string.Join(", ", config.Groups.Admin)}";
     }
 
 }

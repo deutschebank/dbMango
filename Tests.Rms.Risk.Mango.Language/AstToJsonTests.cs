@@ -66,8 +66,8 @@ public class AstToJsonTests
         var expr = new AstExpressionFunctionCall(
             "concat",
             [
-                new AstFunctionArgument(null, new AstExpressionString("many")),
-                new AstFunctionArgument(null, new AstExpressionString(" miles away"))
+                new(null, new AstExpressionString("many")),
+                new(null, new AstExpressionString(" miles away"))
             ]
         );
 

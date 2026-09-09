@@ -18,14 +18,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *@
-<button class="btn @ButtonClass" @onclick="@(()=>OnClick.InvokeAsync())" disabled="@(!Enabled)">
+<button class="btn @ButtonClass" @onclick="@(() => OnClick.InvokeAsync())" disabled="@(!Enabled)" title="@(GetHint(Arg))">
     <span class="ui-icon-font @GetIcon(Arg)"></span>
+    @if (!string.IsNullOrEmpty(Name))
+    {
+        <span class="ml-2">@Name</span>
+    }
 </button>
 
 @code {
+    [Parameter] public string?         Name      { get; set; } = null;
     [Parameter] public bool            Enabled   { get; set; } = true;
     [Parameter] public bool            IsPrimary { get; set; }
     [Parameter] public Func<T?,string> GetIcon   { get; set; } = _ => "";
+    [Parameter] public Func<T?,string> GetHint   { get; set; } = _ => "";
     [Parameter] public T?              Arg       { get; set; }
     [Parameter] public string          Class     { get; set; } = "";
     [Parameter] public EventCallback   OnClick   { get; set; }

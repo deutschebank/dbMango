@@ -1,0 +1,162 @@
+﻿/* 
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+using Microsoft.AspNetCore.Authorization;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using Rms.Risk.Mango.Interfaces;
+using Rms.Risk.Mango.Services.Context;
+
+namespace Rms.Risk.Mango.Services;
+
+// ReSharper disable InconsistentNaming
+public class PatchService(IUserSession _userSession, IAuthorizationService _auth, IDatabaseConfigurationService _databaseConfigurationService) : IPatchService
+// ReSharper restore InconsistentNaming
+{
+    private const string PatchCollectionName = "dbMango-Patches";
+
+    public async Task<List<PatchRecord>> LoadPatches(bool activeOnly)
+    {
+        var patches = new List<PatchRecord>();
+
+        var service = _userSession.GetCustomMongoDbService(_userSession.Database, _userSession.DatabaseInstance, PatchCollectionName);
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var results = service.FindAsync("{}",  token: cts.Token);
+        await foreach( var doc in results)
+        {
+            try
+            {
+                var patch = BsonSerializer.Deserialize<PatchRecord>(doc);
+                if (activeOnly && !patch.Active)
+                    continue;
+                patches.Add(patch);
+            }
+            catch (Exception)
+            {
+                // ignore deserialization errors for individual documents
+            }
+        }
+
+        return patches;
+    }
+
+    public async Task SavePatch(PatchRecord rec)
+    {
+        CheckCRUDCommands(rec);
+
+        var service = _userSession.MongoDbAdmin;
+        var cts     = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var json =
+$@"{{
+    update: ""{PatchCollectionName}"",
+    updates: [
+       {{
+         q: {{ _id : {rec.Id.ToJson() } }},
+         u: {rec.ToJson(new() { Indent = true } )},
+         upsert: true,
+         multi: false,
+       }}
+    ],
+    maxTimeMS: 10000
+}}";
+
+        var doc = BsonDocument.Parse(json);
+
+        _ = await service.RunCommand(doc, cts.Token);
+    }
+
+    public async Task DeletePatch(PatchRecord rec)
+    {
+            var service = _userSession.MongoDbAdmin;
+            var cts     = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            var json =
+$@"{{
+    delete: ""{PatchCollectionName}"",
+    deletes: [
+       {{
+         q: {{ _id : {rec.Id.ToJson() } }},
+         limit: 1
+       }}
+    ],
+    maxTimeMS: 10000
+}}";
+
+            var doc = BsonDocument.Parse(json);
+
+            _ = await service.RunCommand(doc, cts.Token);
+    }
+
+    public async Task<List<DatabaseRec>> LoadDatabasesList(string accessLevel)
+    {
+        var databases = new List<DatabaseRec>();
+
+        foreach (var name in _databaseConfigurationService.Databases.Keys)
+        {
+            try
+            {
+                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+                if (!await _userSession.CanAccess(_auth, accessLevel, name))
+                    continue;
+
+                var admin = _userSession.GetCustomAdmin(name, "admin");
+
+                var reply = await admin.RunCommand(new ("listDatabases", 1), cts.Token);
+
+                var dbs = reply["databases"].AsBsonArray.Select(x => x["name"].AsString).ToList();
+                databases.AddRange(dbs.Select(db => new DatabaseRec() { DatabaseName = name, InstanceName = db, IsSelected = false }));
+            }
+            catch (Exception)
+            {
+                // ignore
+            }
+        }
+
+        return databases;
+    }
+
+    private readonly HashSet<string> _crudCommands =  new () { "find", "insert", "update", "delete", "aggregate" };
+
+    public void CheckCRUDCommands(PatchRecord rec)
+    {
+        if ( !rec.OnlyCRUDCommands )
+            return;
+
+        foreach (var stage in rec.Patch)
+        {
+            if (!stage.Use)
+                continue;
+
+            var bson    = BsonDocument.Parse( stage.Text );
+            var command =  bson.ElementAt(0).Name.ToLowerInvariant();
+            if ( IsCRUDCommand(bson) )
+                continue;
+            throw new InvalidOperationException($"Only CRUD commands are allowed: {command}");
+        }
+    }
+
+    public bool IsCRUDCommand(BsonDocument bson)
+    {
+        var command =  bson.ElementAt(0).Name.ToLowerInvariant();
+        return _crudCommands.Contains(command) || MongoDbCommandHelper.IsReadOnlyCommand(bson);
+    }
+
+}
