@@ -81,12 +81,12 @@
                         <FormButton Enabled="@IsReady" Name="Schema"     Icon="icon-sliders-horizontal" OnClick="ShowSchema"             IsPrimary="false" />
                         <FormButton Enabled="@IsReady" Name="Properties" Icon="icon-wrench-sm"          OnClick="ShowCollectionControls" IsPrimary="false" />
                     </div>
-	                    <AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database">
-		                    <div class="form-group">
-			                    <FormButton Enabled="@CanDelete" Name="Delete" Icon="icon-trash-sm" OnClick="Delete" IsPrimary="false" Hint="Delete all selected documents."/>
-		                    </div>
-	                    </AuthorizedOnly>
-                    </div>
+                    <AuthorizedOnly Policy="WriteAccess" Resource="@UserSession.Database" ShowUnauthorizedInfo="false">
+		                <div class="form-group">
+			                <FormButton Enabled="@CanDelete" Name="Delete" Icon="icon-trash-sm" OnClick="Delete" IsPrimary="false" Hint="Delete all selected documents."/>
+		                </div>
+	                </AuthorizedOnly>
+                </div>
                 <div>See <a href="/doc/afh?tab=Expressions" target="_blank">documentation</a>...</div>
             </div>
         </div>
