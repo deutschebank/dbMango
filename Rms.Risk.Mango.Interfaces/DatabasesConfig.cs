@@ -76,7 +76,11 @@ public class DatabasesConfig
         /// <summary>
         /// Gets or sets the contact information for the database.
         /// </summary>
-        public string Contacts { get; set; } = "";
+        public string Contacts { get;               set; } = "";
+        /// <summary>
+        /// Gets or sets additional information. Can be used by the plugin to check task.
+        /// </summary>
+        public string Comments { get; set; } = "";
 
         /// <summary>
         /// Creates a deep copy of the current <see cref="DatabaseConfig"/> instance.
@@ -86,9 +90,10 @@ public class DatabasesConfig
         {
             var c = new DatabaseConfig
             {
-                Config = Config.Clone(),
-                Groups = Groups.Clone(),
-                Contacts = Contacts
+                Config   = Config.Clone(),
+                Groups   = Groups.Clone(),
+                Contacts = Contacts,
+                Comments = Comments
             };
             return c;
         }

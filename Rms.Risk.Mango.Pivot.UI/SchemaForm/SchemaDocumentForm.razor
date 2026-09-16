@@ -1,0 +1,319 @@
+﻿@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+<div class="@(IsRoot ? Class : "")">
+	@if (IsObjectSchema)
+	{
+	    <!-- Render scalar/simple fields first in compact grid -->
+	    <div class="schema-form-grid">
+	        @foreach (var field in SimpleFields)
+	        {
+	            @RenderField(field)
+	        }
+	    </div>
+
+    <!-- Then render complex fields (objects/arrays) as full-width blocks -->
+    <!-- use padding-left instead of margin-left so the container does not overflow its parent width -->
+    <div class="w-100 mt-2 pl-2">
+	        @foreach (var field in ComplexFields)
+	        {
+	            @RenderField(field)
+	        }
+	    </div>
+	}
+	else
+	{
+	    <div class="schema-validation-error">Schema root must be an object.</div>
+	}
+</div>
+@code {
+	[Parameter] public string         Class      { get; set; } = "";
+    [Parameter] public BsonDocument   Schema     { get; set; } = [];
+    [Parameter] public BsonDocument?  RootSchema { get; set; }
+    [Parameter] public BsonDocument   Document   { get; set; } = [];
+    [Parameter] public SchemaFormMode Mode       { get; set; } = SchemaFormMode.Edit;
+    [Parameter] public bool           Collapsed  { get; set; } = true;
+    [Parameter] public bool           IsRoot     { get; set; } = true;
+    [Parameter] public string         Path       { get; set; } = "$";
+
+    [Parameter] public EventCallback<BsonDocument> DocumentChanged { get; set; }
+    [Parameter] public EventCallback<bool>         ValidChanged    { get; set; }
+
+    private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
+
+    private BsonDocument EffectiveRootSchema => RootSchema ?? Schema;
+    private BsonDocument ResolvedSchema => SchemaFormSchemaParser.ResolveSchema(EffectiveRootSchema, Schema);
+
+    private bool IsObjectSchema => SchemaFormSchemaParser.GetTypes(ResolvedSchema).Contains("object");
+
+    private List<(string Name, BsonDocument Schema)> SimpleFields
+    {
+        get
+        {
+            if (!ResolvedSchema.TryGetValue("properties", out var propertiesValue) || propertiesValue is not BsonDocument properties)
+            {
+                return [];
+            }
+
+            var all = properties
+                .Where(x => x.Value is BsonDocument)
+                .Select(x => (x.Name, (BsonDocument)x.Value))
+                .ToList();
+
+            // If in read-only mode, only show fields that are present in the document
+            if (Mode == SchemaFormMode.ReadOnly)
+            {
+                all = all.Where(x => Document.Contains(x.Name)).ToList();
+            }
+
+            var id = all.Where(x => x.Name == "_id").ToList();
+            var simple = all.Where(x => x.Name != "_id" && !IsComplex(x.Item2)).OrderBy(x => x.Name, StringComparer.Ordinal).ToList();
+
+            return [.. id, .. simple];
+        }
+    }
+
+    private List<(string Name, BsonDocument Schema)> ComplexFields
+    {
+	    get
+	    {
+		    if (!ResolvedSchema.TryGetValue("properties", out var propertiesValue) || propertiesValue is not BsonDocument properties)
+		    {
+			    return [];
+		    }
+
+		    var all = properties
+			    .Where(x => x.Value is BsonDocument)
+			    .Select(x => (x.Name, (BsonDocument)x.Value))
+			    .ToList();
+
+		    if (Mode == SchemaFormMode.ReadOnly)
+		    {
+			    all = all.Where(x => Document.Contains(x.Name)).ToList();
+		    }
+
+		    var complex = all.Where(x => x.Name != "_id" && IsComplex(x.Item2)).OrderBy(x => x.Name, StringComparer.Ordinal).ToList();
+
+		    return complex;
+	    }
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        await ValidateAndNotify();
+    }
+
+    private RenderFragment RenderField((string Name, BsonDocument Schema) field) => builder =>
+    {
+        var fieldName = field.Name;
+        var fieldSchema = SchemaFormSchemaParser.ResolveSchema(EffectiveRootSchema, field.Schema);
+        var fieldPath = Path == "$" ? $"$.{fieldName}" : $"{Path}.{fieldName}";
+        var seq = 0;
+
+        var isComplex = IsComplex(fieldSchema);
+        var wrapperClass = isComplex ? "schema-field-full" : "schema-field-half";
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", wrapperClass);
+
+        if (IsArray(fieldSchema))
+        {
+            builder.OpenComponent<SchemaArrayField>(seq++);
+            builder.AddAttribute(seq++, "Name", fieldName);
+            builder.AddAttribute(seq++, "Path", fieldPath);
+            builder.AddAttribute(seq++, "Schema", fieldSchema);
+            builder.AddAttribute(seq++, "Value", GetArrayField(fieldName));
+            builder.AddAttribute(seq++, "Mode", GetFieldMode(fieldName));
+            builder.AddAttribute(seq++, "ReadOnly", IsReadOnly(fieldName));
+            builder.AddAttribute(seq++, "Collapsed", Collapsed);
+            builder.AddAttribute(seq++, "Errors", _errors);
+            builder.AddAttribute(seq++, "Error", GetError(fieldPath));
+            builder.AddAttribute(seq++, "ValueChanged", EventCallback.Factory.Create<BsonArray?>(this, (arr) => SetArrayField(fieldName, arr)));
+            builder.CloseComponent();
+        }
+        else if (IsObject(fieldSchema))
+        {
+            builder.OpenComponent<SchemaCollapsibleSection>(seq++);
+            builder.AddAttribute(seq++, "Title", fieldName);
+            builder.AddAttribute(seq++, "Collapsed", Collapsed);
+            builder.AddAttribute(seq++, "ChildContent", (RenderFragment)(childBuilder =>
+            {
+                var childDoc = GetObjectField(fieldName);
+                childBuilder.OpenComponent<SchemaDocumentForm>(0);
+                childBuilder.AddAttribute(1, "Schema", fieldSchema);
+                childBuilder.AddAttribute(2, "RootSchema", EffectiveRootSchema);
+                childBuilder.AddAttribute(3, "Document", childDoc);
+                childBuilder.AddAttribute(4, "Mode", GetFieldMode(fieldName));
+                childBuilder.AddAttribute(5, "Collapsed", Collapsed);
+                childBuilder.AddAttribute(6, "Path", fieldPath);
+                childBuilder.AddAttribute(7, "IsRoot", false);
+                childBuilder.AddAttribute(8, "DocumentChanged", EventCallback.Factory.Create<BsonDocument>(this, (doc) => SetObjectField(fieldName, doc)));
+                childBuilder.CloseComponent();
+            }));
+            builder.CloseComponent();
+            var err = GetError(fieldPath);
+            if (!string.IsNullOrWhiteSpace(err))
+            {
+                builder.OpenElement(seq++, "div");
+                builder.AddAttribute(seq++, "class", "schema-validation-error");
+                builder.AddContent(seq++, err);
+                builder.CloseElement();
+            }
+        }
+        else
+        {
+            builder.OpenComponent<SchemaScalarField>(seq++);
+            builder.AddAttribute(seq++, "Name", fieldName);
+            builder.AddAttribute(seq++, "Schema", fieldSchema);
+            builder.AddAttribute(seq++, "Value", GetScalar(fieldName));
+            builder.AddAttribute(seq++, "ReadOnly", IsReadOnly(fieldName));
+            builder.AddAttribute(seq++, "ShowObjectIdGenerate", SchemaFormValueConverter.IsObjectIdSchema(fieldSchema, fieldName, GetScalar(fieldName)) && !IsReadOnly(fieldName));
+            builder.AddAttribute(seq++, "Error", GetError(fieldPath));
+            builder.AddAttribute(seq++, "ValueChanged", EventCallback.Factory.Create<BsonValue?>(this, (val) => SetScalar(fieldName, val)));
+            builder.CloseComponent();
+        }
+
+        builder.CloseElement();
+    };
+
+    private bool IsReadOnly(string fieldName)
+    {
+        if (Mode == SchemaFormMode.ReadOnly)
+        {
+            return true;
+        }
+
+        if (Mode == SchemaFormMode.Edit && fieldName == "_id")
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private SchemaFormMode GetFieldMode(string fieldName)
+    {
+        return IsReadOnly(fieldName) ? SchemaFormMode.ReadOnly : Mode;
+    }
+
+    private bool IsComplex(BsonDocument schema) => IsObject(schema) || IsArray(schema);
+    private static bool IsObject(BsonDocument schema) => SchemaFormSchemaParser.GetTypes(schema).Contains("object");
+    private static bool IsArray(BsonDocument schema) => SchemaFormSchemaParser.GetTypes(schema).Contains("array");
+
+    private BsonValue? GetScalar(string fieldName)
+    {
+        return Document.TryGetValue(fieldName, out var value) ? value : null;
+    }
+
+    private BsonDocument GetObjectField(string fieldName)
+    {
+        if (Document.TryGetValue(fieldName, out var value) && value is BsonDocument doc)
+        {
+            return doc;
+        }
+
+        var created = new BsonDocument();
+        if (!IsReadOnly(fieldName))
+        {
+            Document[fieldName] = created;
+        }
+
+        return created;
+    }
+
+    private BsonArray GetArrayField(string fieldName)
+    {
+        if (Document.TryGetValue(fieldName, out var value) && value is BsonArray arr)
+        {
+            return arr;
+        }
+
+        var created = new BsonArray();
+        if (!IsReadOnly(fieldName))
+        {
+            Document[fieldName] = created;
+        }
+
+        return created;
+    }
+
+    private async Task SetScalar(string fieldName, BsonValue? value)
+    {
+        if (IsReadOnly(fieldName))
+        {
+            return;
+        }
+
+        if (value is null)
+        {
+            Document.Remove(fieldName);
+        }
+        else
+        {
+            Document[fieldName] = value;
+        }
+
+        await NotifyChanged();
+    }
+
+    private async Task SetObjectField(string fieldName, BsonDocument doc)
+    {
+        if (IsReadOnly(fieldName))
+        {
+            return;
+        }
+
+        Document[fieldName] = doc;
+        await NotifyChanged();
+    }
+
+    private async Task SetArrayField(string fieldName, BsonArray? arr)
+    {
+        if (IsReadOnly(fieldName))
+        {
+            return;
+        }
+
+        Document[fieldName] = arr ?? new BsonArray();
+        await NotifyChanged();
+    }
+
+    private string? GetError(string fieldPath)
+    {
+        return _errors.TryGetValue(fieldPath, out var error) ? error : null;
+    }
+
+    private async Task NotifyChanged()
+    {
+        await DocumentChanged.InvokeAsync(Document);
+        await ValidateAndNotify();
+    }
+
+    private async Task ValidateAndNotify()
+    {
+        _errors.Clear();
+
+        var validationErrors = SchemaFormValidator.Validate(Schema, Document);
+        foreach (var error in validationErrors)
+        {
+            _errors.TryAdd(error.Path, error.Message);
+        }
+
+        await ValidChanged.InvokeAsync(validationErrors.Count == 0);
+        await InvokeAsync(StateHasChanged);
+    }
+}

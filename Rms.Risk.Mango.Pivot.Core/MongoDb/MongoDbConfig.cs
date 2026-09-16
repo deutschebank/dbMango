@@ -56,13 +56,15 @@ public class MongoDbSettings
 
 public class MongoDbConfigRecord
 {
-    public string       MongoDbUrl       { get; set; } = MongoDbConfig.MongoDbUrl                   ;
-    public string       MongoDbDatabase  { get; set; } = MongoDbConfig.MongoDbDatabase              ;
-    public MongoDbAuth? Auth             { get; set; }
-    public MongoDbAuth? AdminAuth        { get; set; }
-    public bool         DirectConnection { get; set; } = MongoDbConfig.MongoDbDirectConnection             ;
-    public bool         UseTls           { get; set; } = MongoDbConfig.MongoDbUseTls                       ;
-    public bool         AllowShardAccess { get; set; } = MongoDbConfig.MongoDbAllowShardAccess;
+    public string       MongoDbUrl                { get; set; } = MongoDbConfig.MongoDbUrl                   ;
+    public string       MongoDbDatabase           { get; set; } = MongoDbConfig.MongoDbDatabase              ;
+    public MongoDbAuth? Auth                      { get; set; }
+    public MongoDbAuth? AdminAuth                 { get; set; }
+    public bool         DirectConnection          { get; set; } = MongoDbConfig.MongoDbDirectConnection             ;
+    public bool         UseTls                    { get; set; } = MongoDbConfig.MongoDbUseTls                       ;
+    public bool         SendClientCertificates    { get; set; } = MongoDbConfig.MongoDbSendClientCertificates;
+    public bool         AllowShardAccess          { get; set; } = MongoDbConfig.MongoDbAllowShardAccess;
+    public bool         DisableDbMangoCollections { get; set; }
 
     public override string ToString() => GetKey();
 
@@ -72,18 +74,19 @@ public class MongoDbConfigRecord
     public MongoDbConfigRecord Clone()
         => new()
         {
-            MongoDbUrl       = MongoDbUrl         ,
-            MongoDbDatabase  = MongoDbDatabase    ,
-            Auth             = Auth?.Clone()      ,
-            AdminAuth        = AdminAuth?.Clone(),
-            DirectConnection = DirectConnection   ,
-            UseTls           = UseTls             ,
-            AllowShardAccess = AllowShardAccess
+            MongoDbUrl                = MongoDbUrl         ,
+            MongoDbDatabase           = MongoDbDatabase    ,
+            Auth                      = Auth?.Clone()      ,
+            AdminAuth                 = AdminAuth?.Clone() ,
+            DirectConnection          = DirectConnection   ,
+            UseTls                    = UseTls             ,
+            AllowShardAccess          = AllowShardAccess   ,
+            DisableDbMangoCollections = DisableDbMangoCollections
         };
 
     public void Check()
     {
-        if (MongoDbUrl?.StartsWith("<<") ?? true)
+        if (MongoDbUrl.StartsWith("<<"))
             throw new ApplicationException($"Invalid MongoDB URL: {MongoDbUrl}");
     }
 }
@@ -106,6 +109,7 @@ public static class MongoDbConfig
     public static bool   MongoDbDirectConnection;
     public static bool   MongoDbAllowShardAccess;
     public static bool   MongoDbUseTls;
+    public static bool   MongoDbSendClientCertificates;
 
     // MongoDbSettings
     public static TimeSpan MongoDbSocketTimeout          = MongoDefaults.SocketTimeout;
@@ -125,11 +129,12 @@ public static class MongoDbConfig
     {
         var res = new MongoDbConfigRecord
         {
-            MongoDbUrl       = MongoDbUrl,
-            MongoDbDatabase  = MongoDbDatabase,
-            DirectConnection = MongoDbDirectConnection, 
-            UseTls           = MongoDbUseTls,
-            AllowShardAccess = MongoDbAllowShardAccess
+            MongoDbUrl             = MongoDbUrl,
+            MongoDbDatabase        = MongoDbDatabase,
+            DirectConnection       = MongoDbDirectConnection, 
+            UseTls                 = MongoDbUseTls,
+            SendClientCertificates = MongoDbSendClientCertificates,
+            AllowShardAccess       = MongoDbAllowShardAccess
         };
 
         if ( !string.IsNullOrEmpty(MongoDbUser) || !string.IsNullOrEmpty(MongoDbPassword) )
@@ -173,7 +178,7 @@ public static class MongoDbConfig
             MongoDbPingTimeoutSec         = MongoDbPingTimeoutSec,
             MongoDbQueryBatchSize         = MongoDbQueryBatchSize,
             MongoDbConnectionRetries      = MongoDbConnectionRetries,
-            MongoDbRetryTimeoutSec        = MongoDbRetryTimeoutSec
+            MongoDbRetryTimeoutSec        = MongoDbRetryTimeoutSec,
         };
         return res;
     }
@@ -193,6 +198,7 @@ public static class MongoDbConfig
         MongoDbAdminDatabase          = rec.AdminAuth?.AuthDatabase ?? "admin";
         MongoDbDirectConnection       = rec.DirectConnection;
         MongoDbUseTls                 = rec.UseTls;
+        MongoDbSendClientCertificates = rec.SendClientCertificates;
         MongoDbAllowShardAccess       = rec.AllowShardAccess;
 
         MongoDbSocketTimeout          = settings.MongoDbSocketTimeout;
@@ -200,8 +206,8 @@ public static class MongoDbConfig
         MongoDbConnectTimeout         = settings.MongoDbConnectTimeout;
         MongoDbMinConnectionPoolSize  = settings.MongoDbMinConnectionPoolSize;
         MongoDbMaxConnectionPoolSize  = settings.MongoDbMaxConnectionPoolSize;
-        MongoDbMaxConnectionIdleTime         = settings.MaxConnectionIdleTime;
-        MongoDbMaxConnectionLifeTime         = settings.MaxConnectionLifeTime;
+        MongoDbMaxConnectionIdleTime  = settings.MaxConnectionIdleTime;
+        MongoDbMaxConnectionLifeTime  = settings.MaxConnectionLifeTime;
         MongoDbQueryTimeout           = settings.MongoDbQueryTimeout;
         MongoDbPingTimeoutSec         = settings.MongoDbPingTimeoutSec;
         MongoDbQueryBatchSize         = settings.MongoDbQueryBatchSize;

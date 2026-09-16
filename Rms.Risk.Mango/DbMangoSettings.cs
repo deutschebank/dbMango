@@ -28,7 +28,7 @@ public class DbMangoSettings
     public int                      HierarchyId              { get; set; } = 8;
     public string                   InstanceName             { get; set; } = "dbMango";
     public bool                     AuditLogsInOracle        { get; set; }
-    public string                   Initial                  { get; set; } = "System";
+    public string                   OnboardingDatabaseName   { get; set; } = "System";
     public int                      AuditExpireDays          { get; set; } = 365;
     public MongoDbSettings          Settings                 { get; set; } = new();
     public bool                     EnableDatabaseOverrides  { get; set; }

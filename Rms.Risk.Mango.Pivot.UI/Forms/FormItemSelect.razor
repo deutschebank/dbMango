@@ -193,7 +193,7 @@
                 if (currentGroup == null)
                 {
                     // If no group has been started, create a default group
-                    currentGroup = new Group { Name = "Not grouped" };
+                    currentGroup = new() { Name = "Not grouped" };
                     groups.Add(currentGroup);
                 }
                 currentGroup.Values.Add(v);

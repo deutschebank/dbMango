@@ -70,10 +70,11 @@
 
     [Inject] public IJSRuntime? JsRuntime { get; set; }
 
-    private bool                                        _initialized = false;
-    private DotNetObjectReference<TextEditorComponent>? _objRef      = null;
+    private bool                                        _initialized     = false;
+    private bool                                        _refreshRequired = false;
+    private DotNetObjectReference<TextEditorComponent>? _objRef          = null;
     private ElementReference                            _scriptEditorReference;
-    private string                                      _text        = "";
+    private string                                      _text            = "";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -83,8 +84,17 @@
 
             await JsRuntime!.InvokeVoidAsync("DashboardUtils.LoadCodeEditor", "TECCodeMirrorArea", MimeType, _scriptEditorReference, _objRef, "UpdateTextField", Readonly);
             _initialized = true;
+            _refreshRequired = true;
 
             await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (_refreshRequired)
+        {
+            _refreshRequired = false;
+            await JsRuntime!.InvokeVoidAsync("DashboardUtils.CodeEditor_Refresh", _scriptEditorReference);
+            await JsRuntime!.InvokeVoidAsync("DashboardUtils.CodeEditor_SetValue", _scriptEditorReference, _text);
         }
     }
 

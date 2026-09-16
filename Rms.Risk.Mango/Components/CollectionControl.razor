@@ -1,0 +1,684 @@
+﻿
+@using pax.BlazorChartJs
+@using Rms.Risk.Mango.Pivot.Core.MongoDb
+@using Rms.Risk.Mango.Components.Commands
+
+@implements IDisposable
+
+@inject IUserSession           UserSession
+@inject IAuthorizationService  Auth
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .collection-control .card {
+        border: 1px solid @Night.BackgroundLight;
+    }
+
+    .collection-control .stat-name {
+        color: grey;
+        min-width: 160px;
+    }
+
+    .collection-control .stat-value {
+        font-weight: 500;
+    }
+
+    .collection-control .chart-display {
+        width: 100%;
+        height: 620px;
+        max-height: 620px;
+        overflow: hidden;
+    }
+
+    .collection-control .chart-canvas {
+        width: 100%;
+        height: 100%;
+    }
+
+    .collection-control .index-list-full-height {
+        height: 100%;
+        margin-bottom: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .collection-control .index-list-full-height .input-group {
+        height: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .collection-control .index-list-full-height .form-control {
+        height: 100%;
+        min-height: 0;
+    }
+
+    .collection-control .index-list-full-height .list-body {
+        max-height: none;
+        height: 100%;
+    }
+</style>
+
+@if (Error != null)
+{
+    <ExceptionControl Exception="@Error" />
+}
+
+<div class="row collection-control mt-2">
+    <div class="col-12 col-xl-6 mb-3">
+        <div class="card p-3 mb-3">
+            <h5 class="mb-3">Collection information</h5>
+
+            @if (_loading)
+            {
+                <ProgressSpinner />
+            }
+            else
+            {
+                <div class="d-flex mb-2">
+                    <div class="stat-name">Collection name</div>
+                    <div class="stat-value">@CollectionName</div>
+                </div>
+                <div class="d-flex mb-2">
+                    <div class="stat-name">Collection size</div>
+                    <div class="stat-value">@NumbersUtils.ToHumanReadable(_stats.Size)</div>
+                </div>
+                <div class="d-flex mb-2">
+                    <div class="stat-name">Document size</div>
+                    <div class="stat-value">@DocumentSizeDisplay</div>
+                </div>
+                <div class="d-flex mb-2">
+                    <div class="stat-name">Indexes</div>
+                    <div class="stat-value">@_indexes.Count</div>
+                </div>
+                <div class="d-flex">
+                    <div class="stat-name">Total index size</div>
+                    <div class="stat-value">@NumbersUtils.ToHumanReadable(_stats.TotalIndexSize)</div>
+                </div>
+            }
+        </div>
+
+        <div class="card p-3">
+            <div class="row align-items-stretch">
+                <div class="col-12 col-lg-4 mb-3 mb-lg-0 d-flex">
+                    <FormItemList T="string"
+                                  Class="index-list-full-height w-100"
+                                  Name="Index"
+                                  @bind-Value="SelectedIndexName"
+                                  Values="@_indexNames"
+                                  Enabled="@(!_loading && _indexNames.Count > 0)"
+                                  Icon="icon-document-blank-sm" />
+                </div>
+                <div class="col-12 col-lg-8">
+                    <div class="d-flex align-items-start flex-wrap mb-2">
+                        <FormButton Class="mr-2" Name="New"    Icon="icon-plus-sm"  OnClick="NewIndex"    Enabled="@CanEditIndexes" />
+                        <FormButton Class="mr-2" Name="Save"   Icon="icon-save-sm"  OnClick="SaveIndex"   Enabled="@CanSaveIndex" />
+                        <FormButton Class="mr-2" Name="Delete" Icon="icon-trash-sm" OnClick="DeleteIndex" Enabled="@CanDeleteIndex" />
+                        <FormButton Name="Refresh" Icon="icon-refresh-sm" OnClick="Reload" Enabled="@(!_loading)" />
+                    </div>
+
+                    @if (!CanEditIndexes)
+                    {
+                        <div class="alert alert-info mb-2">
+                            Index editor is in read-only mode. Admin access is required.
+                        </div>
+                    }
+
+                    <IndexEditComponent Collection="@(CollectionName ?? "")"
+                                        Json="@_indexJson"
+                                        JsonChanged="@OnIndexJsonChanged"
+                                        IsValid="@_isIndexValid"
+                                        IsValidChanged="@OnIndexValidChanged"
+                                        Enabled="@CanEditIndexes"
+                                        HideIndexParams="false" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-6 mb-3">
+        <div class="card p-3 h-100">
+            <h5 class="mb-3">Sizes</h5>
+            <div class="chart-display @(ChartClass)">
+                <div class="chart-canvas">
+                    <ChartComponent ChartJsConfig="@_chartConfig" />
+                </div>
+            </div>
+            @if (!_loading && string.IsNullOrWhiteSpace(ChartClass))
+            {
+                <small class="text-muted mt-2">Data size, index size and free space per @(_stats.Sharded ? "shard" : "node")</small>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] public IModalService Modal { get; set; } = null!;
+
+    [Parameter] public string? DatabaseStr         { get; set; }
+    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [Parameter] public string? CollectionName      { get; set; }
+
+    private static readonly string[] _colors =
+    [
+        "rgba(75,  192, 192, 0.6)",
+        "rgba(255, 205,  86, 0.6)",
+        "rgba(255, 159,  64, 0.6)"
+    ];
+
+    private readonly CancellationTokenSource _globalCancellation = new();
+
+    private Exception? Error { get; set; }
+    private bool _loading;
+    private bool _isAdmin;
+
+    private CollectionStats _stats = new();
+
+    private readonly Dictionary<string, BsonDocument> _indexes = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _indexNames = [];
+
+    private string _selectedIndexName = "";
+    private string _indexJson         = "{}";
+    private bool _isIndexValid;
+    private bool _isCreatingNewIndex;
+
+    private string SelectedIndexName
+    {
+        get => _selectedIndexName;
+        set
+        {
+            if (_selectedIndexName == value)
+                return;
+
+            _selectedIndexName = value;
+            _isCreatingNewIndex = false;
+            LoadSelectedIndexIntoEditor();
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string ChartClass   => _chartConfig.Data.Labels.Count == 0 || Error != null ? "d-none" : "";
+
+    private bool CanEditIndexes => _isAdmin && !_loading && !string.IsNullOrWhiteSpace(CollectionName);
+    private bool CanSaveIndex   => CanEditIndexes && _isIndexValid;
+    private bool CanDeleteIndex => CanEditIndexes && !_isCreatingNewIndex && !string.IsNullOrWhiteSpace(SelectedIndexName) && !string.Equals(SelectedIndexName, "_id_", StringComparison.OrdinalIgnoreCase);
+
+    private string DocumentSizeDisplay
+    {
+        get
+        {
+            if (_stats.Count <= 0)
+                return "N/A";
+
+            var avgSize = _stats.Size / _stats.Count;
+            return $"{NumbersUtils.ToHumanReadable(avgSize)} avg ({_stats.Count} docs)";
+        }
+    }
+
+    private readonly ChartJsConfig _chartConfig = new()
+    {
+        Type = ChartType.bar,
+        Data = new()
+        {
+            Labels = [],
+            Datasets =
+            [
+                new BarDataset
+                {
+                    Label           = "Data size",
+                    BackgroundColor = _colors[0],
+                    BorderColor     = _colors[0],
+                    Data            = []
+                },
+                new BarDataset
+                {
+                    Label           = "Indexes size",
+                    BackgroundColor = _colors[1],
+                    BorderColor     = _colors[1],
+                    Data            = []
+                },
+                new BarDataset
+                {
+                    Label           = "Free space",
+                    BackgroundColor = _colors[2],
+                    BorderColor     = _colors[2],
+                    Data            = []
+                }
+            ]
+        },
+        Options = new()
+        {
+            MaintainAspectRatio = false,
+            Responsive          = true,
+            Plugins = new()
+            {
+                Legend = new()
+                {
+                    Display  = true,
+                    Position = "bottom"
+                }
+            },
+            Scales = new()
+            {
+                X = new LinearAxis
+                {
+                    Stacked = true
+                },
+                Y = new LinearAxis
+                {
+                    Stacked = true,
+                    BeginAtZero = true
+                }
+            }
+        }
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Reload();
+    }
+
+    public void Dispose()
+    {
+        _globalCancellation.Cancel();
+        _globalCancellation.Dispose();
+    }
+
+    private string CurrentDatabase => !string.IsNullOrWhiteSpace(DatabaseStr) ? DatabaseStr : UserSession.Database;
+
+    private string CurrentDatabaseInstance => !string.IsNullOrWhiteSpace(DatabaseInstanceStr)
+        ? DatabaseInstanceStr
+        : UserSession.DatabaseInstance;
+
+    private IMongoDbDatabaseAdminService CurrentAdmin => UserSession.GetCustomAdmin(CurrentDatabase, CurrentDatabaseInstance);
+
+    private async Task Reload()
+    {
+        if (string.IsNullOrWhiteSpace(CollectionName) || string.IsNullOrWhiteSpace(CurrentDatabase))
+        {
+            Error = null;
+            _stats = new();
+            _indexes.Clear();
+            _indexNames = [];
+            _chartConfig.Data.Labels = [];
+            foreach (var dataset in _chartConfig.Data.Datasets.OfType<BarDataset>())
+            {
+                dataset.Data = [];
+            }
+            _chartConfig.ReinitializeChart();
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, timeout.Token);
+
+        try
+        {
+            _loading = true;
+            Error = null;
+            await InvokeAsync(StateHasChanged);
+
+            _isAdmin = await UserSession.CanAccess(Auth, DatabaseAccessPolicyExtensions.AdminAccessPolicy, CurrentDatabase);
+
+            _stats = await CurrentAdmin.CollStats(CollectionName, linked.Token);
+            await LoadIndexes(linked.Token);
+            UpdateChart(_stats);
+        }
+        catch (OperationCanceledException)
+        {
+            // Ignore cancellations caused by fast parameter changes.
+        }
+        catch (Exception ex)
+        {
+            Error = ex;
+            _stats = new();
+            _indexes.Clear();
+            _indexNames = [];
+            _chartConfig.Data.Labels = [];
+            foreach (var dataset in _chartConfig.Data.Datasets.OfType<BarDataset>())
+            {
+                dataset.Data = [];
+            }
+            _chartConfig.ReinitializeChart();
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task LoadIndexes(CancellationToken token)
+    {
+        _indexes.Clear();
+
+        var cmd = new BsonDocument
+        {
+            { "listIndexes", CollectionName }
+        };
+
+        var res = await CurrentAdmin.RunCommand(cmd, token);
+        var firstBatch = res["cursor"]["firstBatch"].AsBsonArray;
+
+        foreach (var item in firstBatch.OfType<BsonDocument>())
+        {
+            var name = item.GetValue("name", "").ToString();
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            _indexes[name] = BuildEditableIndex(item);
+        }
+
+        _indexNames = _indexes.Keys.OrderBy(x => x).ToList();
+
+        if (_indexNames.Count == 0)
+        {
+            _isCreatingNewIndex = true;
+            _selectedIndexName = "";
+            _indexJson = "{}";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedIndexName) || !_indexes.ContainsKey(_selectedIndexName))
+            _selectedIndexName = _indexNames.First();
+
+        _isCreatingNewIndex = false;
+        LoadSelectedIndexIntoEditor();
+    }
+
+    private static BsonDocument BuildEditableIndex(BsonDocument index)
+    {
+        var doc = new BsonDocument
+        {
+            { "key", index.GetValue("key", new BsonDocument()).AsBsonDocument },
+            { "name", index.GetValue("name", "").ToString() }
+        };
+
+        if (index.TryGetValue("expireAfterSeconds", out var expireAfterSeconds) && expireAfterSeconds.IsInt32)
+            doc["expireAfterSeconds"] = expireAfterSeconds.AsInt32;
+
+        if (index.TryGetValue("unique", out var unique))
+        {
+            if (unique.IsBoolean)
+                doc["unique"] = unique.AsBoolean;
+            else if (unique.IsInt32)
+                doc["unique"] = unique.AsInt32;
+        }
+
+        if (index.TryGetValue("sparse", out var sparse))
+        {
+            if (sparse.IsBoolean)
+                doc["sparse"] = sparse.AsBoolean;
+            else if (sparse.IsInt32)
+                doc["sparse"] = sparse.AsInt32;
+        }
+
+        return doc;
+    }
+
+    private void LoadSelectedIndexIntoEditor()
+    {
+        if (_indexes.TryGetValue(_selectedIndexName, out var selected))
+        {
+            _indexJson = JsonUtils.FormatJson(selected.ToJson());
+            return;
+        }
+
+        _indexJson = "{}";
+    }
+
+    private Task OnIndexJsonChanged(string json)
+    {
+        _indexJson = json;
+        return Task.CompletedTask;
+    }
+
+    private Task OnIndexValidChanged(bool isValid)
+    {
+        _isIndexValid = isValid;
+        return Task.CompletedTask;
+    }
+
+    private async Task NewIndex()
+    {
+        _isCreatingNewIndex = true;
+        _selectedIndexName = "";
+        _indexJson = "{}";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveIndex()
+    {
+        if (!CanSaveIndex || string.IsNullOrWhiteSpace(CollectionName))
+            return;
+
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        try
+        {
+            Error = null;
+            var edited = BsonDocument.Parse(_indexJson);
+            var newName = edited.GetValue("name", "").ToString();
+
+            if (string.IsNullOrWhiteSpace(newName))
+                return;
+
+            if (_isCreatingNewIndex)
+            {
+                await CreateIndex(edited, ticket);
+            }
+            else
+            {
+                if (string.Equals(_selectedIndexName, "_id_", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                var oldName = _selectedIndexName;
+                if (_indexes.TryGetValue(oldName, out var oldIndex))
+                {
+                    var noChange = string.Equals(oldName, newName, StringComparison.Ordinal)
+                        && AreEquivalentIndexes(oldIndex, edited);
+
+                    if (!noChange)
+                    {
+                        await DropIndex(oldName, ticket);
+                        await CreateIndex(edited, ticket);
+                    }
+                }
+            }
+
+            _selectedIndexName = newName;
+            _isCreatingNewIndex = false;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            Error = ex;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task DeleteIndex()
+    {
+        if (!CanDeleteIndex || string.IsNullOrWhiteSpace(CollectionName))
+            return;
+
+        var ticket = await CanExecuteCommand();
+        if (string.IsNullOrWhiteSpace(ticket))
+            return;
+
+        try
+        {
+            Error = null;
+            await DropIndex(_selectedIndexName, ticket);
+            _selectedIndexName = "";
+            _isCreatingNewIndex = false;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            Error = ex;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task CreateIndex(BsonDocument edited, string ticket)
+    {
+        var command = new BsonDocument
+        {
+            { "createIndexes", CollectionName },
+            { "indexes", new BsonArray { edited } },
+            { "comment", $"Created by {UserSession.User.GetEmail()}" }
+        };
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
+        return CurrentAdmin.RunCommand(command);
+    }
+
+    private Task DropIndex(string indexName, string ticket)
+    {
+        var command = new BsonDocument
+        {
+            { "dropIndexes", CollectionName },
+            { "index", indexName },
+            { "comment", $"Deleted by {UserSession.User.GetEmail()}" }
+        };
+
+        Shell.UpdateComment(command, ticket, UserSession.User.GetEmail());
+        return CurrentAdmin.RunCommand(command);
+    }
+
+    private static bool AreEquivalentIndexes(BsonDocument left, BsonDocument right)
+    {
+        var leftDoc = BuildEditableIndex(left);
+        var rightDoc = BuildEditableIndex(right);
+
+        return leftDoc.ToJson() == rightDoc.ToJson();
+    }
+
+    private void UpdateChart(CollectionStats stats)
+    {
+        var labels = new List<string>();
+        var dataSizes = new List<object>();
+        var indexSizes = new List<object>();
+        var freeSizes = new List<object>();
+
+        if (stats.Sharded && stats.Details != null && stats.Details.TryGetValue("shards", out var shardsValue) && shardsValue.IsBsonDocument)
+        {
+            foreach (var shard in shardsValue.AsBsonDocument)
+            {
+                var shardDoc = shard.Value.AsBsonDocument;
+
+                var dataSize = GetLong(shardDoc, "size");
+                var indexSize = GetLong(shardDoc, "totalIndexSize");
+                var storageSize = GetLong(shardDoc, "storageSize");
+                var freeSpace = Math.Max(0, storageSize - dataSize);
+
+                labels.Add(shard.Name);
+                dataSizes.Add(dataSize);
+                indexSizes.Add(indexSize);
+                freeSizes.Add(freeSpace);
+            }
+        }
+
+        if (labels.Count == 0)
+        {
+            var dataSize = stats.Size;
+            var indexSize = stats.TotalIndexSize;
+            var freeSpace = Math.Max(0, stats.StorageSize - stats.Size);
+
+            labels.Add(string.IsNullOrWhiteSpace(CurrentDatabaseInstance) ? "node" : CurrentDatabaseInstance);
+            dataSizes.Add(dataSize);
+            indexSizes.Add(indexSize);
+            freeSizes.Add(freeSpace);
+        }
+
+        var max = dataSizes.Select(Convert.ToDouble)
+            .Zip(indexSizes.Select(Convert.ToDouble), (a, b) => a + b)
+            .Zip(freeSizes.Select(Convert.ToDouble), (ab, c) => ab + c)
+            .DefaultIfEmpty(0.0)
+            .Max();
+
+        var divider = 1.0;
+        var unit = "B";
+
+        if (max > 1024 * 1024 * 1024)
+        {
+            divider = 1024 * 1024 * 1024;
+            unit = "GB";
+        }
+        else if (max > 1024 * 1024)
+        {
+            divider = 1024 * 1024;
+            unit = "MB";
+        }
+
+        _chartConfig.Data.Labels = labels;
+
+        var dataDataset = (BarDataset)_chartConfig.Data.Datasets[0];
+        var indexDataset = (BarDataset)_chartConfig.Data.Datasets[1];
+        var freeDataset = (BarDataset)_chartConfig.Data.Datasets[2];
+
+        dataDataset.Data = dataSizes.Select(x => (object)(Convert.ToDouble(x) / divider)).ToList();
+        indexDataset.Data = indexSizes.Select(x => (object)(Convert.ToDouble(x) / divider)).ToList();
+        freeDataset.Data = freeSizes.Select(x => (object)(Convert.ToDouble(x) / divider)).ToList();
+
+        _chartConfig.Options ??= new();
+        _chartConfig.Options.Scales ??= new();
+        _chartConfig.Options.Scales.Y ??= new LinearAxis();
+
+        if (_chartConfig.Options.Scales.Y is LinearAxis y)
+        {
+            y.Stacked = true;
+            y.BeginAtZero = true;
+            y.Min = 0.0;
+            y.Max = divider <= 0 ? null : max / divider;
+            y.Title = new()
+            {
+                Display = true,
+                Text = $"Size {unit}"
+            };
+        }
+
+        _chartConfig.ReinitializeChart();
+    }
+
+    private static long GetLong(BsonDocument doc, string key)
+    {
+        if (!doc.TryGetValue(key, out var val))
+            return 0;
+
+        if (val.IsInt64)
+            return val.AsInt64;
+
+        if (val.IsInt32)
+            return val.AsInt32;
+
+        if (val.IsDouble)
+            return (long)val.AsDouble;
+
+        return 0;
+    }
+
+    private Task<string?> CanExecuteCommand()
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+
+}

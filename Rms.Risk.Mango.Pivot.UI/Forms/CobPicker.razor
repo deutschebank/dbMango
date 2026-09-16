@@ -34,13 +34,13 @@
                 }
                 else
                 {
-                    <label for="cob" class="input-group-text w-100">@(string.IsNullOrWhiteSpace(Label) ? "COB date" : Label)</label>
+                    <label for="@_id" class="input-group-text w-100">@(string.IsNullOrWhiteSpace(Label) ? "COB date" : Label)</label>
                 }
             </div>
         }
         <!--- COB selector -->
         <div class="input-group mr-sm-2">
-            <DateRangePicker id="@_id" Opens="SideType.Left" SingleDatePicker="@NotUseCobRange" @bind-StartDate="Cob" @bind-EndDate="CobRangeEnd" OnRangeSelect="@SelectCob" DaysEnabledFunction="@DaysEnabledFunction">
+            <DateRangePicker id="@_id" Opens="SideType.Left" SingleDatePicker="@NotUseCobRange" @bind-StartDate="CobOffset" @bind-EndDate="CobRangeEndOffset" OnRangeSelect="@SelectCob" DaysEnabledFunction="@DaysEnabledFunctionWrapper">
                 <PickerTemplate Context="pickerContext">
                     <div id="@pickerContext.ParentId" @onclick="pickerContext.Toggle" class="form-control float-right datepicker-control">
                         <span class="ui-icon-font icon-calendar"></span>&nbsp;
@@ -56,59 +56,44 @@
 @code {
     private string _id = $"h{Random.Shared.Next():X8}";
 
-    private DateOnly? _cob         = null;
-    private DateOnly? _cobRangeEnd = null;
-
     private bool NotUseCobRange => !UseCobRange;
 
-    [Parameter] public EventCallback<string?>     CobStrChanged       { get; set; }
-    [Parameter] public EventCallback<string?>     CobEndStrChanged    { get; set; }
+    [Parameter] public EventCallback<DateOnly?>   CobChanged          { get; set; }
+    [Parameter] public EventCallback<DateOnly?>   CobRangeEndChanged  { get; set; }
     [Parameter] public EventCallback<bool  >      UseCobRangeChanged  { get; set; }
     [Parameter] public EventCallback<DateRange>   OnCobRangeChanged   { get; set; }
-    [Parameter] public Func<DateTimeOffset, bool> DaysEnabledFunction { get; set; } = _ => true;
+    [Parameter] public Func<DateOnly, bool>       DaysEnabledFunction { get; set; } = _ => true;
+    [Parameter] public string?                    Label               { get; set; }
 
-    [Parameter] public string? Label { get; set; }
+    private Func<DateTimeOffset, bool> DaysEnabledFunctionWrapper => dateTimeOffset =>
+    {
+        var dateOnly = DateOnly.FromDateTime(dateTimeOffset.Date);
+        return DaysEnabledFunction(dateOnly);
+    };
 
     [Parameter]
-    public string Format
+    public DateOnly? Cob
     {
         get;
-        set => field = string.IsNullOrWhiteSpace(value) ? "yyyy-MM-dd" : value; // Set default value if empty
-    } = "yyyy-MM-dd";
-
-    [Parameter]
-    public string? CobStr
-    {
-        get => _cob?.ToString(Format);
         set
         {
-            if (string.IsNullOrWhiteSpace(value))
+            if (field == value)
                 return;
-
-            var d = DateOnly.ParseExact(value, Format, System.Globalization.CultureInfo.InvariantCulture);
-            if (_cob == d)
-                return;
-            _cob = d;
-            CobStrChanged.InvokeAsync(CobStr);
+            field = value;
+            CobChanged.InvokeAsync(Cob);
         }
     }
 
     [Parameter]
-    public string? CobEndStr
+    public DateOnly? CobRangeEnd
     {
-        get => !SupportsCobRanges || !UseCobRange || _cobRangeEnd == null || _cobRangeEnd == _cob || _cobRangeEnd.Value == default ? null : _cobRangeEnd.Value.ToString(Format);
+        get;
         set
         {
-            DateOnly d = default;
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                d = DateOnly.ParseExact(value, Format, System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            if (_cobRangeEnd == d)
+            if (field == value)
                 return;
-            _cobRangeEnd = d;
-            CobEndStrChanged.InvokeAsync(CobEndStr);
+            field = value;
+            CobRangeEndChanged.InvokeAsync(CobRangeEnd);
         }
     }
 
@@ -122,36 +107,38 @@
                 return;
             field = value;
             UseCobRangeChanged.InvokeAsync(UseCobRange);
-            CobEndStrChanged.InvokeAsync(CobEndStr);
+            CobRangeEndChanged.InvokeAsync(CobRangeEnd);
         }
     }
-
 
     [Parameter] public bool   SupportsCobRanges { get; set; }
     [Parameter] public bool   ShowLabel         { get; set; } = true;
     [Parameter] public string Class             { get; set; } = "";
 
-    private DateTimeOffset? Cob
+    private DateTimeOffset? CobOffset
     {
-        get => CobHelper.ConvertStringToOffset(CobStr);
+        get => Cob.HasValue ? new DateTimeOffset(Cob.Value, TimeOnly.MinValue, TimeSpan.Zero) : null;
         set
         {
-            var v = value?.ToString(Format);
-            if (CobStr == v)
-                return;
-            CobStr = v;
+            DateOnly? d = value != null ? DateOnly.FromDateTime(value.Value.Date) : null;
+            Cob = d;
         }
     }
 
-    private DateTimeOffset? CobRangeEnd
+    private DateTimeOffset? CobRangeEndOffset
     {
-        get => UseCobRange ? CobHelper.ConvertStringToOffset(CobEndStr) : Cob;
+        get
+        {
+            if (!UseCobRange || !CobRangeEnd.HasValue || CobRangeEnd == Cob)
+                return CobOffset;
+            return new DateTimeOffset(CobRangeEnd.Value, TimeOnly.MinValue, TimeSpan.Zero);
+        }
         set
         {
-            var v = value?.ToString(Format);
-            if (CobEndStr == v)
+            if (!UseCobRange)
                 return;
-            CobEndStr = v;
+            DateOnly? d = value != null ? DateOnly.FromDateTime(value.Value.Date) : null;
+            CobRangeEnd = d;
         }
     }
 
@@ -160,27 +147,24 @@
         if (!firstRender) 
             return;
 
-        if (string.IsNullOrWhiteSpace(Format)) 
-            Format = "yyyy-MM-dd";
-
-        Cob         ??= CobHelper.GetLatestCob();
-        CobRangeEnd ??= CobHelper.GetLatestCob();
+        Cob         ??= DateOnly.FromDateTime(CobHelper.GetLatestCob());
+        CobRangeEnd ??= DateOnly.FromDateTime(CobHelper.GetLatestCob());
     }
 
     private Task SelectCob(DateRange d)
     {
         if (d == null)
         {
-            CobStr    = null;
-            CobEndStr = null;
+            Cob        = null;
+            CobRangeEnd = null;
             return OnCobRangeChanged.InvokeAsync(null);
         }
 
         if (!UseCobRange)
             d.End = d.Start;
 
-        CobStr      = d.Start.ToString(Format);
-        CobEndStr   = d.End.ToString(Format);
+        Cob         = DateOnly.FromDateTime(d.Start.Date);
+        CobRangeEnd = DateOnly.FromDateTime(d.End.Date);
         return OnCobRangeChanged.InvokeAsync(d);
     }
 }

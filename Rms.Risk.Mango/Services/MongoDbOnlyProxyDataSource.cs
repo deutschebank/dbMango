@@ -51,13 +51,13 @@ public class MongoDbOnlyProxyDataSource(IPivotTableDataSource mongoDb) : IPivotT
         }
     }
 
-    private class ParsedCollectionName
+    public class ParsedCollectionName
     {
         public bool IsClickHouse    { get; init; }
         public required string Name { get; init; }
     }
 
-    private static ParsedCollectionName ParseCollectionName(string collectionName)
+    public static ParsedCollectionName ParseCollectionName(string collectionName)
     {
         var s = collectionName.Split(":");
         if (s.Length == 1)

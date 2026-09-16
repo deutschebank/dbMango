@@ -8,6 +8,7 @@
 @inject IUserSession UserSession
 @inject IJSRuntime                  JsRuntime
 @inject NavigationManager           NavigationManager
+@inject ISchemaLoader               SchemaLoader
 
 @*
  *                                dbMango
@@ -28,35 +29,41 @@
  * limitations under the License.
  *@
 
-<link rel="stylesheet" href="css/pivot.css" />
-
 <h3>Pivot</h3>
 
-<AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
-    <PivotComponent PivotService="@UserSession.PivotDataSource"
-                    Collections="@_collections"
-                    @bind-Collection="Collection"
-                    @bind-Pivot="PivotName"
-                    @bind-Rows="_state.Rows"
-                    PivotType="@IPivotTableDataSource.PivotType.All"
-                    GetExtraFilter="@GetExtraFilter"
-                    CurrentPivotChanged="@OnCurrentPivotChanged">
-        <ExtraFilter>
+@if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+{
+    <p>Pivot functionality disabled for this database...</p>
+}
+else
+{
+    <AuthorizedOnly Policy="ReadAccess" Resource="@UserSession.Database">
+        <PivotComponent @ref="_pivotComponent"
+                        PivotService="@UserSession.PivotDataSource"
+                        Collections="@_collections"
+                        @bind-Collection="Collection"
+                        @bind-Pivot="PivotName"
+                        @bind-Rows="_state.Rows"
+                        PivotType="@IPivotTableDataSource.PivotType.All"
+                        GetExtraFilter="@GetExtraFilter"
+                        CurrentPivotChanged="@OnCurrentPivotChanged">
+            <ExtraFilter>
 
-            <PivotGenericExtraFilterControl 
-                Collection="@Collection"
-                LoadFilterDef = "true"
-                FilterDef="@_extraFilterDef"
-                ExtraFilter="@_extraFilter"
-                ExtraFilterChanged="@(x => SetExtraFilter(x))"
-                PivotService="@UserSession.PivotDataSource"
-                Class="mb-2 ml-1 form-row" />
+                <PivotGenericExtraFilterControl 
+                    Collection="@Collection"
+                    LoadFilterDef = "true"
+                    FilterDef="@_extraFilterDef"
+                    ExtraFilter="@_extraFilter"
+                    ExtraFilterChanged="@(x => SetExtraFilter(x))"
+                    PivotService="@UserSession.PivotDataSource"
+                    Class="mb-2 ml-1 form-row" />
 
-        </ExtraFilter>
-    </PivotComponent>
+            </ExtraFilter>
+        </PivotComponent>
 
-    @* Share="Share" *@
-</AuthorizedOnly>
+        @* Share="Share" *@
+    </AuthorizedOnly>
+}
 
 @code {
     [Parameter] public string? DatabaseStr         { get; set; }
@@ -76,6 +83,8 @@
                 PivotName = pivot;
                 InvokeAsync(StateHasChanged);
             }
+
+            _state.SelectedCollection = field;
             SyncUrl();
         }
     }
@@ -96,9 +105,11 @@
     }
 
     private string? _currentUrl;
+    private string? _sharedPivotId;
 
     private class PivotState
     {
+        public string?                    SelectedCollection         { get; set; }
         public int                        Rows                       { get; set; } = 40;
         public Dictionary<string, string> SelectedPivotForCollection { get; set; } = new();
     }
@@ -107,6 +118,7 @@
     private FilterExpressionTree.ExpressionGroup _extraFilter = new();
     private FilterExpressionTree.ExpressionGroup GetExtraFilter() => _extraFilter;
 
+    private PivotComponent? _pivotComponent;
     private readonly List<GroupedCollection> _collections = [];
 
     private const string DefaultCollectionName = "Default";
@@ -116,6 +128,8 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        _sharedPivotId ??= GetSharedPivotId();
+
         if (UserSession == null || _extraFilterDef.Filter.Count > 0 )
             return;
 
@@ -135,6 +149,9 @@
                 UserSession.DatabaseInstance = DatabaseInstanceStr;
         }
 
+        if (UserSession.DatabaseConfig.DisableDbMangoCollections)
+            return;
+
         if (_collections.Count == 0)
         {
             var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -143,84 +160,31 @@
             _collections.AddRange(collections);
         }
 
-
-
-        if (string.IsNullOrWhiteSpace(Collection))
-        {
-            var collections = _collections
-                .Where(x => !x.IsGroup)
-                .Select(x => x.CollectionNameWithPrefix)
-                .OrderBy(x => x)
-                .ToList()
-                ;
-
-            Collection = collections.Contains(DefaultCollectionName)
-                ? DefaultCollectionName
-                : collections.FirstOrDefault();
-        }
-
-        if (string.IsNullOrWhiteSpace(PivotName) && !string.IsNullOrWhiteSpace(Collection))
-        {
-            var pivots = (_collections.FirstOrDefault( x => x.CollectionNameWithPrefix == Collection)?.Pivots ?? [])
-                .Select(x => x.Pivot)
-                .Select(x => x.Name)
-                .OrderBy(x => x)
-                .ToList()
-                ;
-
-            PivotName = pivots.Contains(DefaultPivotName)
-                    ? DefaultPivotName
-                    : pivots.FirstOrDefault();
-        }
-
         _extraFilterDef = new()
         {
             Filter =
             [
                 new()
                 {
-                    ControlType      = ExtraFilterDefinition.ControlTypeDropDown,
-                    AllowMultiselect = true,
-                    DisplayName      = "Department",
-                    FieldName        = "Department",
-//                    Values           = [.. DepartmentsList ],
+                    ControlType        = ExtraFilterDefinition.ControlTypeDropDown,
+                    AllowMultiselect   = true,
+                    DisplayName        = "Department",
+                    FieldName          = "Department",
+//                  Values             = [.. DepartmentsList ],
                     SelectorCollection = ExtraFilterDefinition.CurrentCollectionSignature,
-                    SelectorQuery = @"
-[{
-    ""$group"" : {
-      ""_id"" : null,
-      ""Department"" : {
-        ""$addToSet"" : ""$Department""
-      }
-    }
-  },
-  { ""$unwind"" : ""$Department""}
-]
-"
+                    SelectorQuery      = "[Department]"
                 },
 
                 new()
                 {
-                    ControlType      = ExtraFilterDefinition.ControlTypeDatePicker,
-                    AllowMultiselect = true,
-                    DisplayName      = "COB",
-                    FieldName        = "COB",
-//                    Values           = [.. await UserSession.PivotDataSource.GetCobDatesAsync(Collection!) ],
-                    DefaultValue     = CobHelper.GetLatestCob().ToString(CobHelper.CobFormat),
+                    ControlType        = ExtraFilterDefinition.ControlTypeDatePicker,
+                    AllowMultiselect   = true,
+                    DisplayName        = "COB",
+                    FieldName          = "COB",
+//                  Values             = [.. await UserSession.PivotDataSource.GetCobDatesAsync(Collection!) ],
+                    DefaultValue       = CobHelper.GetLatestCob().ToString(CobHelper.CobFormat),
                     SelectorCollection = ExtraFilterDefinition.CurrentCollectionSignature,
-                    SelectorQuery = @"
-[
-  {
-      ""$group"" : {
-        ""_id"" : null,
-        ""COB"" : {
-          ""$addToSet"" : ""$COB""
-        }
-      }
-  },
-  { ""$unwind"" : ""$COB"" }
-]
-"
+                    SelectorQuery      = "[COB]"
                 }
             ]
         };
@@ -237,13 +201,56 @@
         if ( data != null )
             _state = data;
 
+        if (string.IsNullOrWhiteSpace(Collection) && string.IsNullOrWhiteSpace(_state.SelectedCollection))
+        {
+            var collections = _collections
+                    .Where(x => !x.IsGroup)
+                    .Select(x => x.CollectionNameWithPrefix)
+                    .OrderBy(x => x)
+                    .ToList()
+                ;
+
+            Collection = collections.Contains(DefaultCollectionName)
+                ? DefaultCollectionName
+                : collections.FirstOrDefault();
+        }
+        else if (!string.IsNullOrWhiteSpace(_state.SelectedCollection))
+            Collection = _state.SelectedCollection;
+
+        if (string.IsNullOrWhiteSpace(PivotName) && !string.IsNullOrWhiteSpace(Collection))
+        {
+            var pivots = (_collections.FirstOrDefault( x => x.CollectionNameWithPrefix == Collection)?.Pivots ?? [])
+                    .Select(x => x.Pivot)
+                    .Select(x => x.Name)
+                    .OrderBy(x => x)
+                    .ToList()
+                ;
+
+            PivotName = pivots.Contains(DefaultPivotName)
+                ? DefaultPivotName
+                : pivots.FirstOrDefault();
+        }
+
         await InvokeAsync(StateHasChanged);
+
+        if (!string.IsNullOrWhiteSpace(_sharedPivotId) && _pivotComponent != null)
+        {
+            var sharedPivotId = _sharedPivotId;
+            await _pivotComponent.NavigateToSharedPivot(sharedPivotId);
+            _sharedPivotId = null;
+        }
 
         SyncUrl();
     }
 
     private void SyncUrl()
     {
+        if (!string.IsNullOrWhiteSpace(_sharedPivotId))
+        {
+            _currentUrl = NavigationManager.Uri;
+            return;
+        }
+
         var url = NavigationManager.BaseUri + "user/pivot";
 
         url += $"/{Uri.EscapeDataString(UserSession.Database)}";
@@ -275,12 +282,33 @@
         SyncUrl();
     }
 
+    private string? GetSharedPivotId()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("shared", out var sharedPivotId))
+            return sharedPivotId.ToString();
+
+        return null;
+    }
+
     private async Task OnCurrentPivotChanged(PivotDefinition arg)
     {
         if (PivotName != null && Collection != null)
             _state.SelectedPivotForCollection[Collection] = PivotName;
 
         await InvokeAsync(async () => await JsRuntime.SaveToLocalStorage("pivot", _state));
+
+        _sharedPivotId = null;
+    }
+
+    private Task<BsonDocument?> LoadSchema()
+    {
+	    if (string.IsNullOrWhiteSpace(Collection))
+		    return Task.FromResult<BsonDocument?>(null);
+
+	    var collection = MongoDbOnlyProxyDataSource.ParseCollectionName(Collection);
+
+	    return SchemaLoader.LoadSchema(collection.Name);
     }
 
 }

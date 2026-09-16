@@ -39,7 +39,7 @@
 
     <div class="row flex-stack-horizontal">
         <div class="stats-table mr-3 ml-3">
-            <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@Stats" PageSize="20" Filterable="false">
+            <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@_statsPivotData" PageSize="20" Filterable="false">
                 <TableColumnControl Name="Name" Field="Key" Class="column-name"/>
                 <TableColumnControl Name="Value" Field="Value" Class="column-name"/>
             </TableControl>
@@ -53,7 +53,8 @@
     //
 
     private string        Json  { get; set; } = "";
-    private List<dynamic> Stats { get; set; } = [];
+    private List<KeyValuePair<string, string>> Stats { get; set; } = [];
+    private IPivotedData _statsPivotData = new List<KeyValuePair<string, string>>().ToPivotData();
 
     private static readonly List<(string, string, bool)> _descriptor =
     [
@@ -100,7 +101,7 @@
         if (Parameters?.Result.Count > 0)
         {
             Json = Parameters.Result[0].ToJson(new() { Indent = true });
-            Stats = FormatDocument(Parameters.Result[0], _descriptor).Cast<dynamic>().ToList();
+            Stats = FormatDocument(Parameters.Result[0], _descriptor);
         }
         else
         {
@@ -108,6 +109,7 @@
             Stats = [];
         }
 
+        _statsPivotData = Stats.ToPivotData();
         InvokeAsync(StateHasChanged);
     }
 

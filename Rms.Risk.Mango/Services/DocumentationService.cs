@@ -253,14 +253,16 @@ public class DocumentationService : IDocumentationService
         using var streamReader = new StreamReader(gzipStream);
 
         var lines = new List<string>();
-        while (!streamReader.EndOfStream)
+        while (true)
         {
             token.ThrowIfCancellationRequested();
             var line = await streamReader.ReadLineAsync(token);
-            if (line != null)
+            if (line is null)
             {
-                lines.Add(line);
+                break;
             }
+
+            lines.Add(line);
         }
 
         return lines.ToArray();

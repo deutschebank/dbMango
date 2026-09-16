@@ -16,8 +16,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization;
 
 namespace Rms.Risk.Mango.Pivot.Core.Models;
 
@@ -25,7 +23,7 @@ public class CollStatsModel
 {
     public bool                              Sharded      { get; set; }
     public bool                              Capped       { get; set; }
-    public CollStatsData                     WiredTiger   { get; set; } = new CollStatsData();
+    public CollStatsData                     WiredTiger   { get; set; } = new();
     public Dictionary<string, CollStatsData> IndexDetails { get; set; } = new();
 
     // New fields added based on the provided JSON structure

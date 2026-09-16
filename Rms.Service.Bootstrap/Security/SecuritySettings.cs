@@ -61,6 +61,12 @@ public class OidcSettings
     /// under service mesh where SSL termination happening on the Egress gateway.
     /// </summary>
     public int ForceRedirectUrlPort { get; set; }
+
+    /// <summary>
+    /// Optional authentication cookie name.
+    /// Set this to avoid collisions with other apps hosted on the same domain.
+    /// </summary>
+    public string? CookieName { get; set; }
 }
 
 
@@ -78,6 +84,7 @@ public class LdapSettings
     public string                     Password         { get; set; } = "";
     public string                     EntryPoint       { get; set; } = "";
     public Dictionary<string, string> RoleGroupMapping { get; set; } = new();
+    public string[]                   IgnoreAccounts   { get; set; } = [];
 }
 
 /// <summary>

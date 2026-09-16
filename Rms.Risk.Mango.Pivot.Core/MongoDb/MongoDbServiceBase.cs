@@ -35,9 +35,11 @@ internal static class FetchInfo
 
 public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
 {
-    // ReSharper disable once StaticMemberInGenericType
+    // ReSharper disable StaticMemberInGenericType
     // ReSharper disable once InconsistentNaming
     protected static readonly ILog _log = LogManager.GetLogger(MethodBase.GetCurrentMethod()!.DeclaringType!);
+    public static bool Quiet = false;
+    // ReSharper restore StaticMemberInGenericType
 
     protected readonly IMongoCollection<T> Collection;
     private readonly   MongoDbSettings     _settings;
@@ -137,12 +139,42 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
 
     private async Task<long> CountNoRetries(string filter, CancellationToken token = default)
     {
+        // When there is no (effective) filter we can use the fast, metadata-based
+        // estimated count. CountDocumentsAsync issues an "aggregate" command
+        // ($match + $group) that scans the whole collection, which on very large
+        // collections is slow and prone to transient transport errors such as
+        // "Command aggregate failed :: stream truncated". EstimatedDocumentCount
+        // uses the lightweight "count" command instead.
+        if (IsEmptyFilter(filter))
+        {
+            var estimateOptions = new EstimatedDocumentCountOptions
+            {
+                MaxTime = _settings.MongoDbQueryTimeout
+            };
+            return await Collection.EstimatedDocumentCountAsync(estimateOptions, token);
+        }
+
         var options = new CountOptions
         {
             MaxTime         = _settings.MongoDbQueryTimeout
         };
         var count = await Collection.CountDocumentsAsync(filter, options, token);
         return count;
+    }
+
+    private static bool IsEmptyFilter(string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return true;
+
+        try
+        {
+            return BsonDocument.Parse(filter).ElementCount == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async IAsyncEnumerable<T> FindNoRetries(string filter, string? projection = null, int? limit = null, [EnumeratorCancellation] CancellationToken token = default)
@@ -168,18 +200,24 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                         .Replace("  ", " ")
             ;
 
+        jsonFilter = jsonFilter.Length > 400
+            ? jsonFilter[..400] + "..."
+            : jsonFilter;
+
         var id = Interlocked.Increment(ref FetchInfo.FetchId);
         Interlocked.Increment(ref FetchInfo.ParallelFinds);
         try
         {
             var sw = Stopwatch.StartNew();
 
-            _log.Debug($"Id={id:000} Starting Find (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Filter=\"{jsonFilter}\"");
+            if ( !Quiet ) 
+                _log.Debug($"Id={id:000} Starting Find (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Filter=\"{jsonFilter}\"");
 
             var cursor = await Collection.FindAsync(filter, options, token);
 
             if (sw.Elapsed > TimeSpan.FromSeconds(10))
-                _log.Debug($"Id={id:000} Slow Find (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Elapsed=\"{sw.Elapsed:g}\" Filter=\"{jsonFilter}\"");
+                if ( !Quiet ) 
+                    _log.Debug($"Id={id:000} Slow Find (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Elapsed=\"{sw.Elapsed:g}\" Filter=\"{jsonFilter}\"");
 
             sw.Restart();
 
@@ -192,7 +230,8 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                 {
                     if (!await cursor.MoveNextAsync(token))
                     {
-                        _log.Debug($"Id={id:000} Find complete (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Docs={processed} " +
+                        if ( !Quiet ) 
+                            _log.Debug($"Id={id:000} Find complete (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Docs={processed} " +
                                    $"Elapsed=\"{sw.Elapsed:g}\" DocsSec={processed / (sw.ElapsedMilliseconds / 1000.0):0.00} Filter=\"{jsonFilter}\"");
                         yield break;
                     }
@@ -215,7 +254,8 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                         continue;
 
                     var dps = ReportEveryNDocuments / ((sw.ElapsedMilliseconds - prevBatchElapsed.TotalMilliseconds) / 1000.0);
-                    _log.Debug($"Id={id:000} Fetch {ReportEveryNDocuments:N0} documents (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} " +
+                    if ( !Quiet )
+                        _log.Debug($"Id={id:000} Fetch {ReportEveryNDocuments:N0} documents (no retries) Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} " +
                                $"Elapsed=\"{sw.Elapsed - prevBatchElapsed:g}\" DocsSec={dps:0.00} (processed {processed:N0} so far)");
                     prevBatchElapsed = sw.Elapsed;
                 }
@@ -260,7 +300,8 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
 
             var sw = Stopwatch.StartNew();
 
-            _log.Debug($"Id={id:000} Starting Find Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Filter=\"{jsonFilter}\"");
+            if ( !Quiet ) 
+                _log.Debug($"Id={id:000} Starting Find Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} Filter=\"{jsonFilter}\"");
 
             //var coll = Collection.Database.GetCollection<BsonDocument>(CollectionName);
 
@@ -292,6 +333,14 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                             yield break;
                         }
                         batch = cursor.Current;
+
+                        // Forward progress: the (re-issued) cursor is healthy again, so reset the
+                        // retry budget. Otherwise 'attempts' accumulates over the whole lifetime of
+                        // the enumeration and a long-running copy of a large collection aborts as soon
+                        // as it hits NumberOfRetries transient cursor losses in total (even millions of
+                        // successfully read documents apart). Retries must count CONSECUTIVE failures.
+                        attempts       = 0;
+                        firstException = null;
                     }
                     catch (Exception e)
                     {
@@ -323,7 +372,8 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                             continue;
 
                         var dps = ReportEveryNDocuments / ((sw.ElapsedMilliseconds - prevBatchElapsed.TotalMilliseconds) / 1000.0);
-                        _log.Debug($"Id={id:000} Fetch {ReportEveryNDocuments:N0} documents Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} " +
+                        if ( !Quiet ) 
+                            _log.Debug($"Id={id:000} Fetch {ReportEveryNDocuments:N0} documents Collection=\"{CollectionName}\" Concurrency={FetchInfo.ParallelFinds} " +
                                    $"Elapsed=\"{sw.Elapsed - prevBatchElapsed:g}\" DocsSec={dps:0.00} (processed {processed:N0} so far)");
                         prevBatchElapsed = sw.Elapsed;
 
@@ -395,7 +445,7 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
                 throw;
         }
 
-        //_log.Debug($"Collection=\"{Collection.CollectionNamespace.CollectionName}\" Inserted={dataList.Count - replaced - ignored} Replaced={replaced} Ignored={ignored} of Total={dataList.Count}");
+        //if ( !Quiet ) _log.Debug($"Collection=\"{Collection.CollectionNamespace.CollectionName}\" Inserted={dataList.Count - replaced - ignored} Replaced={replaced} Ignored={ignored} of Total={dataList.Count}");
         return dataList.Count - ignored;
     }
 
@@ -433,7 +483,8 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
             : new FilterDefinitionBuilder<T>().Eq(cobName, cob.Date);
 
         var result = await Collection.DeleteManyAsync(filter, token);
-        _log.Debug($"Collection=\"{Collection.CollectionNamespace.CollectionName}\" Deleted={result.DeletedCount} Book=\"{book}\" COB=\"{cob:yyyy-MM-dd}\" Layer=\"{layer}\"");
+        if ( !Quiet ) 
+            _log.Debug($"Collection=\"{Collection.CollectionNamespace.CollectionName}\" Deleted={result.DeletedCount} Book=\"{book}\" COB=\"{cob:yyyy-MM-dd}\" Layer=\"{layer}\"");
     }
 
     public static Dictionary<string, object> ConvertBsonToDictionary(BsonDocument doc)
@@ -521,7 +572,8 @@ public abstract class MongoDbServiceBase<T> : IMongoDbService<T> where T : class
     public async Task<long> Delete(FilterDefinition<T> filter, CancellationToken token = default)
     {
         var result = await Collection.DeleteManyAsync(filter, token);
-        _log.Debug($"Collection=\"{Collection.CollectionNamespace.CollectionName}\" Deleted={result.DeletedCount} Filter:\n{filter.ToJson(new () {Indent = true})}");
+        if ( !Quiet ) 
+            _log.Debug($"Collection=\"{Collection.CollectionNamespace.CollectionName}\" Deleted={result.DeletedCount} Filter:\n{filter.ToJson(new () {Indent = true})}");
         return result.DeletedCount;
     }
 

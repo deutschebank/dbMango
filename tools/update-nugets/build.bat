@@ -1,0 +1,1 @@
+dotnet publish .\update-nugets.csproj -c Release -o .\bin

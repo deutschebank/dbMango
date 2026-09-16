@@ -49,11 +49,16 @@
 
             <div class="form-row fit-content">
                 <FormItemText Class="mr-2" Name="Database" @bind-Value="Value.Config.MongoDbDatabase" Icon="icon-annotate-sm" />
-                <FormItemCheckBox Class="mr-2" Name="Use TLS" @bind-Value="Value.Config.UseTls" Icon="icon-wrench-outline-sm" />
+                <FormItemCheckBox Class="mr-2" Name="Disable dbMango collections" @bind-Value="Value.Config.DisableDbMangoCollections" Icon="icon-cog-sm" />
             </div>
 
             <div class="form-row fit-content">
                 <FormItemText Class="full-width" Name="URL" @bind-Value="Value.Config.MongoDbUrl" Icon="icon-wrench-outline-sm" />
+            </div>
+
+            <div class="form-row fit-content">
+	            <FormItemCheckBox Class="mr-2" Name="Use TLS" @bind-Value="Value.Config.UseTls" Icon="icon-wrench-outline-sm" />
+	            <FormItemCheckBox Class="mr-2" Name="Send client certificate" @bind-Value="Value.Config.SendClientCertificates" Icon="icon-wrench-outline-sm" />
             </div>
 
             <div class="form-row fit-content">
@@ -88,6 +93,9 @@
                 </div>
                 <div class="form-row fit-content">
                     <FormItemText Class="full-width" Name="LDAP Admin group" @bind-Value="Value.Groups.Admin" Icon="icon-layers-sm" />
+                </div>
+                <div class="form-row fit-content">
+                    <FormItemText Class="full-width" Name="Comments" @bind-Value="Value.Comments" Icon="icon-layers-sm" />
                 </div>
 
             </div>
@@ -181,7 +189,7 @@
     }
 
     private Task<string?> CanExecuteCommand()
-        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal);
+        => Shell.CanExecuteCommand(UserSession, InvokeAsync, Modal, false);  // NOTE: this is the only place where extra info is not checked
 
 
     private async Task Update()

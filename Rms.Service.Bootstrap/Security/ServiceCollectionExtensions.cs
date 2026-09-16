@@ -16,7 +16,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-﻿using Microsoft.Extensions.Options;
+
+ using System.Collections.Concurrent;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 namespace Rms.Service.Bootstrap.Security;
@@ -68,6 +70,8 @@ public static class ServiceCollectionExtensions
             set => section.Value = value;
         }
 
+        private static readonly ConcurrentDictionary<string, bool> _reported = new();
+
         private string? GetProtectedValue(string? value, string key)
         {
             if (value == null)
@@ -84,13 +88,21 @@ public static class ServiceCollectionExtensions
                 }
                 else
                 {
-                    logger.LogWarning($"Configuration item is not found: Key=\"{key}\" ParamName=\"{paramName}\"");
+                    if ( !_reported.ContainsKey(key))
+                    {
+                        logger.LogWarning($"Configuration item is not found: Key=\"{key}\" ParamName=\"{paramName}\"");
+                        _reported[key] = true;
+                    }
                     break;
                 }
             }
             if (value.StartsWith('*') || value.StartsWith('@') || value.StartsWith('#'))
             {
-                logger.LogDebug($"Decrypting configuration item: Key=\"{key}\" Length={value.Length}");
+                if ( !_reported.ContainsKey(key))
+                {
+                    logger.LogInformation($"Decrypting configuration item: Key=\"{key}\" Length={value.Length}");
+                    _reported[key] = true;
+                }
                 return passwordManager.DecryptPassword(value);
             }
 

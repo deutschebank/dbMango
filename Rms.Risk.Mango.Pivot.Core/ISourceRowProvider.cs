@@ -16,20 +16,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#nullable disable
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
+namespace Rms.Risk.Mango.Pivot.Core;
 
-namespace Rms.Risk.Mango.Pages;
-
-public class LoginModel : PageModel
+/// <summary>
+/// Implemented by <see cref="IPivotedData"/> sources that are backed by a collection of
+/// strongly typed objects. Allows callers (e.g. table templates and callbacks) to recover
+/// the original source object for a given row without resorting to <c>dynamic</c>.
+/// </summary>
+public interface ISourceRowProvider
 {
-    public IActionResult OnGet([FromRoute] string returnUrl = null) =>
-            LocalRedirect("/" + (string.IsNullOrEmpty(returnUrl) ? "" : Base64Decode(returnUrl)));
-
-    public static string Base64Decode(string base64EncodedData) 
-    {
-        var base64EncodedBytes = Convert.FromBase64String(base64EncodedData);
-        return System.Text.Encoding.UTF8.GetString(base64EncodedBytes);
-    }
+    /// <summary>
+    /// Get the original source object that produced the supplied row, or <c>null</c> when the
+    /// row is out of range or no backing object exists.
+    /// </summary>
+    /// <param name="row">Zero based row index.</param>
+    object? GetSourceRow(int row);
 }

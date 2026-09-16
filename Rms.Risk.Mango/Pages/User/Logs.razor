@@ -52,53 +52,53 @@
     }
 
     <div class="mr-3 ml-3">
-        <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@Result" PageSize="@_state.RowsPerPage" Filterable="true">
+        <TableControl Class="table table-hover table-striped table-forge table-forge-striped mr-3" Items="@_resultPivotData" PageSize="@_state.RowsPerPage" Filterable="true">
             <TableColumnControl Name="Time" Field="Time">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Time.ToString("yyyy-MM-dd HH:mm:ss.fff"))
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Time.ToString("yyyy-MM-dd HH:mm:ss.fff"))
                     </span>
                 </Template>
             </TableColumnControl>
             <TableColumnControl Name="Severity" Field="Severity" Filterable="true" FilterDropdownValues="@AvailableSeverity">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Severity)
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Severity)
                     </span>
                 </Template>
             </TableColumnControl>          
             <TableColumnControl Name="Category" Field="Category" Filterable="true" FilterDropdownValues="@AvailableCategories">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Category)
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Category)
                     </span>
                 </Template>
             </TableColumnControl>          
             <TableColumnControl Name="Id" Field="Id">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Id)
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Id)
                     </span>
                 </Template>
             </TableColumnControl>        
             <TableColumnControl Name="Svc" Field="Svc">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Svc)
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Svc)
                     </span>
                 </Template>
             </TableColumnControl>       
             <TableColumnControl Name="Ctx" Field="Ctx">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Ctx)
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Ctx)
                     </span>
                 </Template>
             </TableColumnControl>  
             <TableColumnControl Name="Msg" Field="Msg">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((LogRecordModel)context.Row))">
-                        @(((LogRecordModel)context.Row).Msg)
+                    <span @onclick="@(() => OnCellClick(TableControl.Source<LogRecordModel>(context.Data, context.Row)!))">
+                        @(TableControl.Source<LogRecordModel>(context.Data, context.Row)!.Msg)
                     </span>
                 </Template>
             </TableColumnControl>            
@@ -141,6 +141,7 @@
 
     private Exception?           Error  { get; set; }
     private List<LogRecordModel> Result { get; set; } = new();
+    private IPivotedData         _resultPivotData = new List<LogRecordModel>().ToPivotData();
     private List<string>         AvailableSeverity = [];
     private List<string>         AvailableCategories = [];
 
@@ -235,6 +236,7 @@
         
         model.Reverse();
         Result = model;
+        _resultPivotData = Result.ToPivotData();
 
         AvailableCategories = model
             .Select(x => x.Category)
@@ -267,9 +269,9 @@
         JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
-    private RenderFragment GetAttributes((dynamic Row, TableColumnControl Column) value)
+    private RenderFragment GetAttributes((int Row, TableColumnControl Column, IPivotedData Data) value)
     {
-        LogRecordModel doc = value.Row;
+        LogRecordModel doc = TableControl.Source<LogRecordModel>(value.Data, value.Row)!;
 
         var json = doc.Attr?.ToJson() ?? "";
         if (json.Length > 100)

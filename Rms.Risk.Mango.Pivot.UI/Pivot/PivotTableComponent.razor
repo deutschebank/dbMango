@@ -1,12 +1,9 @@
 ﻿@using System.Diagnostics
 @using System.Drawing
-@using System.Dynamic
 @using System.Reflection
 @using System.Text.RegularExpressions
-@using ChartJs.Blazor
-@using ChartJs.Blazor.LineChart
+@using pax.BlazorChartJs
 @using log4net
-@using Rms.Risk.Mango.Pivot.Core
 @using Rms.Risk.Mango.Pivot.Core.Models
 
 @inject IJSRuntime           Js
@@ -55,7 +52,7 @@
 
 <div class="@ChartClass">
     <div class="chart-canvas ml-3">
-        <Chart Config="@ChartConfig"/>
+        <ChartComponent ChartJsConfig="@ChartConfig"/>
     </div>
 </div>
 
@@ -65,38 +62,38 @@
         <ProgressSpinner>Loading...</ProgressSpinner>
     </div>
 }
-else if (_pivotRows is { Length: > 0 } 
- && (ShowIfEmpty || (!_pivotData?.Get(0, 0)?.ToString()?.Equals("No results") ?? false)))
+else if (_pivotData is { Count: > 0 } 
+ && (ShowIfEmpty || (!_pivotData.Get(0, 0)?.ToString()?.Equals("No results") ?? false)))
 {
     @if (!string.IsNullOrEmpty(Title))
     {
         <h2>@Title</h2>
     }
-    @if (_pivotData?.Count == PivotMaxReturnedRows )
+    @if (_pivotData.Count == PivotMaxReturnedRows )
     {
         <div class="alert alert-danger w-75" role="alert">
             Pivot results are limited to returning a maximum of @PivotMaxReturnedRows rows
         </div>
     }
-    <TableControl Class="table table-hover table-striped table-forge fit-content" 
-                  Items="@_pivotRows" 
+    <TableControl @key="_tableVersion" Class="table table-hover table-striped table-forge fit-content" 
+                  Items="@_pivotData" 
                   PageSize="@Rows" 
-                  @bind-FilteredItems="FilteredRows"
+                  @bind-FilteredRowIndices="FilteredRows"
                   CellStyle="GetCellStyle"
                   GetCellClassCallback="GetCellClassCallback"
                   Totals="@VisibleTotals"
                   @bind-SortMode="SortMode"
                   @bind-CurrentSortColumn="SortColumn"
                   >
-        @foreach (var field in _pivotRows[0].GetDynamicMemberNames())
+        @foreach (var field in _pivotData.Headers)
         {
-            
+
             var headerStyle = HeaderStyles.GetValueOrDefault(field, "");
-            
-            <TableColumnControl Name="@field" Field="@field" Format="@_pivotRows[0].GetFormat(field)" ShowTotals="@_pivotRows[0].ShouldShowTotals(field)" Class="@ColumnClass" HeaderStyle="@headerStyle">
+
+            <TableColumnControl Name="@field" Field="@field" Format="@GetFormat(field)" ShowTotals="@ShouldShowTotals(field)" Class="@ColumnClass" HeaderStyle="@headerStyle">
                 <Template>
-                    <span @onclick="@(() => OnCellClick((DynamicObject)context.Row, field))">
-                        @TableControl.ConvertToString(TableControl.GetLambdaForValue(field)(context.Row), _pivotRows[0].GetFormat(field))
+                    <span @onclick="@(() => OnCellClick(context.Row, field))">
+                        @TableControl.ConvertToString(TableControl.GetValue(context.Data, field, context.Row), GetFormat(field))
                     </span>
                 </Template>
             </TableColumnControl>
@@ -111,51 +108,43 @@ else if (_pivotRows is { Length: > 0 }
 
     public static int PivotMaxReturnedRows = 500_000;
 
-    [Parameter]
-    public IPivotedData? PivotData
-    {
-        get => _pivotData;
-        set
-        {
-            if (_pivotData == value)
-                return;
+	[Parameter]
+	public IPivotedData PivotData
+	{
+		get => _pivotData;
+		set
+		{
+			if (ReferenceEquals(_pivotData, value)
+				&& _pivotData.Count == (value?.Count ?? 0)
+				&& _pivotData.Headers.SequenceEqual(value?.Headers ?? []))
+				return;
 
-            _pivotData = value;
-            _totals.Clear();
+			_pivotData  = value ?? ArrayBasedPivotData.NoData;
+			_tableVersion++;
+			SortMode    = TableControl.SortModeType.NoSort;
+			SortColumn  = null;
+			_filteredRows = null;
+			_totals.Clear();
 
-            if (_pivotData == null)
-            {
-                _pivotRows = [];
-                InvokeAsync(StateHasChanged);
-                return;
-            }
+			if (_pivotData == ArrayBasedPivotData.NoData)
+			{
+				InvokeAsync(StateHasChanged);
+				return;
+			}
 
-            _shadowHeaders = _pivotData.GetColumnPositions();
+			_shadowHeaders = _pivotData.GetColumnPositions();
 
-            _descriptorsCache.Clear();
-            _fieldDescriptorsCache.Clear();
+			_descriptorsCache.Clear();
+			_fieldDescriptorsCache.Clear();
 
-            _pivotRows = Enumerable
-                .Range(0, _pivotData.Count )
-                .Select(x => new PivotRow(_pivotData, x, _shadowHeaders, GetColumnDescriptorInternal, GetFieldDescriptorInternal))
-                .ToArray()
-                ;
+			_totals.Update(_pivotData!);
 
-            _totals.Update(_pivotData!);
+			UpdateChart();
 
-            try
-            {
-                ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, x => _pivotRows[0].GetFormat(x));
-            }
-            catch (Exception)
-            {
-                // ignore
-            }
-
-            PivotDataChanged.InvokeAsync(_pivotData);
-            InvokeAsync(StateHasChanged);
-        }
-    }
+			PivotDataChanged.InvokeAsync(_pivotData);
+			InvokeAsync(StateHasChanged);
+		}
+	}
 
     [Parameter] public EventCallback<IPivotedData> PivotDataChanged      { get; set; }
 
@@ -165,7 +154,7 @@ else if (_pivotRows is { Length: > 0 }
     /// Always set PivotData and CurrentPivot at the same time.
     /// </summary>
     [Parameter]
-    public PivotDefinition? CurrentPivot
+    public PivotDefinition CurrentPivot
     {
         get;
         set
@@ -175,7 +164,7 @@ else if (_pivotRows is { Length: > 0 }
             field = value;
             CurrentPivotChanged.InvokeAsync(field);
         }
-    }
+    } = new();
 
     [Parameter] public EventCallback<PivotDefinition>                      CurrentPivotChanged      { get; set; }
 
@@ -202,7 +191,7 @@ else if (_pivotRows is { Length: > 0 }
     [Parameter] public FilterExpressionTree.ExpressionGroup? ExtraFilter  { get; set; }
     [Parameter] public bool IsExportEnabled
     {
-        get => !(CurrentPivot == null || _pivotRows is not { Length: > 0 });
+        get => !(CurrentPivot == null || _pivotData is not { Count: > 0 });
         // ReSharper disable once ValueParameterNotUsed
         set
         {
@@ -246,10 +235,11 @@ else if (_pivotRows is { Length: > 0 }
     [Parameter] public EventCallback<TimeSpan> LastRefreshElapsedChanged { get; set; }
 
     [Parameter] public Func<string, string, PivotDefinition?>? GetPivotDefinition                     { get; set; } //by default DefaultGetPivotDefinition;
-    [Parameter] public Func<string, string, Task<Tuple<string,PivotDefinition>?>> GetCustomDrilldown  { get; set; }= (_,_) => Task.FromResult<Tuple<string,PivotDefinition>?>(null);
+    [Parameter] public Func<string, string, Task<Tuple<string,PivotDefinition>?>> GetCustomDrilldown  { get; set; } = (_,_) => Task.FromResult<Tuple<string,PivotDefinition>?>(null);
     [Parameter] public Func<string /*columnName*/, PivotColumnDescriptor?> GetColumnDescriptor        { get; set; } = _ => null;
     [Parameter] public Func<string /*columnName*/, PivotFieldDescriptor?> GetFieldDescriptor          { get; set; } = _ => null;
-    [Parameter] public Func<DynamicObject, string, Task<bool>> HandleCellClick                        { get; set; } =(_,_) => Task.FromResult(false);
+    [Parameter] public Func<IPivotedData, int, string, Task<bool>> HandleCellClick                    { get; set; } = (_,_,_) => Task.FromResult(false);
+    [Parameter] public Func<string, Task<BsonDocument?>> GetSchema                                    { get; set; } = _ => Task.FromResult<BsonDocument?>(null);
     [Parameter] public Func<
         GroupedPivot /*pivot*/,
         FilterExpressionTree.ExpressionGroup? /*userFilter*/,
@@ -294,8 +284,7 @@ else if (_pivotRows is { Length: > 0 }
     public Task ShowDefaultDocument(KeyValuePair<string, object>[] fields) => IsReadOnly ? Task.CompletedTask : ShowDefaultDocumentInternal(fields);
 
 
-    private          PivotRow[]                               ? _pivotRows;
-    private          IPivotedData                             ? _pivotData;
+    private          IPivotedData                               _pivotData = ArrayBasedPivotData.NoData;
     private readonly MinMaxCache                                _totals = new();
     private          string                                   ? _prevCollection;
     private          GroupedCollection                        ? _currentCollection;
@@ -303,19 +292,21 @@ else if (_pivotRows is { Length: > 0 }
     private          bool                                       _pivotRefreshing;
     private          PivotColumnDescriptor[]                  ? _descriptors;
     private          Dictionary<string, PivotFieldDescriptor> ? _fieldTypes;
-    private          List<dynamic>                              _filteredRows  = [];
+    private          List<int>?                                 _filteredRows  = null;
     private readonly DelayedExecution                           _delayedUpdate = new(TimeSpan.FromMilliseconds(1500));
     private          Dictionary<string, int>                    _shadowHeaders = [];
+    private          bool                                       _initialized;
+    private          int                                        _tableVersion;
 
     private bool                                  ShowTotals        => SelectedPivotNode?.Pivot.ShowTotals ?? false;
     private IMinMaxCache?                         VisibleTotals     => ShowTotals ? _totals : null;
     private List<GroupedPivot>                    Pivots            => SelectedCollectionNode?.Pivots ?? [];
     private HashSet<string>                       AllDataFields     => SelectedCollectionNode?.DataFields ?? [];
     private HashSet<string>                       AllKeyFields      => SelectedCollectionNode?.KeyFields ?? [];
-    private LineConfig                            ChartConfig       => ChartHelper.ChartConfig;
+    private ChartJsConfig                         ChartConfig       => ChartHelper.ChartConfig;
     private ChartHelperForPivot                   ChartHelper       { get; }      = new();
 
-    private string ChartClass => !ChartHelper.IsLineChart(CurrentPivot!, _pivotData!)
+    private string ChartClass => !ChartHelper.IsLineChart(CurrentPivot!, _pivotData)
         ? "d-none"
         : ""
         ;
@@ -328,9 +319,9 @@ else if (_pivotRows is { Length: > 0 }
             //a combination of long columns with and without spaces. Wrapping looks weird here, so we want to turn off wrapping if we can
             //detect any column which has a long name without spaces
 
-            if (_pivotRows != null && 
-                (_pivotRows[0].GetDynamicMemberNames().Count() <= 16 
-                  || _pivotRows[0].GetDynamicMemberNames().Any(n => n.Length >= 10 && !n.Contains(" "))
+            if (_pivotData is { Count: > 0 } && 
+                (_pivotData.Headers.Count <= 16 
+                  || _pivotData.Headers.Any(n => n.Length >= 10 && !n.Contains(" "))
                 )
                )
                 return "table-nowrap";
@@ -345,6 +336,8 @@ else if (_pivotRows is { Length: > 0 }
 
         if (!firstRender || IsReadOnly)
             return;
+
+        _initialized = true;
 
         try
         {
@@ -361,7 +354,8 @@ else if (_pivotRows is { Length: > 0 }
                 },
                 ShowException      = ex => ModalDialogUtils.ShowExceptionDialog(Modal, "Pivot", ex),
                 GetPivotDefinition = GetPivotDefinition ?? DefaultGetPivotDefinition,
-                GetCustomDrilldown = GetCustomDrilldown
+                GetCustomDrilldown = GetCustomDrilldown,
+				GetSchema          = GetSchema
             };
 
             await InvokeAsync(StateHasChanged);
@@ -372,14 +366,27 @@ else if (_pivotRows is { Length: > 0 }
         }
     }
 
-    private PivotDefinition? DefaultGetPivotDefinition(string pivotName, string _ /*collectionName*/) => 
-        _currentCollection?.Pivots?.FirstOrDefault(x => x?.Pivot?.Name?.Equals(pivotName, StringComparison.OrdinalIgnoreCase) ?? false)?.Pivot;
-
-    private async Task<bool> OnCellClick(DynamicObject row, string fieldName)
+    private void UpdateChart()
     {
         try
         {
-            if (HandleCellClick != null && await HandleCellClick(row, fieldName))
+            if (_initialized)
+                ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, GetFormat);
+        }
+        catch (Exception)
+        {
+            // ignore
+        }
+    }
+
+    private PivotDefinition? DefaultGetPivotDefinition(string pivotName, string _ /*collectionName*/) => 
+        _currentCollection?.Pivots?.FirstOrDefault(x => x?.Pivot?.Name?.Equals(pivotName, StringComparison.OrdinalIgnoreCase) ?? false)?.Pivot;
+
+    private async Task<bool> OnCellClick(int row, string fieldName)
+    {
+        try
+        {
+            if (HandleCellClick != null && await HandleCellClick(_pivotData, row, fieldName))
                 return true;
         }
         catch (Exception e)
@@ -387,11 +394,8 @@ else if (_pivotRows is { Length: > 0 }
             await ModalDialogUtils.ShowExceptionDialog(Modal, $"Error drilling down into {fieldName}", e);
         }
 
-        if ( IsReadOnly || _drilldownSupport == null)
+        if ( IsReadOnly || _drilldownSupport == null || PivotService == null)
             return true;
-
-        if (CurrentPivot == null)
-            return false;
 
         var displayToRealName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if ( CurrentPivot.RenameColumn?.Count > 0 && PivotData is ArrayBasedPivotData { HeadersMap: { } } apd)
@@ -402,13 +406,13 @@ else if (_pivotRows is { Length: > 0 }
         }
 
         var res = await _drilldownSupport.Drilldown(
-            PivotService!,
+            PivotService,
             SelectedCollectionNode!.CollectionNameWithPrefix,
             fieldName,
             displayToRealName,
-            ((PivotRow)row).GetDynamicMemberNames().ToArray(),
+            _pivotData.Headers.ToArray(),
             CurrentPivot,
-            x => TableControl.GetDynamicMember(row, x),
+            x => TableControl.GetValue(_pivotData, x, row),
             AllDataFields,
             AllKeyFields
             );
@@ -445,12 +449,50 @@ else if (_pivotRows is { Length: > 0 }
         var filter = ExtraFilter;
         var doc    = await PivotService.GetDocumentAsync(_currentCollection!.CollectionNameWithPrefix, fields, filter);
 
-        await ModalDialogUtils.ShowTextDialog(
+        /* await ModalDialogUtils.ShowTextDialog(
             Modal,
             "Pivot",
             doc,
             "Press F11 to enter fullscreen mode. Use ESC to exit it."
-            );
+            ); */
+
+        await ShowBsonDialog(Modal, "Pivot", doc, false);
+    }
+
+    private async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(IModalService service, string header, string text, bool enableWrite)
+    {
+        var schema = _drilldownSupport == null
+                ? null
+                : await _drilldownSupport.GetSchema(header)
+            ;
+		return await ShowBsonDialog(service, header, text, enableWrite, schema);
+    }
+
+    public static async Task<(bool ShouldUpdate, string Json)?> ShowBsonDialog(IModalService service, string header, string text, bool enableWrite, BsonDocument? schema)
+    {
+	    var parameters = new ModalParameters
+	    {
+		    { "Text",        text        },
+		    { "EnableWrite", enableWrite },
+		    { "Schema",      schema      }
+	    };
+
+	    var options = new ModalOptions
+	    {
+		    HideCloseButton = true,
+		    DisableBackgroundCancel = true
+	    };
+
+	    var form = service.Show<MessageBoxJsonComponent>(header, parameters, options);
+	    var res = await form.Result;
+	    if (res.Cancelled)
+		    return null;
+
+	    var v = (MessageBoxJsonComponent.ResultType?)res.Data;
+	    if (v == null)
+		    return null;
+
+	    return (v.ShouldUpdate, v.Json);
     }
 
     private bool IsRefreshEnabled =>
@@ -596,9 +638,9 @@ else if (_pivotRows is { Length: > 0 }
         if (transpose && data.Count > 0 && data.Get(0, 0)?.ToString()?.Equals("No results") != true)
             data = Transpose(data);
 
-        PivotData = data;
         _totals.Clear();
-        _filteredRows = [];
+        PivotData = data;
+        _filteredRows = null;
 
         if (addToNavigation)
         {
@@ -888,15 +930,6 @@ else if (_pivotRows is { Length: > 0 }
             }
         }
 
-        // if ((_pivotData?.Length ?? 0) > 0)
-        // {
-        //     foreach (var k in _pivotData[0].GetDynamicMemberNames())
-        //     {
-        //         if (!res.ContainsKey(k))
-        //             res[k] = typeof(double);
-        //     }
-        // }
-
         return res;
     }
 
@@ -907,7 +940,7 @@ else if (_pivotRows is { Length: > 0 }
 
         try
         {
-            var csv = _pivotRows![0].PivotData.CopyToCsv();
+            var csv = _pivotData.CopyToCsv();
             await Js.InvokeVoidAsync("DashboardUtils.CopyToClipboard", csv);
         }
         catch (Exception e)
@@ -924,7 +957,7 @@ else if (_pivotRows is { Length: > 0 }
         try
         {
             await using var writer = new StringWriter();
-            _pivotRows![0].PivotData.WriteToCsv(writer);
+            _pivotData.WriteToCsv(writer);
             var data = writer.ToString();
 
             var url = await PivotSharingService.ExportToCsv(
@@ -952,134 +985,161 @@ else if (_pivotRows is { Length: > 0 }
         }
     }
 
-    // ReSharper disable once UnusedMember.Local
-    private List<dynamic> FilteredRows
-    {
-        get => _filteredRows;
-        set
-        {
-            _filteredRows = value;
-            _totals.Update(_pivotData!, _filteredRows.OfType<PivotRow>().Select( x => x.Row).ToArray());
-            
-            if (_filteredRows.Count == 0 || !(CurrentPivot?.MakeLineChart ?? false))
-                return;
+	// ReSharper disable once UnusedMember.Local
+	private List<int>? FilteredRows
+	{
+		get => _filteredRows;
+		set
+		{
+			_filteredRows = value;
 
-            _delayedUpdate.Run(UpdateFilteredChart, "UpdateFilteredChart");
-        }
-    }
+			if (_filteredRows == null)
+				_totals.Update(_pivotData!);
+			else
+				_totals.Update(_pivotData!, _filteredRows);
 
-    private Task UpdateFilteredChart(CancellationToken token)
-    {
-        try
-        {
+			if (!(CurrentPivot?.MakeLineChart ?? false))
+				return;
 
-            if (token.IsCancellationRequested)
-                return Task.CompletedTask;
+			if (_filteredRows == null)
+			{
+				if (_initialized)
+					ChartHelper.UpdateLineChart(CurrentPivot!, _pivotData, GetFormat);
+				return;
+			}
 
-            var filteredPivot = new PivotFilteredView(_filteredRows.Cast<PivotRow>().ToList());
+			if (_filteredRows.Count == 0)
+				return;
 
-            if (token.IsCancellationRequested)
-                return Task.CompletedTask;
+			_delayedUpdate.Run(UpdateFilteredChart, "UpdateFilteredChart");
+		}
+	}
 
-            ChartHelper.UpdateLineChart(CurrentPivot!, filteredPivot, x => _pivotRows![0].GetFormat(x));
-        }
-        catch (Exception)
-        {
-            // ignore
-        }
-        return InvokeAsync(StateHasChanged);
-    }
+	private Task UpdateFilteredChart(CancellationToken token)
+	{
+		try
+		{
 
-    public static string GetCellStyle(dynamic row, TableColumnControl col)
-    {
-        if ( row is not PivotRow r || string.IsNullOrWhiteSpace(col.Field) )
-            return "";
+			if (token.IsCancellationRequested || _filteredRows == null || _filteredRows.Count == 0)
+				return Task.CompletedTask;
 
-        var desc = r.GetColumnDescriptor(col.Field);
-        if ( desc == null )
-            return "";
+			var filteredPivot = new PivotFilteredView(_pivotData, _filteredRows);
 
-        // for some reason comparison with 0x00000 and Color.Black are not working
-        if ( desc.Background is { R: 0, G: 0, B: 0 })
-            return "";
+			if (token.IsCancellationRequested)
+				return Task.CompletedTask;
 
-        return $"background-color:#{desc.Background.A:x2}{desc.Background.R:x2}{desc.Background.G:x2}{desc.Background.B:x2}";
-    }
-    
-    private string GetCellClassCallback(dynamic row, TableColumnControl col)
-    {
-        var cellClass = "";
+			if ( _initialized )
+				ChartHelper.UpdateLineChart(CurrentPivot!, filteredPivot, GetFormat);
+		}
+		catch (Exception)
+		{
+			// ignore
+		}
+		return InvokeAsync(StateHasChanged);
+	}
 
-        // make a copy as GetFieldDescriptor may take noticeable time
-        var cp = CurrentPivot;
+	public string GetCellStyle(IPivotedData data, int row, TableColumnControl col)
+	{
+		if ( string.IsNullOrWhiteSpace(col.Field) )
+			return "";
 
-        if ( cp == null || cp.HighlightTopPercent <= 0.0 )
-            return cellClass;
+		var desc = GetColumnDescriptorInternal(col.Field);
+		if ( desc == null )
+			return "";
 
-        if ( row is not PivotRow r || string.IsNullOrWhiteSpace(col.Field) )
-            return cellClass;
+		// for some reason comparison with 0x00000 and Color.Black are not working
+		if ( desc.Background is { R: 0, G: 0, B: 0 })
+			return "";
 
-        var mm = _totals.TryGet(col.Name);
-        if ( mm == null )
-            return cellClass;
+		return $"background-color:#{desc.Background.A:x2}{desc.Background.R:x2}{desc.Background.G:x2}{desc.Background.B:x2}";
+	}
 
-        var desc = r.GetFieldDescriptor(col.Field);
-        if ( desc != null && desc.Purpose != PivotFieldPurpose.Data )
-            return cellClass;
+	private string GetCellClassCallback(IPivotedData data, int row, TableColumnControl col)
+	{
+		var cellClass = "";
 
-        double val = GetCellValue(row, col.Field);
+		// make a copy as GetFieldDescriptor may take noticeable time
+		var cp = CurrentPivot;
 
-        cellClass = val switch
-        {
-            > 0 when val > mm.MaxValue - mm.MaxValue * cp.HighlightTopPercent / 100.0 =>
-                $"{cellClass} glow-pos",
-            < 0 when val < mm.MinValue - mm.MinValue * cp.HighlightTopPercent / 100.0 =>
-                $"{cellClass} glow-neg",
-            _ => cellClass
-        };
+		if ( cp == null || cp.HighlightTopPercent <= 0.0 )
+			return cellClass;
 
-        // NaN here most likely means string column
-        if ( !double.IsNaN(val) && IsLastImportant(r, col.Name, mm) )
-            cellClass += " glow-last";
+		if ( string.IsNullOrWhiteSpace(col.Field) )
+			return cellClass;
 
-        return cellClass;
-    }
+		var mm = _totals.TryGet(col.Name);
+		if ( mm == null )
+			return cellClass;
 
-    private double GetCellValue(PivotRow row, string col)
-    {
-        if ( !_shadowHeaders.TryGetValue(col, out var idx) )
-            return double.NaN;
+		var desc = GetFieldDescriptorInternal(col.Field);
+		if ( desc != null && desc.Purpose != PivotFieldPurpose.Data )
+			return cellClass;
 
-        var val = row.PivotData.Get(idx, row.Row);
-        return val switch
-        {
-            double d => d,
-            int i    => i,
-            _        => double.NaN
-        };
-    }
+		double val = GetCellValue(data, row, col.Field);
 
-    private bool IsLastImportant(PivotRow row, string colName, MinMax mm)
-    {
-        if ( SortColumn != colName || SortMode != TableControl.SortModeType.DescendingAbsolute) 
-            return false;
+		cellClass = val switch
+		{
+			> 0 when val > mm.MaxValue - mm.MaxValue * cp.HighlightTopPercent / 100.0 =>
+				$"{cellClass} glow-pos",
+			< 0 when val < mm.MinValue - mm.MinValue * cp.HighlightTopPercent / 100.0 =>
+				$"{cellClass} glow-neg",
+			_ => cellClass
+		};
 
-        var sum    = 0.0;
-        var target = mm.AbsTotal * CurrentPivot!.HighlightTopPercent / 100.0;
+		// NaN here most likely means string column
+		if ( !double.IsNaN(val) && IsLastImportant(data, row, col.Name, mm) )
+			cellClass += " glow-last";
 
-        foreach ( var r in FilteredRows.OfType<PivotRow>() )
-        {
-            var val = GetCellValue(r, colName);
-            if ( double.IsNaN(val) )
-                return false;
-            
-            sum += Math.Abs(val);
-            
-            if ( sum >= target )
-                return row.Row == r.Row;
-        }
+		return cellClass;
+	}
 
-        return false;
-    }
+	private double GetCellValue(IPivotedData data, int row, string col)
+	{
+		if ( !_shadowHeaders.TryGetValue(col, out var idx) )
+			return double.NaN;
+
+		var val = data.Get(idx, row);
+		return val switch
+		{
+			double d => d,
+			int i    => i,
+			_        => double.NaN
+		};
+	}
+
+	private bool IsLastImportant(IPivotedData data, int row, string colName, MinMax mm)
+	{
+		if ( SortColumn != colName || SortMode != TableControl.SortModeType.DescendingAbsolute) 
+			return false;
+
+		var sum    = 0.0;
+		var target = mm.AbsTotal * CurrentPivot!.HighlightTopPercent / 100.0;
+
+		foreach ( var r in _filteredRows ?? Enumerable.Range(0, data.Count) )
+		{
+			var val = GetCellValue(data, r, colName);
+			if ( double.IsNaN(val) )
+				return false;
+
+			sum += Math.Abs(val);
+
+			if ( sum >= target )
+				return row == r;
+		}
+
+		return false;
+	}
+
+	private string GetFormat(string column) => GetColumnDescriptorInternal(column)?.Format ?? "";
+
+	private bool ShouldShowTotals(string column)
+	{
+		var desc = GetFieldDescriptorInternal(column);
+		if ( desc != null && desc.Purpose != PivotFieldPurpose.Data )
+			return false;
+
+		var colDesc = GetColumnDescriptorInternal(column);
+		return colDesc?.ShowTotals ?? true;
+	}
 
 }

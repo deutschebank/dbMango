@@ -1,16 +1,17 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Version>1.0.0</Version>
     <LangVersion>preview</LangVersion>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <NoWarn>1591,3021,NU3018,BL0007,SYSLIB0050</NoWarn>
-    <SolutionDirectory>$([MSBuild]::GetDirectoryNameOfFileAbove(`$(MSBuildProjectDirectory)`, `Directory.Build.props`))/</SolutionDirectory>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
 	  <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 	  <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
 	  <PlatformTarget>x64</PlatformTarget>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <SolutionDirectory Condition=" '$(NO_DIRECT_DOWNLOAD)' == '' ">$([MSBuild]::GetDirectoryNameOfFileAbove(`$(MSBuildProjectDirectory)`, `Directory.Build.props`))/</SolutionDirectory>
+    <SolutionDirectory Condition=" '$(NO_DIRECT_DOWNLOAD)' != '' ">$([MSBuild]::GetDirectoryNameOfFileAbove(`$(MSBuildProjectDirectory)`, `Directory.Build.props`))/../dbMango/</SolutionDirectory>
     <BaseIntermediateOutputPath>$(SolutionDirectory)bin/obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
     <!-- UseCommonOutputDirectory disabled for now as there is an msbuild bug that prevents nuget packages being copied over
 	<UseCommonOutputDirectory>true</UseCommonOutputDirectory>

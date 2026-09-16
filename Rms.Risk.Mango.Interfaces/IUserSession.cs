@@ -104,7 +104,7 @@ public interface IUserSession
     /// Checks if the session has a valid task.
     /// </summary>
     /// <returns>A task that resolves to true if the task is valid; otherwise, false.</returns>
-    Task<bool> HasValidTask();
+    Task<bool> HasValidTask(bool checkExtraInfo = true);
 
     /// <summary>
     /// Determines if the user can access a specific resource based on the provided policy and database name.
@@ -134,6 +134,11 @@ public interface IUserSession
     /// <param name="databaseInstance">The name of the database instance.</param>
     /// <returns>The custom MongoDB admin service.</returns>
     IMongoDbDatabaseAdminService GetCustomAdmin(string databaseName, string databaseInstance);
+
+    /// <summary>
+    /// Gets the MongoDB service for interacting with the database.
+    /// </summary>
+    IMongoDbService<BsonDocument> GetCustomMongoDbService(string databaseName, string databaseInstance, string collectionName);
 
     /// <summary>
     /// Gets a shard connection for the specified host and port.
