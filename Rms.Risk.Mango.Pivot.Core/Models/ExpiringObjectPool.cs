@@ -45,7 +45,7 @@ public class ExpiringObjectPool<TKey, TValue, TArg>
         _pool            = new ConcurrentDictionary<TKey, (TValue, DateTime)>();
 
         // Set up a timer to clean up expired objects
-        _cleanupTimer = new Timer(CleanupExpiredObjects, null, cleanupInterval, cleanupInterval);
+        _cleanupTimer = new(CleanupExpiredObjects, null, cleanupInterval, cleanupInterval);
     }
 
     public void Clear() => _pool.Clear();

@@ -43,5 +43,5 @@ public class AstFunctionArgument : AstExpression
     public override JsonNode? AsJson()
         => string.IsNullOrWhiteSpace(Name)
             ? Value.AsJson()
-            : new JsonObject([new KeyValuePair<string, JsonNode?>(Name, Value.AsJson())]);
+            : new JsonObject([new(Name, Value.AsJson())]);
 }

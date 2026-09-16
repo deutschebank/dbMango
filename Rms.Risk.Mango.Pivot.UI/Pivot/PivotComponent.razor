@@ -1,6 +1,5 @@
 ﻿@using System.Text
 @using Newtonsoft.Json
-@using Rms.Risk.Mango.Pivot.Core
 @using Rms.Risk.Mango.Pivot.Core.Models
 
 @inject IPivotSharingService PivotSharingService
@@ -24,8 +23,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *@
-
-<link rel="stylesheet" href="css/pivot.css" />
 
 <div class="pivot-navigator">
 
@@ -105,6 +102,7 @@
                                  ExtraFilter="@GetExtraFilter()"
                                  PivotService="@PivotService"
                                  Navigation="@Navigation"
+								 GetSchema="@GetSchema"
                                  @bind-IsExportEnabled="IsExportEnabled"
                                  @bind-LastRefresh="LastRefresh"
                                  @bind-LastRefreshElapsed="LastRefreshElapsed" />
@@ -177,7 +175,7 @@
 
     [Parameter] public IPivotTableDataSource PivotService   { get; set; } = null!;
     [Parameter] public bool                  ShowCollection { get; set; } = true;
-
+    [Parameter] public Func<string, Task<BsonDocument?>> GetSchema { get; set; } = (_) => Task.FromResult<BsonDocument?>(null);
     [Parameter] public string? Collection
     {
         get;
@@ -495,9 +493,19 @@
             return;
         }
 
+        // Build the definition to share from the live pivot settings (SelectedPivotNode.Pivot),
+        // which reflect the currently selected settings the user may have changed in the panel.
+        // Preserve the full executed drilldown context from CurrentPivot: drilldown can merge prior
+        // filters into Filter, keep the latest condition in DrilldownFilter, and expand Keys/Data.
+        var sharedPivotDef = (SelectedPivotNode?.Pivot ?? CurrentPivot!).Clone();
+        sharedPivotDef.KeyFields = [.. CurrentPivot!.KeyFields];
+        sharedPivotDef.DataFields = [.. CurrentPivot.DataFields];
+        sharedPivotDef.Filter = CurrentPivot.Filter;
+        sharedPivotDef.DrilldownFilter = CurrentPivot.DrilldownFilter;
+
         var def = new SharedPivotDef
         {
-            PivotDef    = CurrentPivot!,
+            PivotDef    = sharedPivotDef,
             Collection  = Collection!,
             ExtraFilter = GetExtraFilter()?.ToJson(GetAllFields()) ?? "",
             SharedBy    = await GetUserName(),
@@ -636,7 +644,8 @@
             "<div><p>This function allows you to share the exact pivot you've just ran even if you made any modification to it.</p>" +
             $"<p>Pivot \"{data.PivotDef.Name}\" with all modifications applied will be available using this URL:<br/><a href=\"{url}\">{url}</a>.</p>" +
             "<p>Please copy this URL and send it using instant messaging or by E-Mail." +
-            "This URL will be valid for 7 days.</p><div>"
+            "This URL will be valid for 7 days.</p><div>",
+            copyText: url
         );
 
     }
@@ -664,8 +673,23 @@
             return;
         }
 
-        
+
         Collection = sharedPivot.Collection;
+
+        // The settings panel (Keys/Data etc.) and any subsequent refresh are driven by
+        // SelectedPivotNode.Pivot. Setting Collection/Pivot above resets SelectedPivotNode to
+        // the predefined pivot from the tree (matched by name), which would drop the shared
+        // (possibly modified) Keys/Data. Point the selected node at the shared definition so
+        // the shared settings are remembered and used, not just rendered once.
+        var sharedNode = new GroupedPivot
+        {
+            Text    = sharedPivot.PivotDef.Name,
+            IsGroup = false,
+            Pivot   = sharedPivot.PivotDef
+        };
+
+        Pivot             = sharedPivot.PivotDef.Name;
+        SelectedPivotNode = sharedNode;
 
         var extraFilter = FilterExpressionTree.ParseJson(sharedPivot.ExtraFilter ?? "{}");
         await InvokeAsync(() => PivotTable.RunPivot(sharedPivot.PivotDef, extraFilter));

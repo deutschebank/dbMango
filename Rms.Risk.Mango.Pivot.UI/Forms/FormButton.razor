@@ -16,7 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *@
-﻿<button class="btn @ButtonClass" @onclick="@(()=>OnClick.InvokeAsync())" disabled="@(!Enabled)">
+﻿<button class="btn @ButtonClass" @onclick="@(()=>OnClick.InvokeAsync())" disabled="@(!Enabled)" title="@Hint">
     @if (!string.IsNullOrWhiteSpace(Icon))
     {
         <span class="ui-icon-font @Icon" />
@@ -31,9 +31,32 @@
     [Parameter] public bool          Enabled   { get; set; } = true;
     [Parameter] public bool          IsPrimary { get; set; }
     [Parameter] public string        Icon      { get; set; } = "";
-    [Parameter] public string        Name      { get; set; } = "OK";
+    [Parameter] public string        Name      { get; set; } = "";
+    [Parameter] public string        Hint      { get; set; } = "";
     [Parameter] public string        Class     { get; set; } = "mr-1";
     [Parameter] public EventCallback OnClick   { get; set; }
 
-    private string ButtonClass => IsPrimary ? $"btn-primary {Class}" : $"btn-secondary {Class}";
+    private string ButtonClass => 
+	    IsBtnOverridden  
+		    ? Class 
+		    : IsPrimary
+			    ? $"btn-primary {Class}" 
+			    : $"btn-secondary {Class}"
+		;
+
+	private bool IsBtnOverridden => !string.IsNullOrWhiteSpace(Class) && Class.Contains("btn-");
+    
+	protected override void OnAfterRender(bool firstRender)
+    {
+	    base.OnAfterRender(firstRender);
+	    if (!firstRender)
+		    return;
+
+        if ( string.IsNullOrWhiteSpace(Icon) && string.IsNullOrWhiteSpace(Name))
+        {
+            Name = "OK";
+            StateHasChanged();
+		}
+    }
+
 }

@@ -3,7 +3,7 @@
     <NoWarn>CS1584,CS1658,CS1591</NoWarn>
   </PropertyGroup>
 
-<!--
+
   <PropertyGroup>
     <AntlrJarDir>$(SolutionDirectory)tools/Antlr4</AntlrJarDir>
     <AntlrJarFile>antlr4-4.13.1-complete.jar</AntlrJarFile>
@@ -11,7 +11,7 @@
     <AntlrDownloadUrl>https://www.antlr.org/download/antlr-4.13.2-complete.jar</AntlrDownloadUrl>
   </PropertyGroup>
 
-  <Target Name="EnsureAntlr4Jar" BeforeTargets="Antlr4Compile">
+  <Target Name="EnsureAntlr4Jar" BeforeTargets="Antlr4Compile" Condition=" '$(NO_DIRECT_DOWNLOAD)' == '' ">
     <Message Text="Ensuring ANTLR jar exists at $(AntlrJarPath)" Importance="High" />
     <MakeDir Directories="$(AntlrJarDir)" Condition="!Exists('$(AntlrJarDir)')" />
     <Exec Condition="!Exists('$(AntlrJarPath)') AND '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'"
@@ -20,7 +20,7 @@
           Command="bash -c &quot;curl -L -o '$(AntlrJarPath)' $(AntlrDownloadUrl)&quot;" />
     <Message Condition="Exists('$(AntlrJarPath)')" Text="ANTLR jar present: $(AntlrJarPath)" Importance="High" />
   </Target>
--->
+
 
   <ItemGroup>
     <Antlr4 Include="MongoAggregationForHumans.g4">

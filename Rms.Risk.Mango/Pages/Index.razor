@@ -1,6 +1,5 @@
 ﻿@page "/"
-@* @page "/{DatabaseStr}"
-@page "/{DatabaseStr}/{DatabaseInstanceStr}" *@
+
 @using Microsoft.Extensions.Options
 @using Rms.Risk.Mango.Services.Context
 @using Rms.Service.Bootstrap
@@ -8,10 +7,13 @@
 
 @inject NavigationManager             NavigationManager
 @inject IDatabaseConfigurationService DatabaseConfig
-@inject IUserSession                   Session
+@inject IUserSession                  Session
 @inject IJSRuntime                    JsRuntime
 @inject IAuthorizationService         Auth
 @inject IOptions<DbMangoSettings>     DbMangoSettings
+@inject IDatabaseConfigurationService DatabaseConfigurationService
+@inject IUserSession                  UserSession
+@inject ILogger<Index>                Logger
 
 @*
  *                                dbMango
@@ -38,7 +40,7 @@
     }
 </style>
 
-<PageTitle>Index</PageTitle>
+<PageTitle>dbMango</PageTitle>
 
 <AuthorizeView>
     <Authorized>
@@ -46,7 +48,9 @@
             <div class="col col-md-auto">
                 <div class="center"><img width="150px" src="@NavMenu.GetMango()" /></div>
                 <div class="center"><h1>dbMango</h1></div>
-                <div class="center">Version: @(VersionsHelper.Version)</div>
+                <div class="center">Version: @(VersionsHelper.Version)</div><br/>
+                <div class="center">.NET Version: @(VersionsHelper.NetRuntimeVersion)</div><br />
+                <div class="center">OS Version: @(VersionsHelper.OSVersion)</div><br />
             </div>
             <div class="col col-md-auto">
                 <div class="row align-items-start">
@@ -77,9 +81,17 @@
                     </div>
                     <div class="col col-md-auto mt-4">
                         <div>Databases you don't have access to:</div>
-                        <TableControl Items="@NoAccessTo" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
-                            <TableColumnControl Field="Name" />
-                            <TableColumnControl Field="Contacts" />
+                        <TableControl Items="@_noAccessToPivotData" PagerSize="15" Class="table table-hover table-striped table-forge table-forge-striped mt-3">
+                            <TableColumnControl Field="Name" Name="Database name">
+                                <Template Context="ctx">
+                                    @{ var rec = TableControl.Source<NoAccessToRec>(ctx.Data, ctx.Row)!; }
+                                    <div title="@GetTooltip(rec)">
+                                        @rec.Name
+                                    </div>
+                                </Template>
+                            </TableColumnControl>
+                            <TableColumnControl Field="Contacts" Name="Contacts"/>
+                            <TableColumnControl Field="Comments" Name="Comments"/>
                         </TableControl>
                     </div>
                 </div>
@@ -122,14 +134,15 @@
 
 @code{
 
-    [Parameter] public string? DatabaseStr { get; set; }
-    [Parameter] public string? DatabaseInstanceStr { get; set; }
+    [SupplyParameterFromQuery(Name = "db")]       public string? DatabaseStr         { get; set; }
+    [SupplyParameterFromQuery(Name = "instance")] public string? DatabaseInstanceStr { get; set; }
 
     private List<string> DatabasesNames    { get; }      = [];
     private List<string> DatabaseInstances { get; set; } = [];
+    private IPivotedData _noAccessToPivotData = new List<NoAccessToRec>().ToPivotData();
     private Exception?   Error             { get; set; }
 
-    private record NoAccessToRec(string Name, string Contacts);
+    private record NoAccessToRec(string Name, string Contacts, string Comments);
 
     private List<NoAccessToRec> NoAccessTo { get; } = [];
 
@@ -139,31 +152,128 @@
         if (!firstRender)
             return;
 
-        DatabasesNames.Clear();
-        foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
+        try
         {
-            if (name.Contains("-placeholder>"))
-                continue;
+           	Logger.LogDebug("Index page loaded. Checking database access for user {User}. Full database list:{databases}",
+	            Session.User.GetUser().Identity?.Name ?? "Unknown", 
+	            string.Join("\n\t", DatabaseConfig.Databases.Keys));
 
-            if (!await IsUserAuthorized(name))
-                NoAccessTo.Add( new (name, DatabaseConfig.Databases[name].Contacts));
-            else
-                DatabasesNames.Add(name);
+			foreach (var name in DatabaseConfig.Databases.Keys.OrderBy(x => x))
+			{
+			if (name.Contains("-placeholder>"))
+				continue;
+
+			if (!await IsUserAuthorized(name))
+					NoAccessTo.Add(new(name, DatabaseConfig.Databases[name].Contacts, DatabaseConfig.Databases[name].Comments));
+			else
+					DatabasesNames.Add(name);
+		}
+
+			_noAccessToPivotData = NoAccessTo.ToPivotData();
+
+	        Logger.LogInformation("User {User} have access to:{databases}",
+		        Session.User.GetUser().Identity?.Name ?? "Unknown", 
+                string.Join("\n\t", DatabasesNames));
+            Logger.LogDebug("User {User} have no access to:{databases}",
+		        Session.User.GetUser().Identity?.Name ?? "Unknown", 
+                string.Join("\n\t", NoAccessTo));
+
+	        if (string.IsNullOrWhiteSpace(DatabaseStr) || !await IsUserAuthorized(DatabaseStr))
+	        {
+		        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+		        var state = await GetState(cts.Token);
+		        if (state?.Database != null && await IsUserAuthorized(state.Database))
+		        {
+			        DatabaseStr = state.Database;
+			        DatabaseInstanceStr = state.DatabaseInstance;
+		        }
+		        else
+		        {
+			        DatabaseStr = null;
+			        DatabaseInstanceStr = null;
+		        }
+	        }
+
+	        if (string.IsNullOrWhiteSpace(DatabaseStr))
+		        DatabaseStr = Database;
+	        else
+		        Database = DatabaseStr;
+
+	        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
+		        DatabaseInstanceStr = DatabaseInstance;
+	        else
+		        DatabaseInstance = DatabaseInstanceStr;
+
+	        if (string.IsNullOrWhiteSpace(Database))
+	        {
+		        KeyValuePair<string, DatabasesConfig.DatabaseConfig>? db = null;
+
+		        foreach (var kvp in DatabaseConfigurationService.Databases)
+		        {
+			        if (!await UserSession.CanAccess(Auth, "ReadAccess", kvp.Key))
+				        continue;
+
+			        db = kvp;
+			        break;
+		        }
+
+		        if (db != null)
+			        Database = db.Value.Key;
+	        }
+
+	        SyncUrl();
+	        await InvokeAsync(StateHasChanged);
         }
-
-        if (string.IsNullOrWhiteSpace(DatabaseStr) || !await IsUserAuthorized(DatabaseStr))
-            DatabaseStr = Database;
-        else
-            Database = DatabaseStr;
-
-        if (string.IsNullOrWhiteSpace(DatabaseInstanceStr))
-            DatabaseInstanceStr = DatabaseInstance;
-        else
-            DatabaseInstance = DatabaseInstanceStr;
-
-        SyncUrl();
-        await InvokeAsync(StateHasChanged);
+        catch (Exception ex)
+        {
+	        Error = ex;
+	        await InvokeAsync(StateHasChanged);
+        }
     }
+
+    private class IndexState
+    {
+        public string? Database { get; set; }
+        public string? DatabaseInstance { get; set; }
+    }
+
+    private async Task<IndexState?> GetState(CancellationToken token)
+    {
+        try
+        {
+            var json = await JsRuntime.LoadFromLocalStorage("Index", token);
+
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            return JsonUtils.FromJson<IndexState>(json);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task SaveState(CancellationToken token)
+    {
+        try
+        {
+            var state = new IndexState
+            {
+                Database = Database,
+                DatabaseInstance = DatabaseInstance
+            };
+
+            var json = JsonUtils.ToJson(state);
+            await JsRuntime.SaveToLocalStorage("Index", json, token);
+        }
+        catch (Exception)
+        {
+            // Ignore errors during saving state
+            // This is not critical, and we can continue without saving
+        }
+    }
+
 
     private string Database
     {
@@ -205,6 +315,9 @@
             if (DatabaseInstances.All(x=> x != DatabaseInstance) )
                 DatabaseInstance = DatabaseInstances.First();
 
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await SaveState(cts.Token);
+
             SyncUrl();
         }
         catch (Exception ex)
@@ -216,10 +329,10 @@
 
     private void SyncUrl()
     {
-        // var url = NavigationManager.BaseUri + $"{Database}";
-        // if (!string.IsNullOrWhiteSpace(DatabaseInstance))
-        //     url += $"/{DatabaseInstance}";
-        // JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
+        var url = NavigationManager.BaseUri + $"?db={Database}";
+        if (!string.IsNullOrWhiteSpace(DatabaseInstance))
+            url += $"&instance={DatabaseInstance}";
+        JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
     private async Task<List<string>> GetDatabasesInstanceNames()
@@ -243,5 +356,24 @@
     private void NavigateToPivot()  => NavigationManager.NavigateTo("/user/pivot");
     private void NavigateToAfh()    => NavigationManager.NavigateTo("/user/afh");
     private void NavigateToShell()  => NavigationManager.NavigateTo("/admin/shell");
+
+    private string GetTooltip(NoAccessToRec rec)
+    {
+        if (string.IsNullOrWhiteSpace(rec.Name))
+            return string.Empty;
+
+        return GetAccessGroupDesc(rec.Name);
+    }
+
+    private string GetAccessGroupDesc(string databaseName)
+    {
+        var config = DatabaseConfig.Databases.GetValueOrDefault(databaseName);
+        if (config?.Groups == null)
+            return string.Empty;
+
+        return $"Read: {string.Join(", ",  config.Groups.ReadOnly)}; " +
+               $"Write: {string.Join(", ", config.Groups.ReadWrite)}; " +
+               $"Admin: {string.Join(", ", config.Groups.Admin)}";
+    }
 
 }

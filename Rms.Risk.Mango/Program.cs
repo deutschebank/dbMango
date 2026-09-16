@@ -21,6 +21,7 @@ using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Logging;
+using pax.BlazorChartJs;
 using Rms.Risk.Mango.Interfaces;
 using Rms.Risk.Mango.Pivot.Core.MongoDb;
 using Rms.Risk.Mango.Pivot.UI.Services;
@@ -89,13 +90,20 @@ public class Program
         // Add services to the container.
         
         builder.Services
-           .AddServerSideBlazor()
-           .AddHubOptions(x=> x.MaximumReceiveMessageSize = 100_000_000)
-           ; 
+           .AddRazorComponents()
+           .AddInteractiveServerComponents();
+
+        builder.Services
+           .AddSignalR(x => x.MaximumReceiveMessageSize = 100_000_000);
 
         builder.Services
                .TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         builder.Services.AddBlazoredModal();
+        builder.Services.AddChartJs(opt =>
+        {
+            const string chartJsVersion = "4.5.1";
+            opt.ChartJsLocation = $"/_content/Rms.Risk.Mango.Pivot.UI/js/chart.umd.min.js?v={chartJsVersion}";
+        });
 
         if ( plugin != null )
         {
@@ -119,17 +127,33 @@ public class Program
            .AddSingleton<IDatabaseConfigurationService, DatabaseConfigurationService>()
            .AddSingleton<IDocumentationService        , DocumentationService>()
            .AddSingleton<ICommandListService          , CommandListService>()
+           .AddSingleton<IMongoCollectionStatsService , MongoCollectionStatsService>()
            .AddScoped<IUserService                    , UserServiceProxy>()
            .AddScoped<IUserSession                    , UserSession>()
            .AddScoped<IConnectedUser                  , ConnectedUser>()
+           .AddScoped<IPatchService                   , PatchService>()
+           .AddScoped<ISchemaLoader                   , SchemaLoader>()
            .AddSingleton<IConnectedUserList           , ConnectedUserList>()
             ;
 
         plugin?.ConfigureServices(builder);
 
+        // Required for split-repo/project-reference static web assets in development.
+        // In published/container runs this can interfere with publish-time static asset resolution.
+        if (builder.Environment.IsDevelopment())
+            builder.WebHost.UseStaticWebAssets();
+
         builder.WebHost
-               .UseStaticWebAssets()
-               .UseKestrel((_, kestrelServerOptions) => { kestrelServerOptions.ConfigureStandardKestrel(builder, options); });
+               .UseKestrel((c, kestrelServerOptions) =>
+               {
+                   kestrelServerOptions.ConfigureStandardKestrel(builder, options);
+
+                   var cert = CertificateHelper.LoadCertificate<Program>();
+                   if (cert != null)
+                   {
+                       MongoDbHelper.ClientCertificate = cert;
+                   }
+               });
 
         AfhHelpers.Init();
 
@@ -156,12 +180,16 @@ public class Program
         if ( builder.IsHttps() )
             app.UseHttpsRedirection();
 
-        app.UseStaticFiles();
-
         app.UseStandardEndpoint(options);
+        app.UseAntiforgery();
 
-        app.MapBlazorHub();
-        app.MapFallbackToPage("/_Host");
+        //if (!app.Environment.IsDevelopment())
+        //    app.UseStatusCodePagesWithRedirects("/StatusCode/{0}");
+
+        app.UseStaticFiles();
+        //app.MapStaticAssets();
+        app.MapRazorComponents<App>()
+            .AddInteractiveServerRenderMode();
 
         // ----------------------------------------------- run the server ---------------------------------------------
 

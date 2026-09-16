@@ -124,15 +124,34 @@ public static class CertificateHelper
     /// <exception cref="ApplicationException"></exception>
     public static KestrelServerOptions ConfigureServerCertificate<T>(this KestrelServerOptions kestrelServerOptions, WebApplicationBuilder builder) where T : class
     {
-        //var section  = builder.Configuration.GetSection("SecuritySettings");
-        //var settings = section.Get<SecuritySettings>() ?? new();
+        var cert = LoadCertificate<T>();
+        if (cert == null)
+        {
+            _log.LogWarning("Certificate is not configured. HTTPS will not be used.");
+            return kestrelServerOptions;
+        }
 
+        kestrelServerOptions.ConfigureEndpointDefaults(listenOptions => { listenOptions.UseHttps( cert ); });
+
+        _log.LogDebug($"Certificate setup {cert.Subject} with\n" +
+                      $"\tSubject    : {cert.Subject}\n" +
+                      $"\tIssuer     : {cert.Issuer}\n" +
+                      $"\tExpiry     : {cert.GetExpirationDateString()}\n" +
+                      $"\tSNo        : {cert.GetSerialNumberString()}\n" +
+                      $"\tThumbprint : {cert.Thumbprint}"
+        );
+
+        return kestrelServerOptions;
+    }
+
+    public static X509Certificate2? LoadCertificate<T>() where T : class
+    {
         var settings = ServiceBootstrap.GetSecuritySettings<T>().Value;
 
         if (   string.IsNullOrWhiteSpace(settings.CertificateFileName) 
-            || string.IsNullOrWhiteSpace(settings.CertificatePassword) )
+               || string.IsNullOrWhiteSpace(settings.CertificatePassword) )
         {
-            return kestrelServerOptions;
+            return null;
         }
 
         if ( !File.Exists(settings.CertificateFileName) )
@@ -140,7 +159,7 @@ public static class CertificateHelper
             var path = Path.Combine(
                 AppContext.BaseDirectory,//Path.GetFullPath(Assembly.GetEntryAssembly()?.Location ?? ".",
                 Path.GetFileName(settings.CertificateFileName)
-                );
+            );
 
             if ( !File.Exists(path) )
             {
@@ -156,9 +175,8 @@ public static class CertificateHelper
         }
 
         var cert = X509CertificateLoader.LoadPkcs12( File.ReadAllBytes(settings.CertificateFileName), settings.CertificatePassword);
-        //var cert = new X509Certificate2( settings.CertificateFileName, settings.CertificatePassword );
 
-        if ( !cert.HasPrivateKey )
+        if (!cert.HasPrivateKey)
         {
             var m = $"Certificate must have private key attached. FileName=\"{settings.CertificateFileName}\"";
             _log.LogCritical(m);
@@ -166,18 +184,7 @@ public static class CertificateHelper
             throw new ApplicationException(m);
         }
 
-        kestrelServerOptions.ConfigureEndpointDefaults(listenOptions => { listenOptions.UseHttps( cert ); });
-
-        _log.LogDebug($"Certificate setup {cert.Subject} with\n" +
-                      $"\tSubject    : {cert.Subject}\n" +
-                      $"\tIssuer     : {cert.Issuer}\n" +
-                      $"\tExpiry     : {cert.GetExpirationDateString()}\n" +
-                      $"\tSNo        : {cert.GetSerialNumberString()}\n" +
-                      $"\tThumbprint : {cert.Thumbprint}\n" +
-                      $"\tFile       : {settings.CertificateFileName}"
-        );
-
-        return kestrelServerOptions;
+        return cert;
     }
 
     /// <summary>

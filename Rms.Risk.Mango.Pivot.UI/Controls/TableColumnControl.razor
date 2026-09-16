@@ -19,49 +19,12 @@
  * limitations under the License.
  *@
     
-<th class="py-0 align-bottom @Class">
-    <div class="align-items-bottom">
-        @if (Sortable)
-        {
-            <button class="btn px-0 w-100 text-left @HeaderStyle" @onclick="@(SortAction)">@Name<span class="@GetSortStyle() d-inline" /></button>
-        }
-        else
-        {
-            <button class="btn px-0 w-100 text-left @HeaderStyle">@Name</button>
-        }
-        @if (TableControl is { Filterable: true } && Filterable && !string.IsNullOrEmpty(Field) && (FilterDropdownValues?.Count ?? 0) == 0)
-        {
-            <input class="form-control w-100 p-0 mb-1" @bind="FilterString" @bind:event="oninput" />
-        }
-        @if (TableControl is { Filterable: true } && Filterable && FilterDropdownValues?.Count > 0)
-        {
-            <div class="dropdown">
-                <button class="btn btn-secondary dropdown-toggle mb-1" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    Choose
-                </button>
-                <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
-                    @foreach (var value in FilterDropdownValues)
-                    {
-                        if (value == DefaultCheckedValue)
-                        {
-                            <div class="dropdown-item">
-                                <input type="checkbox" @onchange="@CheckboxClicked" checked id=@value name=@value value=@value>
-                                <label for=@value>@value</label><br>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="dropdown-item">
-                                <input type="checkbox" @onchange="@CheckboxClicked" id=@value name=@value value=@value>
-                                <label for=@value>@value</label><br>
-                            </div>
-                        }
-                    }
-                </div>
-            </div>
-        }
-    </div>
-</th>
+@if (TableControl?.IsTransposed != true)
+{
+    <th class="py-0 align-bottom @Class">
+        @HeaderContent
+    </th>
+}
 
 @code
 {
@@ -73,7 +36,7 @@
     [Parameter] public string                                                    Name                 { get; set; } = "Column";
     [Parameter] public string?                                                   Field                { get; set; }
     [Parameter] public string?                                                   Class                { get; set; }
-    [Parameter] public RenderFragment<(dynamic Row, TableColumnControl Column)>? Template             { get; set; }
+    [Parameter] public RenderFragment<(int Row, TableColumnControl Column, Rms.Risk.Mango.Pivot.Core.IPivotedData Data)>? Template { get; set; }
     [Parameter] public string?                                                   Format               { get; set; }
     [Parameter] public string                                                    NegativeValueClass   { get; set; } = "t-neg";
     [Parameter] public string                                                    ZeroValueClass       { get; set; } = "t-zero";
@@ -100,8 +63,42 @@
     [CascadingParameter]
     internal TableControl? TableControl { get; set; }
 
+    internal RenderFragment HeaderContent => @<div class="align-items-bottom">
+        @if (Sortable)
+        {
+            <button class="btn px-0 w-100 text-left @HeaderStyle" @onclick="SortAction">@Name<span class="@GetSortStyle() d-inline" /></button>
+        }
+        else
+        {
+            <button class="btn px-0 w-100 text-left @HeaderStyle">@Name</button>
+        }
+        @if (TableControl is { Filterable: true } && Filterable && !string.IsNullOrEmpty(Field) && (FilterDropdownValues?.Count ?? 0) == 0)
+        {
+            <input class="form-control w-100 p-0 mb-1" @bind="FilterString" @bind:event="oninput" />
+        }
+        @if (TableControl is { Filterable: true } && Filterable && FilterDropdownValues?.Count > 0)
+        {
+            <div class="dropdown">
+                <button class="btn btn-secondary dropdown-toggle mb-1" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                    Choose
+                </button>
+                <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                    @foreach (var value in FilterDropdownValues)
+                    {
+                        <div class="dropdown-item">
+                            <input type="checkbox" @onchange="CheckboxClicked" checked="@(value == DefaultCheckedValue)" id="@value" name="@value" value="@value">
+                            <label for="@value">@value</label><br>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>;
+
     public void SetFilter(string filterString)
     {
+        if (FilterString == filterString)
+            return;
         FilterString = filterString;
         FilterChanged(FilterString.Split(",", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList());
     }

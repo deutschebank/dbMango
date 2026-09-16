@@ -33,7 +33,6 @@ namespace Rms.Service.Bootstrap.Security;
 internal static class OidcHelper
 {
     private static readonly ILogger _log = Logging.Logging.GetLogger(MethodBase.GetCurrentMethod()?.DeclaringType ?? typeof(int));
-    private const string ReturnUrlTag = "returnurl";
 
     /// <summary>
     /// Configure JWTBearer authorization for Oidc for use with API servers.
@@ -88,13 +87,13 @@ internal static class OidcHelper
 
         options.Events = new()
         {
-            OnRedirectToIdentityProvider = (context) =>
+            OnRedirectToIdentityProvider = context =>
             {
-                // see https://stackoverflow.com/questions/56755406/how-to-redirect-from-signin-oidc-back-to-my-controller-action
-                context.ProtocolMessage.State = context.Request.Path; // note that path must be in base65. see LoginControl.razor / Login.cshtml.cs
+                context.Properties.RedirectUri = NormalizeReturnUrl(
+                    context.Properties.RedirectUri ?? $"{context.Request.PathBase}{context.Request.Path}{context.Request.QueryString}");
 
                 var builder = new UriBuilder( context.ProtocolMessage.RedirectUri );
-                
+
                 if (!string.IsNullOrWhiteSpace(settings.Value.Oidc.ForceRedirectUrlProtocol))
                     builder.Scheme = settings.Value.Oidc.ForceRedirectUrlProtocol;
                 if ( settings.Value.Oidc.ForceRedirectUrlPort != 0 )
@@ -102,10 +101,10 @@ internal static class OidcHelper
 
                 context.ProtocolMessage.RedirectUri = builder.ToString();
 
-                _log.LogDebug($"Redirecting OIDC login to RedirectUri={context.ProtocolMessage.RedirectUri}");
+                _log.LogDebug($"Redirecting OIDC login to RedirectUri={context.ProtocolMessage.RedirectUri} ReturnUri=\"{context.Properties.RedirectUri}\"");
 
                 return Task.CompletedTask;
-            },         	
+            },
             OnAccessDenied = context =>
             {
                 context.HandleResponse();
@@ -116,23 +115,12 @@ internal static class OidcHelper
             {
                 context.HandleResponse();
                 _log.LogError( context.Exception, "Authentication failed" );
-                context.Response.Redirect($"/login-failed?m={Uri.EscapeDataString(context.Exception.Message)}");
+                context.Response.Redirect("/login-failed");
                 return Task.CompletedTask;
             },
             OnTokenValidated = async context =>
             {
                 var email = context.SecurityToken.Claims.FirstOrDefault(x => x.Type == ClaimTypes.Email || x.Type == "email")?.Value;
-
-                var url = context.ProtocolMessage.GetParameter("state");
-                if ( !string.IsNullOrWhiteSpace( url ) )
-                {
-                    // see https://stackoverflow.com/questions/56755406/how-to-redirect-from-signin-oidc-back-to-my-controller-action
-                    var claims      = new[] { new Claim( ReturnUrlTag, url ) };
-                    var appIdentity = new ClaimsIdentity( claims );
-
-                    //add url to claims
-                    context.Principal?.AddIdentity( appIdentity );
-                }
 
                 try
                 {
@@ -146,41 +134,18 @@ internal static class OidcHelper
                     var svc = context.HttpContext.RequestServices.GetRequiredService<IServerSideTokenStore>();
                     await svc.StoreTokensAsync( context.Principal!, token );
 
-                    _log.LogDebug($"Received tokens for Email=\"{email}\" ExpireAt=\"{token.AccessTokenExpiresAt}\" AccessToken={token.AccessToken != null} RefreshToken={token.RefreshToken != null} IdToken={token.IdToken != null} State=\"{url}\"");
+                    _log.LogDebug($"Received tokens for Email=\"{email}\" ExpireAt=\"{token.AccessTokenExpiresAt}\" AccessToken={token.AccessToken != null} RefreshToken={token.RefreshToken != null} IdToken={token.IdToken != null}");
                 }
                 catch( Exception e )
                 {
                     context.HandleResponse();
-                    var m = $"Authentication SUCCEEDED for {email}, but later this happened: {e.Message}";
-                    _log.LogError( m, e);
-                    context.Response.Redirect($"/login-failed?m={Uri.EscapeDataString(m)}");
-                    return;
+                    _log.LogError( e, $"Authentication succeeded for {email}, but token storage failed" );
+                    context.Response.Redirect("/login-failed");
                 }
-
             },
             OnTicketReceived = context =>
             {
-                // see https://stackoverflow.com/questions/56755406/how-to-redirect-from-signin-oidc-back-to-my-controller-action
-                var url = context.Principal?.FindFirst(ReturnUrlTag)?.Value;
-
-                if ( url?.StartsWith("/login/", StringComparison.OrdinalIgnoreCase) ?? false)
-                {
-                    var plainUrl = Base64Decode(Uri.UnescapeDataString(url["/login/".Length ..]));
-                    if ( !string.IsNullOrWhiteSpace(plainUrl))
-                        url = plainUrl;
-                }
-
-                if (string.IsNullOrWhiteSpace(url)
-                 || url.Equals("/login",       StringComparison.OrdinalIgnoreCase)
-                 || url.Equals("/signin-oidc", StringComparison.OrdinalIgnoreCase)
-                   )
-                {
-                    url = "/";
-                }
-
-
-                context.ReturnUri = url;
-
+                context.ReturnUri = NormalizeReturnUrl(context.Properties?.RedirectUri ?? context.ReturnUri);
                 return Task.CompletedTask;
             },
         };
@@ -239,7 +204,17 @@ internal static class OidcHelper
     /// <summary>
     /// https://stackoverflow.com/questions/72868249/how-to-handle-user-oidc-tokens-in-blazor-server-when-the-browser-is-refreshed-an
     /// </summary>
-    public static void ConfigureCookieForOpenIdConnect(CookieAuthenticationOptions options) =>
+    public static void ConfigureCookieForOpenIdConnect(IOptions<SecuritySettings> settings, CookieAuthenticationOptions options)
+    {
+        var cookieName = settings.Value.Oidc.CookieName;
+        if (string.IsNullOrWhiteSpace(cookieName))
+            cookieName = $".{AppDomain.CurrentDomain.FriendlyName}.Cookies";
+
+        options.Cookie.Name         = cookieName;
+        options.Cookie.HttpOnly     = true;
+        options.Cookie.IsEssential  = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+
         options.Events.OnValidatePrincipal = async context =>
         {
             var user = context.Principal;
@@ -275,10 +250,49 @@ internal static class OidcHelper
                 context.RejectPrincipal();
             }
         };
+    }
 
-    public static string Base64Decode(string base64EncodedData) 
+    private static string NormalizeReturnUrl(string? url)
     {
-        var base64EncodedBytes = Convert.FromBase64String(base64EncodedData);
-        return System.Text.Encoding.UTF8.GetString(base64EncodedBytes);
+        if (string.IsNullOrWhiteSpace(url))
+            return "/";
+
+        if ( url.StartsWith("/login/", StringComparison.OrdinalIgnoreCase) )
+        {
+            var plainUrl = TryBase64Decode(Uri.UnescapeDataString(url["/login/".Length ..]));
+            if ( !string.IsNullOrWhiteSpace(plainUrl) )
+                url = plainUrl;
+        }
+
+        if (string.IsNullOrWhiteSpace(url)
+         || url.Equals("/login", StringComparison.OrdinalIgnoreCase)
+         || url.Equals("/signin-oidc", StringComparison.OrdinalIgnoreCase)
+         || !IsLocalRedirectUrl(url))
+        {
+            return "/";
+        }
+
+        return url;
+    }
+
+    private static bool IsLocalRedirectUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || url[0] != '/')
+            return false;
+
+        return url.Length == 1 || (url[1] != '/' && url[1] != '\\');
+    }
+
+    private static string? TryBase64Decode(string base64EncodedData)
+    {
+        try
+        {
+            var base64EncodedBytes = Convert.FromBase64String(base64EncodedData);
+            return System.Text.Encoding.UTF8.GetString(base64EncodedBytes);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 }

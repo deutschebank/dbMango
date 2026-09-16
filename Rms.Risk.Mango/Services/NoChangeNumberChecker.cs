@@ -22,6 +22,6 @@ namespace Rms.Risk.Mango.Services;
 
 public class NoChangeNumberChecker : IChangeNumberChecker
 {
-    public Task<CheckerReply> IsValid(string taskNumber, string email, DateTime whenTimeUtc = default)
+    public Task<CheckerReply> IsValid(string taskNumber, string email, string? comments, DateTime whenTimeUtc = default)
         => Task.FromResult(new CheckerReply(true, ValidFromUtc : DateTime.UtcNow, ValidToUtc: DateTime.MaxValue));
 }

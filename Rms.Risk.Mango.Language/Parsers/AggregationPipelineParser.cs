@@ -95,15 +95,21 @@ internal static class AggregationPipelineParser
             throw new($"Invalid lookup stage: {body.ToJsonString()}");
 
         var eqv = new AstEquivalence( new(local!.GetValue<string>()), new(foreign!.GetValue<string>()) );
-        return new AstStageJoin(collection!.GetValue<string>(), asField!.GetValue<string>(), [eqv], [], null);
+        return new AstStageJoin(collection!.GetValue<string>(), asField!.GetValue<string>(), [eqv], []);
     }
 
-    private static AstStage ParseReplaceRoot(JsonObject body)
-    {
-        throw new NotImplementedException();
-    }
+    //private static AstStage ParseReplaceRoot(JsonObject _)
+    //{
+    //    throw new NotImplementedException();
+    //}
 
-    private static AstStage ParseUnwind(JsonObject body)
+    //private static AstStage ParseMerge(JsonObject _)
+    //{
+    //    throw new NotImplementedException();
+    //}
+
+
+    private static AstStageUnwind ParseUnwind(JsonObject body)
     {
         var path = body.ElementAt(0).Value?.GetValue<string>() ?? throw new($"Expected path: {body}");
         string? index = null;
@@ -113,18 +119,13 @@ internal static class AggregationPipelineParser
         return new AstStageUnwind(path, index);
     }
 
-    private static AstStage ParseUnwind(JsonValue body)
+    private static AstStageUnwind ParseUnwind(JsonValue body)
     {
         var     path  = body.GetValue<string>() ?? throw new($"Expected path: {body}");
         return new AstStageUnwind(path);
     }
 
-    private static AstStage ParseMerge(JsonObject body)
-    {
-        throw new NotImplementedException();
-    }
-
-    private static AstStage ParseSort(JsonObject body)
+    private static AstStageSortBy ParseSort(JsonObject body)
     {
         var order = new List<AstSortField>();
         foreach (var field in body)
@@ -137,7 +138,7 @@ internal static class AggregationPipelineParser
         return new AstStageSortBy(order);
     }
 
-    private static AstStage ParseGroup(JsonObject body)
+    private static AstStageGroupBy ParseGroup(JsonObject body)
     {
         var fields = new List<AstLet>();
         var id = new List<AstLet>();
@@ -174,24 +175,32 @@ internal static class AggregationPipelineParser
         return stage;
     }
 
-    private static AstStage ParseMatch(JsonObject body)
+    private static AstStageWhere ParseMatch(JsonObject body)
     {
-        // special case: there is no logical function at the top
-        if ( body.Count == 1 )
+        var expressions = new List<AstExpression>();
+        foreach (var field in body)
         {
-            var field = body.ElementAt(0);
-            if ( !field.Key.StartsWith("$") && field.Value is JsonObject jo )
-            {
-                var expr = ParseLogicalFuncArgument(jo);
-                var eq = new AstExpressionOperation(AstExpressionOperation.OperationType.EQ, new AstExpressionVariable(field.Key), expr);
-                return new AstStageWhere(eq);
-            }
+            if (field.Key.StartsWith("$") || field.Value is not JsonObject jo) 
+                continue;
+
+            var expression = ParseMatchCondition(field.Key, jo);
+            expressions.Add(expression);
         }
-        var expression = ParseExpression(body);
-        return new AstStageWhere(expression);
+
+        if ( expressions.Count == 1)
+            return new AstStageWhere(expressions[0]);
+        
+        if (expressions.Count == 0)
+        {
+            var expression = ParseExpression(body);
+            return new AstStageWhere(expression);
+        }
+        
+        var and = new AstExpressionOperation(AstExpressionOperation.OperationType.AND, expressions);
+        return new AstStageWhere(and);
     }
 
-    private static HashSet<string> _operations = [
+    private static readonly HashSet<string> _operations = [
         "$and",
         "$or",
         "$eq",
@@ -206,7 +215,7 @@ internal static class AggregationPipelineParser
         "$multiply"
     ];
 
-    private static HashSet<string> _projectionLogicalOperations = [
+    private static readonly HashSet<string> _projectionLogicalOperations = [
         "$eq",
         "$ne",
         "$gt",
@@ -223,12 +232,12 @@ internal static class AggregationPipelineParser
             case null: return new AstExpressionNull();
             case JsonArray ja: 
                 throw new ($"Unexpected array {ja}");
-            case JsonObject jo: 
+            case JsonObject jo:
             {
-                if (_operations.Contains(jo.ElementAt(0).Key))
-                    return ParseOperation(jo);
-                else
-                    return ParseFunctionCall(jo);
+                return _operations.Contains(jo.ElementAt(0).Key) 
+                    ? ParseOperation(jo) 
+                    : ParseFunctionCall(jo)
+                    ;
             }
             case JsonValue jv: 
             {
@@ -243,7 +252,7 @@ internal static class AggregationPipelineParser
                         if (jv.TryGetValue<long>(out var l))
                             return new AstExpressionNumber(l);
                         if (jv.TryGetValue<int>(out var i))
-                            return new AstExpressionNumber((long)i);
+                            return new AstExpressionNumber(i);
                         if (jv.TryGetValue<double>(out var d))
                             return new AstExpressionNumber(d);
                         throw new($"Invalid number {jv}");
@@ -300,7 +309,7 @@ internal static class AggregationPipelineParser
             throw new ($"Operation name {funcName} must start with $");
 
         if ( json.ElementAt(0).Value is not JsonArray funcParams || funcParams.Count == 0 )
-            throw new($"Operation {funcName} parameters must be an array: {json?.ToJsonString()}");
+            throw new($"Operation {funcName} parameters must be an array: {json.ToJsonString()}");
 
         if ( funcName == "$and" || funcName == "$or")
             return ParseLogicalOperation(funcName, funcParams);
@@ -346,7 +355,7 @@ internal static class AggregationPipelineParser
     {
         var funcName = json.ElementAt(0).Key;
         if (!funcName.StartsWith("$"))
-            throw new ($"Function name \"{funcName}\" must start with $: {json?.ToJsonString()}");
+            throw new ($"Function name \"{funcName}\" must start with $: {json.ToJsonString()}");
 
         var funcParams = json.ElementAt(0).Value;
 
@@ -400,6 +409,21 @@ internal static class AggregationPipelineParser
 
         return new(funcName, unnamedParams.Concat( namedParams ));
     }
+
+    private static AstExpressionOperation ParseMatchCondition(string field, JsonObject jo)
+    {
+        if (_projectionLogicalOperations.Contains(jo.ElementAt(0).Key))
+        {
+            var arg = ParseLogicalFuncArgument(jo.ElementAt(0).Value);
+            var op = new AstExpressionOperation(jo.ElementAt(0).Key, new AstExpressionVariable(field), arg);
+            return op;
+        }
+
+        var expr = ParseLogicalFuncArgument(jo);
+        var eq = new AstExpressionOperation(AstExpressionOperation.OperationType.EQ, new AstExpressionVariable(field), expr);
+        return eq;
+    }
+
 
     /// <summary>
     /// Special case for $and and $or - their arguments can be like { aaa : 1} which means "a == 1".
@@ -543,11 +567,10 @@ internal static class AggregationPipelineParser
         return res;
     }
 
-    private static AstStage ParseAddFields(JsonObject body)
+    private static AstStageAddFields ParseAddFields(JsonObject body)
     {
         var fields = new List<AstLet>();
 
-        var exclude = false;
         foreach (var field in body)
         {
             if ( field.Value is JsonArray ja )
@@ -557,8 +580,7 @@ internal static class AggregationPipelineParser
             }
             else
             {
-                var (let, exc) = ParseLet(field);
-                exclude = exc;
+                var (let, _) = ParseLet(field);
                 fields.Add(let);
             }
         }
@@ -567,7 +589,7 @@ internal static class AggregationPipelineParser
         return stage;
     }
 
-    private static AstStage ParseBucket(JsonObject body)
+    private static AstStageBucket ParseBucket(JsonObject body)
     {
         var stage = new AstStageBucket();
 
@@ -611,7 +633,7 @@ internal static class AggregationPipelineParser
         return stage;
     }
 
-    private static AstStage ParseBucketAuto(JsonObject body)
+    private static AstStageBucket ParseBucketAuto(JsonObject body)
     {
         var stage = new AstStageBucket()
         {

@@ -25,12 +25,23 @@
     <div class="w-100 pl-2 pr-2 mb-2">
         <input class="form-control z-auto" type="search" placeholder="Search..." @bind-value="SearchString" @bind-value:event="oninput" />
     </div>
-    <DragDropList TNode="ItemWithSelection" Class="" @bind-Value="FilteredItems">
+    <DragDropList TNode="ItemWithSelection" Class="" Value="FilteredSelectedItems" Dropped="OnSelectedDropped">
         <ItemTemplate>
             <div class="flex-stack-horizontal">
                 <label class="input-group-text w-25 @LabelClass" style="min-width: 200px;">@context.Text</label>
                 <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
-                    <input type="checkbox" @bind="context.IsSelected" />
+                    <input type="checkbox" @bind="context.IsSelected" @bind:after="(() => OnCheckboxChanged(context))" />
+                    <span class="slider" data-label-on="on" data-label-off="off"></span>
+                </label>
+            </div>
+        </ItemTemplate>
+    </DragDropList>
+    <DragDropList TNode="ItemWithSelection" Class="mt-2" Value="FilteredUnselectedItems" Dropped="OnUnselectedDropped">
+        <ItemTemplate>
+            <div class="flex-stack-horizontal">
+                <label class="input-group-text w-25 @LabelClass" style="min-width: 200px;">@context.Text</label>
+                <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                    <input type="checkbox" @bind="context.IsSelected" @bind:after="(() => OnCheckboxChanged(context))" />
                     <span class="slider" data-label-on="on" data-label-off="off"></span>
                 </label>
             </div>
@@ -59,111 +70,163 @@
                     return;
 
                 field = value;
-                
-                // despite 'init' this happens right at the init stage too, so guard against null.
-                // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
-                Changed?.Invoke(Text, IsSelected);
+                Changed?.Invoke(Text, value);
             }
         }
 
-        public required Action<string, bool> Changed { get; init; }
-
-        public override string ToString() => $"[{(IsSelected ? "X" : "")}] {Text}";
-
-        public override bool Equals(object? obj)
-        {
-            if (obj is not ItemWithSelection other)
-                return false;
-            return IsSelected == other.IsSelected && Text.Equals(other.Text, StringComparison.Ordinal);
-        }
-
-        public override int GetHashCode() => HashCode.Combine(Text);
+        public Action<string, bool>? Changed { get; init; }
     }
 
-    private List<ItemWithSelection> Items
-    {
-        get;
-        set
-        {
-            if (!ReferenceEquals(value, field))
-            {
-                if (Same(value, field))
-                    return;
-                field = value;
-            }
+    private List<ItemWithSelection> Items { get; set; } = [];
 
-            OnChanged(null, false);
-        }
-    } = [];
+    private List<ItemWithSelection> FilteredSelectedItems { get; set; } = [];
 
-    private List<ItemWithSelection> FilteredItems
-    {
-        get;
-        set
-        {
-            if (!ReferenceEquals(value, field))
-            {
-                if (Same(value, field))
-                    return;
-                field = value;
-                if (!ReferenceEquals(field, Items))
-                    Items = ReorderItems(Items, field);
-            }
-        }
-    } = [];
+    private List<ItemWithSelection> FilteredUnselectedItems { get; set; } = [];
 
     private string SearchString
     {
         get;
         set
         {
-            if (field == value)
+            if (string.Equals(field, value, StringComparison.Ordinal))
                 return;
 
             field = value;
             ApplySearch();
         }
-    } = "";
+    } = string.Empty;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override void OnParametersSet()
     {
-        var v = SyncToItems(Value);
-        if (!Same(v, Items))
+        var syncedItems = SyncToItems(Value);
+        if (Same(syncedItems, Items))
+            return;
+
+        Items = syncedItems;
+        ApplySearch();
+    }
+
+    private Task OnCheckboxChanged(ItemWithSelection item)
+    {
+        MoveItem(item, null, droppedOnList: true);
+        PublishValue();
+        ApplySearch();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnSelectedDropped(DragDropList<ItemWithSelection>.DropEvent args)
+    {
+        ApplyDrop(args, true);
+        return Task.CompletedTask;
+    }
+
+    private Task OnUnselectedDropped(DragDropList<ItemWithSelection>.DropEvent args)
+    {
+        ApplyDrop(args, false);
+        return Task.CompletedTask;
+    }
+
+    private void ApplyDrop(DragDropList<ItemWithSelection>.DropEvent args, bool isSelectedTarget)
+    {
+        var draggedItem = args.DraggedItem;
+        if (!Items.Contains(draggedItem))
+            return;
+
+        if (draggedItem.IsSelected == isSelectedTarget)
+            ReorderVisibleItems(draggedItem, args.TargetItem, args.DroppedOnList, isSelectedTarget);
+        else
         {
-            Items = v;
-            ApplySearch();
-            await InvokeAsync(StateHasChanged);
+            draggedItem.IsSelected = isSelectedTarget;
+            MoveItem(draggedItem, args.TargetItem, args.DroppedOnList);
         }
 
-        await base.OnAfterRenderAsync(firstRender);
+        draggedItem.IsSelected = isSelectedTarget;
+
+        PublishValue();
+        ApplySearch();
+    }
+
+    private void ReorderVisibleItems(ItemWithSelection draggedItem, ItemWithSelection? targetItem, bool droppedOnList, bool isSelectedTarget)
+    {
+        var visibleItems = (isSelectedTarget ? FilteredSelectedItems : FilteredUnselectedItems).ToList();
+        if (!visibleItems.Remove(draggedItem))
+            return;
+
+        if (droppedOnList || targetItem == null)
+            visibleItems.Add(draggedItem);
+        else
+        {
+            var targetIndex = visibleItems.IndexOf(targetItem);
+            if (targetIndex < 0)
+                visibleItems.Add(draggedItem);
+            else
+                visibleItems.Insert(targetIndex, draggedItem);
+        }
+
+        Items = ReorderItems(Items, visibleItems);
+    }
+
+    private void MoveItem(ItemWithSelection item, ItemWithSelection? targetItem, bool droppedOnList)
+    {
+        var oldIndex = Items.IndexOf(item);
+        if (oldIndex < 0)
+            return;
+
+        Items.RemoveAt(oldIndex);
+
+        var newIndex = ResolveTargetIndex(item.IsSelected, targetItem, droppedOnList);
+        if (newIndex < 0)
+            newIndex = Items.Count;
+
+        if (newIndex > Items.Count)
+            newIndex = Items.Count;
+
+        Items.Insert(newIndex, item);
+    }
+
+    private int ResolveTargetIndex(bool isSelectedTarget, ItemWithSelection? targetItem, bool droppedOnList)
+    {
+        if (!droppedOnList && targetItem != null)
+        {
+            var targetIndex = Items.IndexOf(targetItem);
+            if (targetIndex >= 0)
+                return targetIndex;
+        }
+
+        var lastIndex = Items.FindLastIndex(x => x.IsSelected == isSelectedTarget);
+        if (lastIndex >= 0)
+            return lastIndex + 1;
+
+        return isSelectedTarget
+            ? 0
+            : Items.Count;
     }
 
     private List<ItemWithSelection> SyncToItems(string[] value)
     {
-        var valueSet = new HashSet<string>(value);
-        var allSet   = new HashSet<string>(AllKeys);
+        var valueSet = new HashSet<string>(value, StringComparer.Ordinal);
+        var allSet   = new HashSet<string>(AllKeys, StringComparer.Ordinal);
 
         var selected = value
             .Where(x => allSet.Contains(x))
-            .Select(x => new ItemWithSelection {Text = x, IsSelected = true, Changed = OnChanged})
-            ;
+            .Select(x => new ItemWithSelection { Text = x, IsSelected = true, Changed = null });
 
         var theRest = AllKeys
             .Where(x => !valueSet.Contains(x))
             .OrderBy(x => x)
-            .Select(x => new ItemWithSelection {Text = x, IsSelected = false, Changed = OnChanged})
-            ;
+            .Select(x => new ItemWithSelection { Text = x, IsSelected = false, Changed = null });
 
-        return [..selected.Concat(theRest)];
+        return [.. selected.Concat(theRest)];
     }
 
-    private void OnChanged(string? _, bool __)
+    private void PublishValue()
     {
-        var v = SyncToValue(Items);
-        if (Same(v, Value))
+        var selected = SyncToValue(Items);
+        if (Same(selected, Value))
             return;
-        Value = v;
-        ValueChanged.InvokeAsync(Value);
+
+        Value = selected;
+        ValueChanged.InvokeAsync(selected);
     }
 
     private static bool Same(string[] v1, string[] v2)
@@ -182,34 +245,17 @@
         return !v1.Where((t, i) => t.Text != v2[i].Text || t.IsSelected != v2[i].IsSelected).Any();
     }
 
-    private static string [] SyncToValue(List<ItemWithSelection> items)
-    {
-        var selected = items
-            .Where(x => x.IsSelected)
-            .Select(x => x.Text)
-            .ToArray()
-        ;
-        return selected;
-    }
+    private static string[] SyncToValue(IEnumerable<ItemWithSelection> items)
+        => items.Where(x => x.IsSelected).Select(x => x.Text).ToArray();
 
     private void ApplySearch()
     {
-        if (string.IsNullOrWhiteSpace(SearchString))
-        {
-            if (ReferenceEquals(FilteredItems, Items) )
-                return;
+        IEnumerable<ItemWithSelection> current = Items;
+        if (!string.IsNullOrWhiteSpace(SearchString))
+            current = current.Where(x => x.Text.Contains(SearchString, StringComparison.OrdinalIgnoreCase));
 
-            Items = ReorderItems(Items, FilteredItems);
-
-            FilteredItems = Items;
-            return;
-        }
-
-        FilteredItems = Items
-            .Where(x => x.Text.Contains(SearchString, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        InvokeAsync(StateHasChanged);
+        FilteredSelectedItems   = current.Where(x => x.IsSelected).ToList();
+        FilteredUnselectedItems = current.Where(x => !x.IsSelected).ToList();
     }
 
     private static List<ItemWithSelection> ReorderItems(
@@ -219,43 +265,30 @@
     {
         try
         {
-            var result = ReorderItemsUnsafe(items, filteredItems);
-            return result;
+            return ReorderItemsUnsafe(items, filteredItems);
         }
         catch (Exception)
         {
-            if (items is List<ItemWithSelection> l)
-                return l;
-            return [..items];
+            if (items is List<ItemWithSelection> list)
+                return list;
+
+            return [.. items];
         }
     }
 
-    /// <summary>
-    /// Reorders 'items' so that the subset 'filteredItems' appears in the given (new) order,
-    /// while preserving the relative order of all other items.
-    /// Fix: Handles backward moves without prematurely emitting intervening others.
-    /// </summary>
-    /// <remarks>
-    /// Generated by GPT-5. Tests are in Tests.Rms.Risk.Mango.PivotKeysComponentTests.
-    /// 
-    /// Envelope-based algorithm:
-    /// 
-    /// 1. Determine slice spanning min/max original indices of filtered items.
-    /// 2. Reorder only within that slice.
-    /// 3. Defer emitting "others" when a filtered item moves backward, preventing premature placement (fixing failing backward-move test).
-    /// 4. Emit others only between forward-moving adjacent filtered items; append remaining others at end of slice. Preserves relative order of non-filtered items and enforces new filtered order.
-    /// 
-    /// </remarks>
     internal static List<ItemWithSelection> ReorderItemsUnsafe(
         IReadOnlyList<ItemWithSelection> items,
         IReadOnlyList<ItemWithSelection> filteredItems
-        )
+    )
     {
-        if (items == null) throw new ArgumentNullException(nameof(items));
+        if (items == null)
+            throw new ArgumentNullException(nameof(items));
+
         if (filteredItems.Count == 0)
         {
-            if (items is List<ItemWithSelection> l)
-                return l;
+            if (items is List<ItemWithSelection> list)
+                return list;
+
             return [.. items];
         }
 
@@ -263,61 +296,57 @@
         for (var i = 0; i < items.Count; i++)
             indexMap[items[i]] = i;
 
-        // Validate subset.
         if (filteredItems.Any(f => !indexMap.ContainsKey(f)))
             throw new ArgumentException("filteredItems must be a strict subset of items.", nameof(filteredItems));
 
-        // Envelope covering all filtered original indices.
         var minIndex = filteredItems.Min(f => indexMap[f]);
         var maxIndex = filteredItems.Max(f => indexMap[f]);
 
-        // Slice.
         var segment = items.Skip(minIndex).Take(maxIndex - minIndex + 1).ToList();
 
-        var filteredSet = new HashSet<ItemWithSelection>(filteredItems);
+        var filteredSet     = new HashSet<ItemWithSelection>(filteredItems);
         var othersInSegment = segment.Where(x => !filteredSet.Contains(x)).ToList();
 
-        var resultSegment = new List<ItemWithSelection>(segment.Count);
-        var othersPos = 0;
-        var prevFilteredOrigIndex = -1;
+        var resultSegment          = new List<ItemWithSelection>(segment.Count);
+        var othersPos              = 0;
+        var prevFilteredOrigIndex  = -1;
 
-        foreach (var f in filteredItems)
+        foreach (var filteredItem in filteredItems)
         {
-            var currIndex = indexMap[f];
+            var currentIndex = indexMap[filteredItem];
 
-            if (prevFilteredOrigIndex != -1 && currIndex > prevFilteredOrigIndex)
+            if (prevFilteredOrigIndex != -1 && currentIndex > prevFilteredOrigIndex)
             {
-                // Forward move: emit others whose original index is strictly between previous and current filtered.
                 while (othersPos < othersInSegment.Count)
                 {
-                    var o = othersInSegment[othersPos];
-                    var oIdx = indexMap[o];
-                    if (oIdx > prevFilteredOrigIndex && oIdx < currIndex)
+                    var otherItem  = othersInSegment[othersPos];
+                    var otherIndex = indexMap[otherItem];
+
+                    if (otherIndex > prevFilteredOrigIndex && otherIndex < currentIndex)
                     {
-                        resultSegment.Add(o);
+                        resultSegment.Add(otherItem);
                         othersPos++;
                     }
-                    else if (oIdx <= prevFilteredOrigIndex)
+                    else if (otherIndex <= prevFilteredOrigIndex)
                     {
-                        // Already passed earlier range; skip (should not happen with ordered list, but safe).
                         othersPos++;
                     }
                     else
+                    {
                         break;
+                    }
                 }
             }
-            // Backward move: do not emit intervening others now.
-            resultSegment.Add(f);
-            prevFilteredOrigIndex = currIndex;
+
+            resultSegment.Add(filteredItem);
+            prevFilteredOrigIndex = currentIndex;
         }
 
-        // Append remaining others (those not yet emitted).
         while (othersPos < othersInSegment.Count)
             resultSegment.Add(othersInSegment[othersPos++]);
 
-        // Reconstruct full list: before segment + new segment + after segment.
         var before = items.Take(minIndex);
-        var after = items.Skip(maxIndex + 1);
+        var after  = items.Skip(maxIndex + 1);
         return [.. before, .. resultSegment, .. after];
     }
 }

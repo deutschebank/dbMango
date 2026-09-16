@@ -106,8 +106,6 @@ public class GroupedCollection
     public          PivotColumnDescriptor[]                     ColumnDescriptors           { get; set; } = [];
     public          HashSet<string>                             DataFields                  { get; set; } = [];
     public          HashSet<string>                             KeyFields                   { get; set; } = [];
-    public          DateTime[]                                  Cobs                        { get; set; } = [];
-    public          string[]                                    Departments                 { get; set; } = [];
     public          List<GroupedPivot>                          Pivots                      { get; set; } = [];
     public          Dictionary<string, PivotFieldDescriptor>    FieldTypes                  { get; set; } = [];
 
@@ -120,8 +118,6 @@ public class GroupedCollection
         ColumnDescriptors = other.ColumnDescriptors;
         DataFields        = other.DataFields;
         KeyFields         = other.KeyFields;
-        Cobs              = other.Cobs;
-        Departments       = other.Departments;
         Pivots            = other.Pivots;
         FieldTypes        = other.FieldTypes;
     }

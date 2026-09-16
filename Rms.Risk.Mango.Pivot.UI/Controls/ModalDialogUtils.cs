@@ -160,13 +160,16 @@ public static class ModalDialogUtils
     /// <param name="header"></param>
     /// <param name="message"></param>
     /// <param name="info"></param>
+    /// <param name="copyText"></param>
     /// <returns></returns>
-    public static async Task ShowInfoDialog(IModalService service, string header, string message, Dictionary<string, string?>? info = null)
+    public static async Task ShowInfoDialog(IModalService service, string header, string message, Dictionary<string, string?>? info = null, string? copyText = null)
     {
         var parameters = new ModalParameters { { "Text", message } };
         if (info != null)
             parameters.Add("Info", info);
         parameters.Add("ShowCancel", false);
+        if (!string.IsNullOrEmpty(copyText))
+            parameters.Add("CopyText", copyText);
 
         var options = new ModalOptions
         {

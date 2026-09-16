@@ -28,56 +28,81 @@ namespace Rms.Risk.Mango.Controllers
     [AllowAnonymous]
     [Route("api/[controller]")]
     [ApiController]
-    public class AfhController : ControllerBase
+    public class AfhController(ILogger<AfhController> logger) : ControllerBase
     {
         [AllowAnonymous]
         [HttpPost("from-json-to-script")]
+        [RequestSizeLimit(1_000_000)]
         [Produces("text/plain")]
         [ProducesErrorResponseType(typeof(JsonObject))]
         [ProducesResponseType(200)]
         [Consumes("application/json")]
-        public string FromJsonToScript([FromBody] JsonArray json)
+        public ActionResult<string> FromJsonToScript([FromBody] JsonArray json)
         {
-            var ast = LanguageParser.ParseAggregationJsonToAST("<collection name here>",json);
-            var text = ast.AsText();
-            return text;
+            try
+            {
+                var ast = LanguageParser.ParseAggregationJsonToAST("<collection name here>", json);
+                return ast.AsText();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "AFH JSON to script conversion failed.");
+                return BadRequest(new { error = "Invalid AFH JSON input." });
+            }
         }
 
         [AllowAnonymous]
         [HttpPost("from-script-to-json")]
+        [RequestSizeLimit(1_000_000)]
         [Consumes("text/plain")]
         [ProducesErrorResponseType(typeof(JsonObject))]
         [ProducesResponseType(200)]
-        public async Task<JsonArray> FromScriptToJson()
+        public async Task<ActionResult<JsonArray>> FromScriptToJson()
         {
             string script;
-            using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8))
-            {  
+            using (StreamReader reader = new(Request.Body, Encoding.UTF8))
+            {
                 script = await reader.ReadToEndAsync();
-            }            
+            }
 
-            var ast = LanguageParser.ParseScriptToAST(script);
-            var json = ast.AsJson();
-            return (JsonArray)json!;
+            try
+            {
+                var ast = LanguageParser.ParseScriptToAST(script);
+                var json = ast.AsJson();
+                return (JsonArray)json!;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "AFH script to JSON conversion failed.");
+                return BadRequest(new { error = "Invalid AFH script input." });
+            }
         }
 
         [AllowAnonymous]
         [HttpPost("format")]
+        [RequestSizeLimit(1_000_000)]
         [Consumes("text/plain")]
         [Produces("text/plain")]
         [ProducesErrorResponseType(typeof(JsonObject))]
         [ProducesResponseType(200)]
-        public async Task<string> Format()
+        public async Task<ActionResult<string>> Format()
         {
             string script;
-            using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8))
-            {  
+            using (StreamReader reader = new(Request.Body, Encoding.UTF8))
+            {
                 script = await reader.ReadToEndAsync();
-            }            
+            }
 
-            var ast = LanguageParser.ParseScriptToAST(script);
-            var text = ast.AsText();
-            return text;
+            try
+            {
+                var ast = LanguageParser.ParseScriptToAST(script);
+                return ast.AsText();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "AFH formatting failed.");
+                return BadRequest(new { error = "Invalid AFH script input." });
+            }
         }
     }
 }

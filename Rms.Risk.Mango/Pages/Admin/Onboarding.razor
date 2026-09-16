@@ -27,23 +27,29 @@
 
 <h3>Onboarding</h3>
 
-<AuthorizedOnly Policy="AdminAccess" Resource="@Settings.Value.Initial">
+<AuthorizedOnly Policy="AdminAccess" Resource="@Settings.Value.OnboardingDatabaseName">
 
     <div class="flex-stack-vertical">
-        <TableControl Items="@_configs" 
+        <TableControl Items="@_configsPivotData" 
                       Class="table table-hover table-striped table-forge table-forge-striped fit-content" 
                       Selectable="true" 
-                      RowClass="@(x => x.Name == _selectedRecord.Name ? "table-active" : "")"
+                      RowClass="@((data, row) => TableControl.Source<DisplayRecord>(data, row)!.Name == _selectedRecord.Name ? "table-active" : "")"
                       SelectionChanged="@OnSelectionChanged"
             >
-            <TableColumnControl Name="Name"             Field="Name" />
-            <TableColumnControl Name="Contacts"         Field="Contacts" />
-            <TableColumnControl Name="Database"         Field="MongoDbDatabase" />
-            <TableColumnControl Name="Url"              Field="MongoDbUrl" />
+            <TableColumnControl Name="Name"     Field="Name" />
+            <TableColumnControl Name="Contacts" Field="Contacts" />
+            <TableColumnControl Name="Database" Field="MongoDbDatabase" />
+            <TableColumnControl Name="Url"      Field="MongoDbUrl" />
+            <TableColumnControl Name="Comments" Field="Comments" />
         </TableControl>
 
         <div class="mt-4">
             <DatabaseOnboardingControl Name="@_selectedRecord.Name" Value="@_selectedRecord.Value" OnRefresh="@Refresh"/>
+        </div>
+        <div class="mt-4">
+            <div class="alert alert-info">
+                Use the <a href="/admin/manage/@_selectedRecord.Name" target="_blank">Manage MongoDB instance</a> page to create or manage databases for the selected configuration.
+            </div>
         </div>
     </div>
 
@@ -55,12 +61,14 @@
     {
         public string                         Name            { get; set; } = "";
         public string                         Contacts        => Value.Contacts;
+        public string                         Comments        => Value.Comments;
         public string                         MongoDbUrl      => Value.Config.MongoDbUrl;
         public string                         MongoDbDatabase => Value.Config.MongoDbDatabase;
         public DatabasesConfig.DatabaseConfig Value           { get; set; } = new();
     }
 
     private List<DisplayRecord> _configs       = [];
+    private IPivotedData        _configsPivotData = new List<DisplayRecord>().ToPivotData();
     private DisplayRecord       _selectedRecord = new();
 
     protected override Task OnAfterRenderAsync(bool firstRender)
@@ -71,9 +79,9 @@
         return Refresh();
     }
 
-    private void OnSelectionChanged((dynamic Row, string Col) data)
+    private void OnSelectionChanged((int Row, string Col) data)
     {
-        _selectedRecord = (DisplayRecord)data.Row;
+        _selectedRecord = _configs[data.Row];
         InvokeAsync(StateHasChanged);
     }
 
@@ -91,6 +99,7 @@
                            Value = x.Value.Clone()
                        })
            .ToList();
+        _configsPivotData = _configs.ToPivotData();
 
         _selectedRecord =  _configs.FirstOrDefault(x => x.Name == oldSelected)
                        ?? _configs.First();

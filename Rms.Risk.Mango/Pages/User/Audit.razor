@@ -5,7 +5,7 @@
 @using Rms.Risk.Mango.Services.Audit
 
 @inject NavigationManager     NavigationManager
-@inject IUserSession           UserSession
+@inject IUserSession          UserSession
 @inject IJSRuntime            JsRuntime
 
 @*
@@ -269,11 +269,11 @@
         JsRuntime.InvokeAsync<string>("DashboardUtils.ChangeUrl", url);
     }
 
-    private async Task<bool> OnCellClick(DynamicObject row, string columnName)
+    private async Task<bool> OnCellClick(IPivotedData data, int row, string columnName)
     {
         try
         {
-            var id = TableControl.GetDynamicMember(row, "_id");
+            var id = TableControl.GetValue(data, "_id", row);
             if (id == null)
                 return true;
 
@@ -288,7 +288,7 @@
             //     UserSession.Database, 
             //     [new ReadAccessRequirement()]);
 
-            _ = await Find.ShowBsonDialog(Modal, id.ToString()!, bson, false);
+	        _ = await Find.ShowBsonDialog(Modal, id.ToString()!, bson);
         }
         catch (Exception e)
         {

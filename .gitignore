@@ -371,3 +371,4 @@ Resources/Antlr4/
 # for OSS version of dbMango:
 Resources/
 nuget.config
+tools/

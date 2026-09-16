@@ -42,17 +42,23 @@
                         </a>
                         <div class="dropdown-menu" aria-labelledby="navbarDropdown1">
                             <NavLink class="dropdown-item" href="#">Change database</NavLink>
+                            <hr />
                             <NavLink class="dropdown-item" href="admin/shell">Shell</NavLink>
                             <NavLink class="dropdown-item" href="admin/list-commands">List commands</NavLink>
                             <NavLink class="dropdown-item" href="admin/commands">Commands</NavLink>
-                            <NavLink class="dropdown-item" href="admin/sync-structure">Sync structure</NavLink>
+                            <hr />
+                            <NavLink class="dropdown-item" href="admin/execute-patch">Execute patch</NavLink>
                             <NavLink class="dropdown-item" href="admin/migrate">Migrate data</NavLink>
                             <NavLink class="dropdown-item" href="admin/download">Download</NavLink>
                             <NavLink class="dropdown-item" href="admin/upload">Upload</NavLink>
+                            <hr />
+                            <NavLink class="dropdown-item" href="admin/manage">Database management</NavLink>
+                            <NavLink class="dropdown-item" href="admin/sync-structure">Sync structure</NavLink>
                             <NavLink class="dropdown-item" href="admin/db-stats">Storage size</NavLink>
                             <NavLink class="dropdown-item" href="admin/roles">Roles management</NavLink>
                             <NavLink class="dropdown-item" href="admin/users">Users management</NavLink>
                             <NavLink class="dropdown-item" href="admin/config">Configuration overrides</NavLink>
+                            <hr />
                             <NavLink class="dropdown-item" href="admin/onboarding">Onboarding</NavLink>
                             @foreach( var item in MenuService.Get("Admin"))
                             {
@@ -66,15 +72,19 @@
                         </a>
                         <div class="dropdown-menu" aria-labelledby="navbarDropdown2">
                             <NavLink class="dropdown-item" href="#">Change database</NavLink>
+                            <hr />
                             <NavLink class="dropdown-item" href="admin/commands">Commands</NavLink>
                             <NavLink class="dropdown-item" href="user/browse">Browse</NavLink>
                             <NavLink class="dropdown-item" href="user/find">Find</NavLink>
                             <NavLink class="dropdown-item" href="user/aggregate">Aggregate</NavLink>
                             <NavLink class="dropdown-item" href="user/afh">Aggregation for Humans</NavLink>
                             <NavLink class="dropdown-item" href="user/pivot">Pivot</NavLink>
+                            <hr />
                             <NavLink class="dropdown-item" href="user/insert">Insert</NavLink>
                             <NavLink class="dropdown-item" href="user/update">Update</NavLink>
                             <NavLink class="dropdown-item" href="user/delete">Delete</NavLink>
+                            <NavLink class="dropdown-item" href="user/prepare-patch">Prepare patch</NavLink>
+                            <hr />
                             <NavLink class="dropdown-item" href="user/logs">Logs</NavLink>
                             <NavLink class="dropdown-item" href="user/connected-users">Connected users</NavLink>
                             <NavLink class="dropdown-item" href="user/audit">Audit</NavLink>
@@ -109,6 +119,7 @@
                             <NavLink class="dropdown-item" href="doc/editor" target="_blank">Text editor keys</NavLink>
                             <NavLink class="dropdown-item" href="doc/afh" target="_blank">AFH Documentation</NavLink>
                             <NavLink class="dropdown-item" href="doc/all-icons" target="_blank">Icons (techy!)</NavLink>
+                            <NavLink class="dropdown-item" href="doc/users">Users</NavLink>
                             <NavLink class="dropdown-item" href="swagger/index.html" target="_blank">API (Swagger)</NavLink>
                             @foreach (var item in MenuService.Get("Help"))
                             {

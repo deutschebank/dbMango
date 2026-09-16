@@ -22,22 +22,24 @@ namespace Rms.Risk.Mango.Pivot.UI.Pivot;
 
 public class PivotFilteredView : IPivotedData
 {
-    private readonly List<PivotRow> _filteredRows;
+    private readonly IPivotedData      _source;
+    private readonly IReadOnlyList<int> _rows;
 
-    public PivotFilteredView(List<PivotRow> filteredRows)
+    public PivotFilteredView(IPivotedData source, IReadOnlyList<int> rows)
     {
-        if ((filteredRows?.Count ?? 0) == 0)
-            throw new ApplicationException($"{nameof(filteredRows)} must be a non empty List");
+        if ((rows?.Count ?? 0) == 0)
+            throw new ApplicationException($"{nameof(rows)} must be a non empty list");
 
-        _filteredRows = filteredRows!;
+        _source = source ?? throw new ArgumentNullException(nameof(source));
+        _rows   = rows!;
     }
 
     public string Id { get; set; } = "";
 
-    public IReadOnlyCollection<string> Headers                   => _filteredRows[0].PivotData.Headers;
-    public int                   Count                           => _filteredRows.Count;
-    public object?               Get(int           col, int row) => _filteredRows[row].PivotData.Get(col, _filteredRows[row].Row);
-    public Type                  GetColumnType(int col)          => _filteredRows[0].PivotData.GetColumnType(col);
+    public IReadOnlyCollection<string> Headers                   => _source.Headers;
+    public int                   Count                           => _rows.Count;
+    public object?               Get(int           col, int row) => _source.Get(col, _rows[row]);
+    public Type                  GetColumnType(int col)          => _source.GetColumnType(col);
 
     public IPivotedData Filter(Func<int, bool> filter) => throw new NotImplementedException();
 }

@@ -26,7 +26,7 @@ public class RstToMarkdownTableTests
     [SetUp]
     public void SetUp()
     {
-        _converter = new RstToMarkdownConverter();
+        _converter = new();
     }
 
     [Test]

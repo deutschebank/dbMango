@@ -54,7 +54,7 @@ public class UserTokens
 
             if ( idToken == null || IdToken == null || IdTokenExpiresAt < GetExpiry( idToken ) )
             {
-                IdToken = accessToken;
+                IdToken = idToken;
                 updated = true;
 
             }

@@ -15,3 +15,14 @@
 .min-content {
     width: min-content !important;
 }
+
+/* Global fallback for SchemaDocumentForm grid in case scoped CSS is not applied */
+.schema-form-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem 0.75rem !important;
+    grid-auto-flow: dense !important;
+}
+.schema-form-grid > * {
+    min-width: 0 !important;
+}

@@ -356,7 +356,8 @@ public class MigrationEngine(
 
                     await using var entryStream = fileEntry.Open();
                     await using var writer = new StreamWriter(entryStream);
-                    await writer.WriteAsync(doc.ToJson());
+
+                    await writer.WriteAsync(doc.ToJson(new() { Indent = job.PrettyPrint }));
 
                     copied += 1;
                     if ( copied % 500 == 0 )
@@ -426,33 +427,26 @@ public class MigrationEngine(
             ? "{ }"
             : collStatus.Filter.ToString()!;
 
-        var loadTask  = LoadIds(job, collStatus, filter, token);
+        var countTask = CountDocuments(job, collStatus, filter, token);
         var clearTask = ClearDestination(job, collStatus, filter, token);
 
-        await Task.WhenAll( loadTask, clearTask );
-        
+        await Task.WhenAll( countTask, clearTask );
+
         var indexes = await DisableIndexes(job, collStatus, token);
 
         try
         {
-            var ids = loadTask.Result;
-
             // parallel inserts
 
             collStatus.StartedAtUtc = DateTime.UtcNow; // reset start time for correct DPS
 
-            var options = new ParallelOptions
-            {
-                CancellationToken = token,
-                MaxDegreeOfParallelism = job.MaxDegreeOfParallelism
-            };
-
-            await Parallel.ForEachAsync(
-                ids.Chunk(job.BatchSize), 
-                options, 
-                async (x,t) => await ProcessBatch(x, job, collStatus, t)
-            );
-
+            // Stream the source _id values and dispatch them in batches with bounded
+            // parallelism. This keeps peak memory bounded to roughly
+            // MaxDegreeOfParallelism * BatchSize regardless of the collection size,
+            // instead of materializing every _id of the collection into a single
+            // (potentially huge, LOH-allocated) list. That prevents memory from
+            // accumulating across many large collections within the same job.
+            await CopyStreaming(job, collStatus, filter, token);
         }
         catch (Exception ex)
         {
@@ -541,24 +535,106 @@ public class MigrationEngine(
 
     private readonly Lock _lock = new();
 
-    private async Task<List<BsonValue>> LoadIds(
+    private async Task CountDocuments(
         MigrationJob               job,
-        MigrationJob.CollectionJob collStatus, 
+        MigrationJob.CollectionJob collStatus,
         string                     filter,
         CancellationToken          token
         )
     {
         var source = _factory.Create(job.SourceDatabase, collStatus.SourceCollection, job.SourceDatabaseInstance);
 
-        var sw = Stopwatch.StartNew();
-        var ids    = await ExtractIDs(source, filter, token);
-        sw.Stop();
-        _log.Debug($"Loading Count={ids.Count} IDs took Elapsed=\"{sw.Elapsed}\" DPS={1000.0 * ids.Count / sw.ElapsedMilliseconds:N0}");
+        var sw    = Stopwatch.StartNew();
+        try
+        {
+            var count = await source.CountAsync(filter, token);
+            sw.Stop();
+            _log.Debug($"Counting Count={count} documents took Elapsed=\"{sw.Elapsed}\"");
 
-        lock (_lock)
-            collStatus.Count = ids.Count;
-        
-        return ids;
+            lock (_lock)
+                collStatus.Count = count;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The count is only used for progress reporting. On very large collections the
+            // underlying aggregate/count command can fail transiently (e.g. "stream truncated").
+            // Do not let that abort the migration - the copy itself does not depend on it.
+            sw.Stop();
+            _log.Warn($"Counting documents for Collection=\"{collStatus.SourceCollection}\" failed after Elapsed=\"{sw.Elapsed}\"; continuing without an accurate total.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Streams the source collection _id values and copies the documents in batches
+    /// using bounded parallelism. Unlike loading every _id into a single list up front,
+    /// this keeps peak memory bounded (~ MaxDegreeOfParallelism * BatchSize) so a job
+    /// containing many large collections does not accumulate memory and crash.
+    /// </summary>
+    private async Task CopyStreaming(
+        MigrationJob               job,
+        MigrationJob.CollectionJob collStatus,
+        string                     filter,
+        CancellationToken          token
+        )
+    {
+        var source = _factory.Create(job.SourceDatabase, collStatus.SourceCollection, job.SourceDatabaseInstance);
+
+        var maxParallelism = Math.Max(1, job.MaxDegreeOfParallelism);
+
+        using var throttler = new SemaphoreSlim(maxParallelism);
+        var inFlight = new List<Task>();
+
+        async Task DispatchAsync(BsonValue[] ids)
+        {
+            await throttler.WaitAsync(token);
+            inFlight.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await ProcessBatch(ids, job, collStatus, token);
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            }, token));
+
+            // keep the in-flight list from growing unbounded for very large collections
+            inFlight.RemoveAll(t => t.IsCompleted);
+        }
+
+        const string projection = "{ _id : 1 }";
+
+        var batch = new List<BsonValue>(job.BatchSize);
+
+        // Use the retryable find (allowRetries: true) for the long-lived _id enumeration.
+        // This cursor stays open for the whole collection copy and idles while the loop
+        // blocks on the throttler between batch dispatches, so on loaded/sharded clusters
+        // it can be reaped ("Cursor ... not found on server"). The retryable variant
+        // transparently resumes via Skip + Sort { _id: 1 } instead of failing the job.
+        await foreach (var doc in source
+                          .FindAsync(filter, true, projection, limit: null, token)
+                      )
+        {
+            token.ThrowIfCancellationRequested();
+
+            batch.Add(doc["_id"]);
+
+            if (batch.Count >= job.BatchSize)
+            {
+                await DispatchAsync(batch.ToArray());
+                batch.Clear();
+            }
+        }
+
+        if (batch.Count > 0)
+            await DispatchAsync(batch.ToArray());
+
+        await Task.WhenAll(inFlight);
     }
 
     private async Task ClearDestination(
@@ -611,8 +687,10 @@ public class MigrationEngine(
 
         var readSw = Stopwatch.StartNew();
 
+        // Retryable read: recovers from transient cursor loss ("Cursor ... not found")
+        // on loaded clusters instead of aborting the whole migration.
         await foreach (var doc in source
-                          .FindAsync(filter, false, collStatus.Projection?.ToString(), limit: null, token)
+                          .FindAsync(filter, true, collStatus.Projection?.ToString(), limit: null, token)
                       )
         {
             token.ThrowIfCancellationRequested();
@@ -641,30 +719,6 @@ public class MigrationEngine(
         }
     }
 
-    private static async Task<List<BsonValue>> ExtractIDs(
-        IMongoDbService<BsonDocument> source, 
-        string                        filter,
-        CancellationToken             token
-        )
-    {
-        token.ThrowIfCancellationRequested();
-
-        var projection ="{ _id : 1 }";
-
-        var batch = new List<BsonValue>();
-
-        await foreach (var doc in source
-                          .FindAsync(filter, false, projection, limit: null, token)
-                      )
-        {
-            token.ThrowIfCancellationRequested();
-
-            var id = doc["_id"];
-            batch.Add(id);
-        }
-
-        return batch;
-    }
     private Dictionary<string, List<List<string>>> GroupAndChunkEntriesByFolder(
         IEnumerable<ZipArchiveEntry> entries, int batchSize, HashSet<string> needToUpload)
     {

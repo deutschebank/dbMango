@@ -19,6 +19,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 using log4net;
 using MongoDB.Bson;
@@ -51,7 +52,9 @@ public static class MongoDbHelper
     private static          bool   _initialised;
     private static readonly Lock _globalSyncObject = new ();
 
-    public static RemoteCertificateValidationCallback? RemoteCertificateCheck { get; set; }
+    public static RemoteCertificateValidationCallback? RemoteCertificateCheck    { get; set; }
+    public static X509Certificate2?                    ClientCertificate         { get; set; }
+    public static Func<IEnumerable<X509Certificate>>   GetClientCertificateChain { get; set; } = InternalGetClientCertificateChain;
 
     private static void Init()
     {
@@ -268,6 +271,12 @@ public static class MongoDbHelper
         if (RemoteCertificateCheck != null)
             settings.SslSettings.ServerCertificateValidationCallback = RemoteCertificateCheck;
 
+        if (config.SendClientCertificates && ClientCertificate != null)
+        {
+            settings.SslSettings ??= new SslSettings();
+            settings.SslSettings.ClientCertificates = GetClientCertificateChain();
+        }
+
         // This doc seems to suggest we can turn writeretries on (as we have mongos, with a sharded cluster) 
         // https://docs.mongodb.com/manual/core/retryable-writes/  But when we enable it we get an exception 
         //"One or more errors occurred. (A bulk write operation resulted in one or more errors. Transaction numbers are only allowed on a replica set member or mongos"
@@ -308,4 +317,38 @@ public static class MongoDbHelper
     }
 
     public static bool IsDuplicateKeyError( Exception ex ) => ex.Message.IndexOf("duplicate key error", StringComparison.Ordinal) > 0;
+
+    private static IEnumerable<X509Certificate> InternalGetClientCertificateChain()
+    {
+        if ( ClientCertificate == null )
+            yield break;
+
+        var chain = new X509Chain
+        {
+            ChainPolicy =
+            {
+                RevocationMode = X509RevocationMode.NoCheck
+            }
+        };
+
+        try
+        {
+            chain.Build(ClientCertificate);
+
+            foreach ( var element in chain.ChainElements )
+            {
+                if ( IsSelfSigned(element.Certificate) )
+                    continue;
+
+                yield return element.Certificate;
+            }
+        }
+        finally
+        {
+            chain.Dispose();
+        }
+    }
+
+    private static bool IsSelfSigned(X509Certificate2 certificate) =>
+        string.Equals(certificate.Subject, certificate.Issuer, StringComparison.OrdinalIgnoreCase);
 }

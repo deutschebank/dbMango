@@ -1,0 +1,261 @@
+﻿@using Rms.Risk.Mango.Pivot.Core.MongoDb
+
+@implements IDisposable
+
+@inject IUserSession                 UserSession
+@inject ILogger<CollectionsList>     Logger
+@inject IMongoCollectionStatsService CollectionStatsService
+
+@*
+ *                                dbMango
+ *
+ * Copyright 2025 Deutsche Bank AG
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *@
+
+<style>
+    .meta {
+        color: grey;
+    }
+
+    .audit {
+        color: orangered;
+    }
+
+    .size {
+        color: grey;
+        font-size: 0.9em;
+    }
+
+    .sharded {
+        color: olivedrab;
+        font-size: 0.9em;
+    }
+</style>
+
+<div class="@(ShowSearch ? "" : Class)">
+    @if (ShowSearch)
+    {
+        <div class="mr-2">
+            <FormItemSearch @bind-Value="_filter.SearchString" Enabled="@_isReady" />
+        </div>
+    }
+
+    <FormItemList Enabled="@_isReady" Class="@Class" Name="@(ShowSearch ? "" : "Collection")" @bind-Value="Value" Values="@(_filter.Filter(_collections).ToList())" IsSelectable="IsSelectable">
+        <OptionTemplate>
+            <div class="d-flex">
+                @if(Multiselect)
+                {
+                    <label class="toggle-switch toggle-switch-xs input-group-text" style="display: inline-block">
+                        <input type="checkbox" checked="@(_selection.GetValueOrDefault(context))" onclick="@(() => SelectCollection(context))" />
+                        <span class="slider" data-label-on="" data-label-off=""></span>
+                    </label>
+                }
+                <div class="flex-grow-1 m-1 @GetCollectionClass(context)">@context</div>
+                @if (_stats.TryGetValue(context, out var stat))
+                {
+                    if (stat.Sharded)
+                    {
+                        <div class="m-1 sharded">Sharded</div>
+                    }
+                    <div class="m-1 size">@NumbersUtils.ToHumanReadable(stat.Size)</div>
+                }
+            </div>
+        </OptionTemplate>
+    </FormItemList>
+</div>
+
+@code {
+    [Parameter] public string Class       { get; set; } = "";
+    [Parameter] public bool   Multiselect { get; set; }
+    [Parameter] public bool   ShowSearch  { get; set; } = true;
+
+    [Parameter] public string Value
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            field = value;
+            ValueChanged.InvokeAsync(field);
+        }
+    } = "";
+
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    [Parameter] public List<string>? Collections { get; set; }
+
+    [Parameter] public List<string> Selection
+    {
+        get => _selection.Where(x => x.Value).Select(x => x.Key).OrderBy(x => x).ToList();
+        set
+        {
+            if (Selection.OrderBy(x => x).SequenceEqual(value.OrderBy(x => x)))
+                return;
+
+            _selection.Clear();
+            foreach (var coll in value.Where(x => IsSelectable(x) && (_collections.Count == 0 || _collections.Contains(x))))
+            {
+                _selection[coll] = true;
+            }
+
+            SelectionChanged.InvokeAsync(Selection);
+        }
+    }
+
+    [Parameter] public EventCallback<List<string>> SelectionChanged { get; set; }
+
+    private          bool                                          _isReady;
+    private readonly ConcurrentDictionary<string, CollectionStats> _stats              = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string>                                  _collections        = [];
+    private readonly Dictionary<string, bool>                      _selection          = [];
+    private readonly CancellationTokenSource                       _globalCancellation = new();
+    private readonly StringFilter                                  _filter             = new();
+
+    private string _loadedKey = "";
+
+
+    public void Dispose()
+    {
+        _globalCancellation.Cancel();
+        _globalCancellation.Dispose();
+    }
+
+    public void SelectAll()   => Selection = _collections.Where(IsSelectable).ToList();
+    public void SelectNone()  => Selection = [];
+    public void SelectMeta()  => Selection = _collections.Where(x => IsSelectable(x) && x.EndsWith("-Meta",StringComparison.OrdinalIgnoreCase)).ToList();
+    public void SelectCache() => Selection = _collections.Where(x => IsSelectable(x) && x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override void OnParametersSet()
+    {
+        // Load (or reload) collections whenever the target database/instance becomes available or
+        // changes. The parent page (Browse) sets UserSession.Database/DatabaseInstance from the route
+        // parameters in its own OnAfterRenderAsync, which runs AFTER this component's first render.
+        // Reacting to parameter changes here avoids the race where we would otherwise query with a
+        // stale/empty session, hang on the timeout, and leave the list disabled until a page refresh.
+        TryLoadCollections();
+    }
+
+    private void TryLoadCollections()
+    {
+        // When an explicit list of collections is provided we don't depend on the session.
+        var key = Collections != null
+            ? "explicit"
+            : $"{UserSession.Database}|{UserSession.DatabaseInstance}";
+
+        // Don't attempt to load until we have a valid target to query.
+        if (Collections == null &&
+            (string.IsNullOrWhiteSpace(UserSession.Database) || string.IsNullOrWhiteSpace(UserSession.DatabaseInstance)))
+            return;
+
+        if (key == _loadedKey)
+            return;
+
+        _loadedKey = key;
+        _         = LoadCollectionsAsync();
+    }
+
+    private async Task LoadCollectionsAsync()
+    {
+        try
+        {
+            var admin = UserSession.MongoDbAdmin;
+
+            var cts2 = CancellationTokenSource.CreateLinkedTokenSource(_globalCancellation.Token, new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
+            var collections = Collections ?? (await admin.ListCollections(cts2.Token));
+            var grouped = collections
+               .GroupBy(x =>
+                            x.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase)
+                                ? " Meta"
+                                : x.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
+                                    ? " Cache"
+                                    : " Data"
+                );
+
+            // make a copy of pre-selected collections
+            var selection = new Dictionary<string, bool>(_selection); 
+
+            _collections.Clear();
+            _selection.Clear();
+            _stats.Clear();
+            foreach( var group in grouped)
+            {
+                _collections.Add(group.Key);
+                foreach (var coll in group.OrderBy(x => x).Select(x => x))
+                {
+                    _collections.Add(coll);
+                    _selection[coll] = selection.GetValueOrDefault(coll);
+                }
+
+            }
+
+            if (!_collections.Contains(Value))
+                Value = _collections.FirstOrDefault( x => !x.StartsWith(" ")) ?? "";
+
+            _isReady = true;
+            await InvokeAsync(StateHasChanged);
+
+            _ = Task.Run(LoadCollStats, _globalCancellation.Token);
+        }
+        catch (Exception e)
+        {
+            // Allow a subsequent parameter change to retry the load rather than staying stuck.
+            _loadedKey = "";
+            Logger.LogError(e, "Failed to load collections");
+        }
+    }
+
+    private static string GetCollectionClass(string collectionName) =>
+        collectionName.EndsWith("-Meta", StringComparison.OrdinalIgnoreCase) || collectionName.EndsWith("-Cache", StringComparison.OrdinalIgnoreCase)
+            ? "meta"
+            : collectionName.StartsWith("dbMango-", StringComparison.OrdinalIgnoreCase)
+                ? "audit"
+                : "";
+
+    private static bool IsSelectable(string arg) => !arg.StartsWith(" ");
+
+    private async Task LoadCollStats()
+    {
+        var stats = await CollectionStatsService.LoadCollStats(
+            UserSession, 
+            (state,_) =>
+            {
+                // per-collection update. for some reason the UI does not always reflect the changes until the final update at the end of LoadCollStats
+                _stats[state.Name] = state;
+                return InvokeAsync(StateHasChanged);
+            }, 
+            _globalCancellation.Token
+        );
+
+        // if served from cache there will be no per-collection updates, so update all at once
+        _stats.Clear();
+        foreach (var stat in stats)
+        {
+            _stats[stat.Key] = stat.Value;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task SelectCollection(string collection)
+    {
+        var sel = _selection.GetValueOrDefault(collection);
+        _selection[collection] = !sel;
+        SelectionChanged.InvokeAsync(Selection);
+        return Task.CompletedTask;
+    }
+
+}
